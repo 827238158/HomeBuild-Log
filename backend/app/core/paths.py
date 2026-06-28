@@ -11,6 +11,7 @@ class StoragePaths:
     """集中定义项目内的运行数据位置，避免数据散落到系统盘。"""
 
     root: Path
+    config: Path
     database_directory: Path
     database_file: Path
     attachment_originals: Path
@@ -22,6 +23,7 @@ class StoragePaths:
     @property
     def directories(self) -> tuple[Path, ...]:
         return (
+            self.config,
             self.database_directory,
             self.attachment_originals,
             self.attachment_derived,
@@ -36,6 +38,7 @@ def build_storage_paths(root: Path) -> StoragePaths:
     database_directory = resolved_root / "db"
     return StoragePaths(
         root=resolved_root,
+        config=resolved_root / "config",
         database_directory=database_directory,
         database_file=database_directory / "homebuild-log.sqlite3",
         attachment_originals=resolved_root / "attachments" / "originals",

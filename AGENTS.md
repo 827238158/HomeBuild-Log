@@ -12,7 +12,8 @@
 ## 项目定位与当前阶段
 - 本项目是装修事件与知识管理系统，项目代号暂用 `HomeBuild Log`。
 - 系统以用户对装修事实的自然描述为入口，将文本、图片和票据整理为可追溯的结构化记录。
-- 当前阶段仅维护项目规划文档、任务体系、检查清单和 Agent 规范，不编写业务代码、不安装依赖、不创建数据库。
+- 阶段 1（本地数据底座）已完成：React/FastAPI/SQLite 骨架 + 单用户认证 + 来源录入 + 文件上传 + 审计日志。
+- 当前处于阶段 1 与阶段 2 之间，等待用户授权进入「八类业务记录与核心视图」开发。
 - 已确认技术规划基线为 React、TypeScript、Vite PWA、FastAPI、SQLite与本地附件目录；具体版本和配置必须在开发任务中通过Context7核对。
 - 产品范围以 `docs/00-project-spec.md` 为准；概念模块与数据流以 `docs/01-architecture.md` 为准。
 
@@ -53,6 +54,12 @@ Need:
 - 每次任务完成后必须执行 `checklists/implementation-review.md`。
 - 如发现文档过期，必须按需更新对应文档。
 - 如涉及规则、架构、API、流程变化，必须检查 `checklists/docs-update.md`。
+- 执行检查清单时逐条对照、逐条确认，不得因为一条通过就跳过后面条目。**未逐条阅读视为未执行**。
+- Agent 标识必须单一、可区分。任务文件的"当前执行Agent"只写当前模型名称，不得拼接前一个 Agent 名称、模型 ID 或工具品牌名。
+- 任务完成后必须至少审查以下文件的过期风险：
+  - `tasks/README.md`（候选任务池是否仍包含已完成条目）
+  - `docs/08-roadmap-agent-collaboration.md`（阶段进展行 + 后续任务池）
+  - `docs/05-decisions.md`（本次任务的技术取舍是否需新增决策记录）
 
 ## Python 与本地环境
 - 默认操作系统为 Windows 11，默认 Python 为 Conda `base` 环境的 `D:\Anaconda\python.exe`。

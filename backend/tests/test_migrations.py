@@ -6,6 +6,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
 
+import app.models  # noqa: F401 — 确保迁移可发现所有模型
 from app.db import database_url
 
 
@@ -29,4 +30,4 @@ def test_migrations_upgrade_temporary_database_to_head(
     finally:
         engine.dispose()
 
-    assert revision == "0001_local_foundation"
+    assert revision == "0003_add_audit"
