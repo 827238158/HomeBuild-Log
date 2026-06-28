@@ -2,6 +2,8 @@
 
 > 本文是未来开发合同，不代表接口已经实现。任何实现任务必须先核对当前框架文档和本文版本。
 
+当前已实现`GET /api/v1/health`；其余资源接口仍是未来开发合同。
+
 ## 通用约定
 
 - API前缀：`/api/v1`。
@@ -54,6 +56,12 @@
 八类记录的专属字段以`docs/06-domain-model.md`为准。
 
 ## 计划资源接口
+
+### 系统健康
+
+- `GET /health`：实际完整路径为`/api/v1/health`。
+- 正常返回`status: ok`以及`database.status: ok`、`storage.status: ok`。
+- 数据库或存储异常返回HTTP 503、错误码`LOCAL_SERVICE_UNAVAILABLE`和统一错误结构，不暴露本机路径。
 
 ### 来源与附件
 

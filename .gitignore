@@ -1,0 +1,24 @@
+# 项目本地运行数据与模型不得进入版本库
+.local-data/
+
+# 前端依赖、构建和工具缓存
+frontend/node_modules/
+frontend/dist/
+.npm-cache/
+
+# Python 缓存、测试和构建产物
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+backend/tests/.tmp/
+*.egg-info/
+backend/build/
+backend/dist/
+
+# 本地编辑器与环境文件
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/

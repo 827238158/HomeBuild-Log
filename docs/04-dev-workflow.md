@@ -63,9 +63,15 @@
 
 ## 测试、构建与运行命令
 
-- 当前没有业务代码、依赖清单或可执行命令。
-- 创建首个应用骨架时必须在此记录准确的安装、测试、构建、迁移、启动和访问命令。
-- 不得根据常见框架经验提前编造命令或端口。
+- Python环境：`conda create -n homebuild-log python=3.13 pip -y`，之后必须激活该环境或显式使用对应解释器。
+- 后端安装：在`backend/`执行`python -m pip install -r requirements.lock`和`python -m pip install -e . --no-deps`。
+- 后端迁移：`python -m alembic -c alembic.ini upgrade head`。
+- 后端启动：`fastapi dev app/main.py --host 127.0.0.1 --port 8000`。
+- 后端检查：`python -m ruff check . --no-cache`和`python -m pytest`。
+- 前端安装：在`frontend/`执行`npm ci`。
+- 前端启动：`npm run dev`，固定访问`http://127.0.0.1:5173`。
+- 前端检查：`npm run lint`、`npm run test`、`npm run build`和`npm audit`。
+- 新增或调整命令时必须先真实执行，再同步README和本节。
 
 ## 提交与发布
 

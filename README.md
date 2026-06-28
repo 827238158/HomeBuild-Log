@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目已完成治理初始化、第一批真实样本分析和产品/技术规划。当前仓库只有Markdown文档，没有业务代码、依赖或数据库；后续开发必须按路线图单独授权。
+项目已完成治理初始化、第一批真实样本分析、产品/技术规划和首个本地运行骨架。当前已有React状态页、FastAPI健康接口、SQLite迁移基线和自动化测试，但尚未实现八类业务记录、附件上传、AI或OCR。
 
 规划基线：个人私用的响应式Web/PWA，Windows本地自托管，React/TypeScript/Vite PWA前端、FastAPI后端、SQLite与本地附件目录、可插拔AI，以及跨模型Agent单写者串行协作。
 
@@ -33,3 +33,47 @@
 4. 只读取当前步骤需要的资料，完成后执行 `checklists/implementation-review.md`并释放活动锁。
 
 当前候选方向只是待梳理事项，不代表已批准实施；请先在 `tasks/README.md` 中确认或调整优先级。
+
+## 本地开发基线
+
+### 后端
+
+```powershell
+conda create -n homebuild-log python=3.13 pip -y
+conda activate homebuild-log
+Set-Location backend
+python -m pip install -r requirements.lock
+python -m pip install -e . --no-deps
+python -m alembic -c alembic.ini upgrade head
+fastapi dev app/main.py --host 127.0.0.1 --port 8000
+```
+
+后端健康接口：`http://127.0.0.1:8000/api/v1/health`；OpenAPI文档：`http://127.0.0.1:8000/docs`。
+
+### 前端
+
+另开一个PowerShell窗口：
+
+```powershell
+Set-Location frontend
+npm ci
+npm run dev
+```
+
+浏览器访问`http://127.0.0.1:5173`。Vite会把`/api`请求代理到本地后端。
+
+### 检查
+
+```powershell
+Set-Location backend
+python -m ruff check . --no-cache
+python -m pytest
+
+Set-Location ..\frontend
+npm run lint
+npm run test
+npm run build
+npm audit
+```
+
+运行数据统一位于项目根目录的`.local-data/`，不会进入Git。
