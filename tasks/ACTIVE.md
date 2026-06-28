@@ -2,8 +2,8 @@
 
 - 任务：无
 - 当前执行 Agent：无
-- 状态：无活动写入任务
+- 状态：空闲
 - 写入模式：单写者串行
-- 允许修改：无
-- 上次完成任务：文档修复（Agent 命名统一 + 过期内容清理 + 决策补充 + Review 规范加固）
+- 允许修改：`backend/`、`frontend/`、`README.md`、`docs/`、`tasks/`、`.gitignore`
+- 上次完成任务：[本地建议卡片与原子确认](20260628-guided-local-suggestions.md)
 - 释放时间：2026-06-28

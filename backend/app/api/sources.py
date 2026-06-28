@@ -4,15 +4,18 @@ import hashlib
 import mimetypes
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.audit import log_audit
 from app.auth import CurrentUser, require_user
 from app.core.paths import StoragePaths
 from app.db import create_session_factory
+from app.domain_models import DEFAULT_PROJECT_ID, Project
 from app.models import Attachment as AttachmentModel
 from app.models import SourceEntry as SourceEntryModel
 
@@ -24,6 +27,7 @@ router = APIRouter(tags=["sources"])
 
 class SourceResponse(BaseModel):
     id: str
+    project_id: str
     input_type: str
     original_text: str | None
     captured_at: datetime
@@ -44,6 +48,12 @@ class AttachmentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SourceCreate(BaseModel):
+    input_type: str = "text"
+    original_text: str | None = None
+    reported_time_text: str | None = None
+
+
 def _get_db(request: Request) -> Session:
     engine = request.app.state.engine
     factory = create_session_factory(engine)
@@ -53,25 +63,56 @@ def _get_db(request: Request) -> Session:
 @router.post("/sources", response_model=SourceResponse, status_code=201)
 def create_source(
     request: Request,
-    body: dict[str, str | None] = {},
-    user: CurrentUser = Depends(require_user),
+    body: SourceCreate,
+    user: Annotated[CurrentUser, Depends(require_user)],
 ) -> SourceResponse:
     db = _get_db(request)
     try:
+        if db.get(Project, DEFAULT_PROJECT_ID) is None:
+            db.add(Project(id=DEFAULT_PROJECT_ID, name="我的装修", is_active=True))
+            db.flush()
         entry = SourceEntryModel(
-            input_type=body.get("input_type", "text"),
-            original_text=body.get("original_text"),
-            reported_time_text=body.get("reported_time_text"),
+            project_id=DEFAULT_PROJECT_ID,
+            input_type=body.input_type,
+            original_text=body.original_text,
+            reported_time_text=body.reported_time_text,
         )
         db.add(entry)
         db.commit()
         db.refresh(entry)
-        log_audit(db, "create", "source_entries", entry.id, after={
-            "original_text": entry.original_text,
-            "input_type": entry.input_type,
-        })
+        log_audit(
+            db,
+            "create",
+            "source_entries",
+            entry.id,
+            after={
+                "original_text": entry.original_text,
+                "input_type": entry.input_type,
+            },
+        )
         db.commit()
         return SourceResponse.model_validate(entry)
+    finally:
+        db.close()
+
+
+@router.get("/sources", response_model=list[SourceResponse])
+def list_sources(
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_user)],
+    limit: int = 100,
+    offset: int = 0,
+) -> list[SourceResponse]:
+    db = _get_db(request)
+    try:
+        rows = db.execute(
+            select(SourceEntryModel)
+            .where(SourceEntryModel.project_id == DEFAULT_PROJECT_ID)
+            .order_by(SourceEntryModel.captured_at.desc())
+            .limit(min(max(limit, 1), 500))
+            .offset(max(offset, 0))
+        ).scalars()
+        return [SourceResponse.model_validate(row) for row in rows]
     finally:
         db.close()
 
@@ -80,7 +121,7 @@ def create_source(
 def read_source(
     source_id: str,
     request: Request,
-    user: CurrentUser = Depends(require_user),
+    user: Annotated[CurrentUser, Depends(require_user)],
 ) -> SourceResponse:
     db = _get_db(request)
     try:
@@ -96,8 +137,8 @@ def read_source(
 async def upload_attachment(
     request: Request,
     file: UploadFile,
+    user: Annotated[CurrentUser, Depends(require_user)],
     source_id: str | None = None,
-    user: CurrentUser = Depends(require_user),
 ) -> AttachmentResponse:
     if file.content_type not in _ALLOWED_TYPES:
         raise HTTPException(
@@ -114,7 +155,9 @@ async def upload_attachment(
 
     sha256_hex = hashlib.sha256(content).hexdigest()
     filename = file.filename or "untitled"
-    media_type = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    media_type = (
+        file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    )
 
     paths: StoragePaths = request.app.state.storage_paths
     ext = Path(filename).suffix or ".bin"
@@ -138,11 +181,17 @@ async def upload_attachment(
         db.add(attachment)
         db.commit()
         db.refresh(attachment)
-        log_audit(db, "create", "attachments", attachment.id, after={
-            "original_filename": attachment.original_filename,
-            "media_type": attachment.media_type,
-            "size_bytes": attachment.size_bytes,
-        })
+        log_audit(
+            db,
+            "create",
+            "attachments",
+            attachment.id,
+            after={
+                "original_filename": attachment.original_filename,
+                "media_type": attachment.media_type,
+                "size_bytes": attachment.size_bytes,
+            },
+        )
         db.commit()
         return AttachmentResponse.model_validate(attachment)
     finally:

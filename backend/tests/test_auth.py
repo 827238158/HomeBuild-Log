@@ -192,11 +192,11 @@ class TestAuthMiddleware:
         token = login_resp.json()["access_token"]
 
         response = client.get(
-            "/api/v1/sources",
+            "/api/v1/does-not-exist",
             headers={"Authorization": f"Bearer {token}"},
         )
-        # GET /sources 仅有 POST，应返回 405
-        assert response.status_code == 405
+        # 合法 token 已通过中间件，随后由路由层返回 404。
+        assert response.status_code == 404
 
     def test_protected_route_invalid_token(self):
         client, _ = _create_client()

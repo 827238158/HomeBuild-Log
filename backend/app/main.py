@@ -9,6 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
+from app.api.domain import router as domain_router
 from app.api.health import router as health_router
 from app.api.sources import router as sources_router
 from app.core.config import SecretsConfig
@@ -91,6 +92,7 @@ def create_app(
     application.include_router(auth_router, prefix="/api/v1")
     application.include_router(sources_router, prefix="/api/v1")
     application.include_router(audit_router, prefix="/api/v1")
+    application.include_router(domain_router, prefix="/api/v1")
     return application
 
 

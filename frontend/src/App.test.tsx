@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('./DomainWorkspace', () => ({ DomainWorkspace: () => null }))
+
 import { App } from './App'
 
 
@@ -141,5 +143,119 @@ describe('App', () => {
 
     // 应显示健康状态
     expect(await screen.findByText('本地服务运行正常')).toBeTruthy()
+  })
+
+  it('保存文字来源后上传所选附件', async () => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/health')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            status: 'ok',
+            database: { status: 'ok' },
+            storage: { status: 'ok' },
+          }),
+        })
+      }
+      if (url.endsWith('/sources')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'source-1',
+            input_type: 'text',
+            original_text: '现场记录',
+            captured_at: '2026-06-28T10:00:00+08:00',
+            reported_time_text: null,
+          }),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          id: 'attachment-1',
+          source_id: 'source-1',
+          original_filename: 'photo.png',
+          media_type: 'image/png',
+          size_bytes: 3,
+          sha256_hex: 'abc',
+          created_at: '2026-06-28T10:00:00+08:00',
+        }),
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await screen.findByText('本地服务运行正常')
+    fireEvent.change(screen.getByPlaceholderText('记录今天发生的事情…'), {
+      target: { value: '现场记录' },
+    })
+    fireEvent.change(screen.getByLabelText(/附件/), {
+      target: { files: [new File(['png'], 'photo.png', { type: 'image/png' })] },
+    })
+    fireEvent.click(screen.getByText('保存记录'))
+
+    expect(await screen.findByText('已保存')).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/attachments?source_id=source-1',
+      expect.objectContaining({ method: 'POST', body: expect.any(FormData) }),
+    )
+  })
+
+  it('附件失败时保留来源并允许只重试附件', async () => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    let attachmentAttempts = 0
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/health')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            status: 'ok',
+            database: { status: 'ok' },
+            storage: { status: 'ok' },
+          }),
+        })
+      }
+      if (url.endsWith('/sources')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'source-2',
+            input_type: 'text',
+            original_text: '带附件记录',
+            captured_at: '2026-06-28T10:00:00+08:00',
+            reported_time_text: null,
+          }),
+        })
+      }
+      attachmentAttempts += 1
+      if (attachmentAttempts === 1) {
+        return Promise.resolve({
+          ok: false,
+          json: async () => ({ detail: '附件暂时不可用' }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ id: 'attachment-2' }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await screen.findByText('本地服务运行正常')
+    fireEvent.change(screen.getByPlaceholderText('记录今天发生的事情…'), {
+      target: { value: '带附件记录' },
+    })
+    fireEvent.change(screen.getByLabelText(/附件/), {
+      target: { files: [new File(['pdf'], 'receipt.pdf', { type: 'application/pdf' })] },
+    })
+    fireEvent.click(screen.getByText('保存记录'))
+
+    const retry = await screen.findByText('来源已保存，重试附件')
+    expect(screen.getByText('带附件记录')).toBeTruthy()
+    fireEvent.click(retry)
+    expect(await screen.findByText('已保存')).toBeTruthy()
+    expect(attachmentAttempts).toBe(2)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/sources'))).toHaveLength(1)
   })
 })

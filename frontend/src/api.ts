@@ -13,10 +13,21 @@ export interface LoginResponse {
 
 export interface SourceResponse {
   id: string
+  project_id: string
   input_type: string
   original_text: string | null
   captured_at: string
   reported_time_text: string | null
+}
+
+export interface AttachmentResponse {
+  id: string
+  source_id: string | null
+  original_filename: string
+  media_type: string
+  size_bytes: number
+  sha256_hex: string
+  created_at: string
 }
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
@@ -68,4 +79,25 @@ export async function createSource(
     throw new Error('保存失败')
   }
   return (await response.json()) as SourceResponse
+}
+
+export async function uploadAttachment(
+  sourceId: string,
+  file: File,
+): Promise<AttachmentResponse> {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await fetch(
+    `/api/v1/attachments?source_id=${encodeURIComponent(sourceId)}`,
+    {
+      method: 'POST',
+      headers: authHeaders(),
+      body: form,
+    },
+  )
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}))
+    throw new Error(error.detail || '附件上传失败')
+  }
+  return (await response.json()) as AttachmentResponse
 }

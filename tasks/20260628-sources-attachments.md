@@ -28,7 +28,8 @@
 - [x] 后端：Alembic 迁移。
 - [x] 后端：API 端点与文件上传。
 - [x] 后端：测试。
-- [x] 前端：来源录入表单与附件上传。
+- [x] 前端：来源文字录入表单。
+- [x] 前端：单附件上传入口与失败重试（由`20260628-phase1-closeout.md`补齐）。
 - [x] 前后端联调与测试。
 
 ## 执行记录
@@ -41,9 +42,10 @@
 - 2026-06-28：更新 `frontend/src/App.tsx`（登录后展示文本录入表单 + 已保存列表）。
 - 2026-06-28：更新 `frontend/src/styles.css`（表单和列表样式）。
 - 2026-06-28：后端 25 项测试通过、Ruff 通过；前端 6 项测试、lint、build 通过。
+- 2026-06-28 勘误：原任务结束时前端只实现文字录入，附件上传仅有后端接口；前端入口在阶段 1 收口任务补齐。
 
 ## 跨模型交接
-- 已完成内容：SourceEntry/Attachment 全栈实现（后端 9 项测试 + 前端录入表单）。
+- 已完成内容：SourceEntry/Attachment 后端持久化与上传接口、前端文字录入；前端附件入口由阶段 1 收口任务补齐。
 - 修改文件：新增 `app/models.py`、`app/api/sources.py`、`migrations/versions/0002_*.py`、`tests/test_sources.py`；修改 `app/main.py`、`app/db.py`、`migrations/env.py`、`tests/test_migrations.py`、`tests/test_auth.py`、`frontend/src/api.ts`、`frontend/src/App.tsx`、`frontend/src/styles.css`；新增 `docs/progress-summary.md`。
 - 已执行检查及结果：pytest 25/25 通过；Vitest 6/6 通过；tsc 通过；Vite build 通过；Ruff 通过。
 - 未完成内容与下一步：子任务 C 审计记录。

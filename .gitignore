@@ -12,6 +12,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 backend/tests/.tmp/
+backend/tests/.runtime/
 *.egg-info/
 backend/build/
 backend/dist/

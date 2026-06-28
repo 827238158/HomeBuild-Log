@@ -133,7 +133,9 @@ class TestAuditLogging:
         paths2 = build_storage_paths(tmp_root)
         paths2.config.mkdir(parents=True, exist_ok=True)
         (paths2.config / "secrets.json").write_text(
-            json.dumps({"admin_password_hash": _hash_password("pw"), "jwt_secret": bytes(50).hex()}),
+            json.dumps(
+                {"admin_password_hash": _hash_password("pw"), "jwt_secret": bytes(50).hex()}
+            ),
             encoding="utf-8",
         )
         secrets2 = SecretsConfig(paths2.config)

@@ -4,6 +4,7 @@
 - 状态：已完成
 - 创建日期：2026-06-28
 - 负责人：Codex
+- 当前执行Agent：Codex
 - 关联任务/决策：`docs/05-decisions.md`
 
 ## 目标

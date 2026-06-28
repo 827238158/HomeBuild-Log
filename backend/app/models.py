@@ -25,6 +25,9 @@ class SourceEntry(Base):
     __tablename__ = "source_entries"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_id)
+    project_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("projects.id"), nullable=False
+    )
     input_type: Mapped[str] = mapped_column(String(16), nullable=False, default="text")
     original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     captured_at: Mapped[datetime] = mapped_column(

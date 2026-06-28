@@ -2,7 +2,7 @@
 # 代码与文档风格
 
 ## 当前适用范围
-- 当前已有React、TypeScript、Vite、FastAPI、SQLAlchemy与Alembic工程骨架，但尚未实现业务记录。
+- 当前已有React、TypeScript、Vite、FastAPI、SQLAlchemy与Alembic工程，并已实现阶段 2A 八类业务记录与共享实体。
 - 前端代码位于`frontend/`，后端代码位于`backend/`，运行数据位于`.local-data/`。
 - 继续保持产品术语、领域语义、任务记录和决策文档一致。
 

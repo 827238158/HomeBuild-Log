@@ -12,7 +12,7 @@
 1. 读取`AGENTS.md`并输出当前步骤的`Need:`。
 2. 读取`tasks/ACTIVE.md`，确认写入权未被占用或任务已明确交接给自己。
 3. 从`tasks/TASK-TEMPLATE.md`创建任务，明确目标、非目标、验收、风险和允许修改的文件。
-4. 在`tasks/README.md`登记状态，并在`tasks/ACTIVE.md`认领唯一写入权。
+4. 在`tasks/README.md`登记状态、在`tasks/AGENT-ACTIVITY-LOG.md`添加活动记录，并在`tasks/ACTIVE.md`认领唯一写入权。
 5. 只读取`Need:`中的资料；信息不足时再进行下一轮按需检索。
 
 ## 执行与验证
@@ -32,6 +32,8 @@
 - 实际执行的检查、命令与结果。
 - 未完成步骤和可直接执行的下一步。
 - 已知风险、不确定项和用户待确认事项。
+- 当前工作区是否存在未验收改动。
+- 是否已在`tasks/AGENT-ACTIVITY-LOG.md`追加记录。
 - 是否已释放`tasks/ACTIVE.md`。
 
 新Agent只能依靠项目任务文件和明确的`Need:`恢复上下文，不把上一模型的聊天记录视为项目事实。接手后先核对工作区和活动任务，再继续修改。

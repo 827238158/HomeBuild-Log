@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
@@ -36,10 +37,10 @@ def _get_db(request: Request) -> Session:
 @router.get("/audit", response_model=list[AuditEntryResponse])
 def list_audit_entries(
     request: Request,
+    user: Annotated[CurrentUser, Depends(require_user)],
     target_table: str | None = Query(default=None),
     action: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
-    user: CurrentUser = Depends(require_user),
 ) -> list[AuditEntryResponse]:
     db = _get_db(request)
     try:

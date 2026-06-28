@@ -52,6 +52,7 @@
 ## Review
 - [ ] 已执行 `checklists/implementation-review.md`。
 - [ ] 已执行 `checklists/docs-update.md` 的更新判断。
+- [ ] 已在 `tasks/AGENT-ACTIVITY-LOG.md` 追加本任务记录。
 - 文档/清单更新：无 / 已更新（列出文件）。
 
 ## 完成证据与遗留项

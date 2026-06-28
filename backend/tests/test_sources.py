@@ -90,7 +90,9 @@ class TestSourcesAPI:
         paths.config.mkdir(parents=True, exist_ok=True)
 
         (paths.config / "secrets.json").write_text(
-            json.dumps({"admin_password_hash": _hash_password("pw"), "jwt_secret": bytes(50).hex()}),
+            json.dumps(
+                {"admin_password_hash": _hash_password("pw"), "jwt_secret": bytes(50).hex()}
+            ),
             encoding="utf-8",
         )
 

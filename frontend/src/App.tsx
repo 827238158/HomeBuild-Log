@@ -1,14 +1,36 @@
 import { useEffect, useState } from 'react'
 
-import { createSource, fetchHealth, login, type HealthResponse, type SourceResponse } from './api'
+import {
+  createSource,
+  fetchHealth,
+  login,
+  uploadAttachment,
+  type HealthResponse,
+  type SourceResponse,
+} from './api'
 import { clearToken, getToken, saveToken } from './token'
 import './styles.css'
+import { DomainWorkspace } from './DomainWorkspace'
 
 type ViewState =
   | { kind: 'loading' }
   | { kind: 'login' }
   | { kind: 'ready'; health: HealthResponse }
   | { kind: 'error' }
+
+const allowedAttachmentTypes = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'application/pdf',
+])
+const maxAttachmentBytes = 50 * 1024 * 1024
+
+interface PendingUpload {
+  sourceId: string
+  file: File
+}
 
 export function App() {
   const [state, setState] = useState<ViewState>({ kind: 'loading' })
@@ -17,6 +39,9 @@ export function App() {
   const [sourceText, setSourceText] = useState('')
   const [sources, setSources] = useState<SourceResponse[]>([])
   const [saveStatus, setSaveStatus] = useState('')
+  const [attachment, setAttachment] = useState<File | null>(null)
+  const [attachmentError, setAttachmentError] = useState('')
+  const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -69,6 +94,9 @@ export function App() {
     setLoginError('')
     setSourceText('')
     setSources([])
+    setAttachment(null)
+    setAttachmentError('')
+    setPendingUpload(null)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -84,10 +112,62 @@ export function App() {
       const entry = await createSource(sourceText.trim())
       setSources((prev) => [entry, ...prev])
       setSourceText('')
-      setSaveStatus('saved')
-      setTimeout(() => setSaveStatus(''), 2000)
+      if (attachment) {
+        try {
+          await uploadAttachment(entry.id, attachment)
+          setAttachment(null)
+          setPendingUpload(null)
+          setAttachmentError('')
+          setSaveStatus('saved')
+          setTimeout(() => setSaveStatus(''), 2000)
+        } catch (error: unknown) {
+          // 来源已经成功保存，附件失败时保留重试上下文，避免重复创建来源。
+          setPendingUpload({ sourceId: entry.id, file: attachment })
+          setAttachmentError(error instanceof Error ? error.message : '附件上传失败')
+          setSaveStatus('attachment-error')
+        }
+      } else {
+        setSaveStatus('saved')
+        setTimeout(() => setSaveStatus(''), 2000)
+      }
     } catch {
       setSaveStatus('error')
+    }
+  }
+
+  const handleAttachmentChange = (file: File | null) => {
+    setAttachmentError('')
+    setPendingUpload(null)
+    if (!file) {
+      setAttachment(null)
+      return
+    }
+    if (!allowedAttachmentTypes.has(file.type)) {
+      setAttachment(null)
+      setAttachmentError('仅支持 JPG、PNG、WebP、HEIC 和 PDF。')
+      return
+    }
+    if (file.size > maxAttachmentBytes) {
+      setAttachment(null)
+      setAttachmentError('附件不能超过 50 MB。')
+      return
+    }
+    setAttachment(file)
+  }
+
+  const handleRetryAttachment = async () => {
+    if (!pendingUpload) return
+    setSaveStatus('saving')
+    try {
+      await uploadAttachment(pendingUpload.sourceId, pendingUpload.file)
+      setPendingUpload(null)
+      setAttachment(null)
+      setAttachmentError('')
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus(''), 2000)
+    } catch (error: unknown) {
+      setAttachmentError(error instanceof Error ? error.message : '附件上传失败')
+      setSaveStatus('attachment-error')
     }
   }
 
@@ -153,6 +233,16 @@ export function App() {
                 onChange={(e) => setSourceText(e.target.value)}
                 rows={3}
               />
+              <label className="attachment-field">
+                <span>附件（可选，单个文件）</span>
+                <input
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
+                  onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)}
+                />
+              </label>
+              {attachment && <p className="attachment-name">已选择：{attachment.name}</p>}
+              {attachmentError && <p className="source-error">{attachmentError}</p>}
               <div className="source-actions">
                 <button
                   className="source-save"
@@ -166,6 +256,11 @@ export function App() {
                 )}
                 {saveStatus === 'error' && (
                   <span className="source-error">保存失败</span>
+                )}
+                {saveStatus === 'attachment-error' && pendingUpload && (
+                  <button className="attachment-retry" type="button" onClick={handleRetryAttachment}>
+                    来源已保存，重试附件
+                  </button>
                 )}
               </div>
             </div>
@@ -183,6 +278,7 @@ export function App() {
                 ))}
               </div>
             )}
+            <DomainWorkspace refreshKey={sources.length} />
           </>
         )}
 

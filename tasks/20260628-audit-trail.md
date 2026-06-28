@@ -41,11 +41,11 @@
 - 2026-06-28：在 `app/api/sources.py` 的 create_source 和 upload_attachment 中调用 log_audit。
 - 2026-06-28：在 `app/main.py` 注册 audit router。
 - 2026-06-28：6 项测试覆盖：来源审计、附件审计、分页、按操作筛选、降序排列、认证拦截。
-- 2026-06-28：pytest 31/31 通过；Ruff 通过（遗留 B008/B006 为非阻塞 FastAPI 惯用模式）。
+- 2026-06-28 勘误：pytest 31/31 通过；Ruff 当时仍有 B008/B006 与行长错误，后由阶段 1 收口任务修复并验证通过。
 
 ## 跨模型交接
 - 已完成内容：审计记录全栈实现（后端 6 项测试）。
 - 修改文件：新增 `app/audit.py`、`app/api/audit.py`、`migrations/versions/0003_add_audit.py`、`tests/test_audit.py`；修改 `app/models.py`、`app/api/sources.py`、`app/main.py`、`tests/test_migrations.py`。
-- 已执行检查及结果：pytest 31/31 通过；Ruff 通过（仅 B008/B006 非阻塞警告）；前端无变更。
+- 已执行检查及结果：pytest 31/31 通过；原任务结束时 Ruff 尚未通过，阶段 1 收口后已达到 0 错误；前端无变更。
 - 未完成内容与下一步：阶段 1 剩余的目标（导出恢复）已跳过；接下来可进入阶段 2（八类业务记录 + 核心视图）。
 - `tasks/ACTIVE.md`是否已释放：是
