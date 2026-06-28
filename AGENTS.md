@@ -9,7 +9,7 @@
 
 ## 项目定位与当前阶段
 - 本项目为装修事件与知识管理系统，代号 `HomeBuild Log`。
-- 阶段 1 本地数据底座与阶段 2A 手工记录闭环已完成；下一候选任务为阶段 2B 核心视图与基础搜索。
+- 阶段 2 已完成；下一候选任务为阶段 3 文本AI录入。
 - 技术基线：React/TypeScript/Vite PWA、FastAPI、SQLite、本地附件目录。
 - 产品范围以 `docs/00-project-spec.md` 为准；概念模块与数据流以 `docs/01-architecture.md` 为准。
 

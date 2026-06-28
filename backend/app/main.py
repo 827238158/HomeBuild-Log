@@ -12,6 +12,7 @@ from app.api.auth import router as auth_router
 from app.api.domain import router as domain_router
 from app.api.health import router as health_router
 from app.api.sources import router as sources_router
+from app.api.views import router as views_router
 from app.core.config import SecretsConfig
 from app.core.paths import StoragePaths, ensure_storage_directories, get_storage_paths
 from app.db import create_database_engine
@@ -93,6 +94,7 @@ def create_app(
     application.include_router(sources_router, prefix="/api/v1")
     application.include_router(audit_router, prefix="/api/v1")
     application.include_router(domain_router, prefix="/api/v1")
+    application.include_router(views_router, prefix="/api/v1")
     return application
 
 

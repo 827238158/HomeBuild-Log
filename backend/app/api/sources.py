@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -46,6 +46,10 @@ class AttachmentResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class SourceDetailResponse(SourceResponse):
+    attachments: list[AttachmentResponse] = Field(default_factory=list)
 
 
 class SourceCreate(BaseModel):
@@ -117,18 +121,18 @@ def list_sources(
         db.close()
 
 
-@router.get("/sources/{source_id}", response_model=SourceResponse)
+@router.get("/sources/{source_id}", response_model=SourceDetailResponse)
 def read_source(
     source_id: str,
     request: Request,
     user: Annotated[CurrentUser, Depends(require_user)],
-) -> SourceResponse:
+) -> SourceDetailResponse:
     db = _get_db(request)
     try:
         entry = db.get(SourceEntryModel, source_id)
         if entry is None:
             raise HTTPException(status_code=404, detail="来源不存在。")
-        return SourceResponse.model_validate(entry)
+        return SourceDetailResponse.model_validate(entry, from_attributes=True)
     finally:
         db.close()
 

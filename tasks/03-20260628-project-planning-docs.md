@@ -4,7 +4,7 @@
 - 状态：已完成
 - 创建日期：2026-06-28
 - 负责人：Codex（GPT）
-- 关联任务/决策：`tasks/20260628-real-event-sample-analysis.md`、`docs/05-decisions.md`
+- 关联任务/决策：`tasks/02-20260628-real-event-sample-analysis.md`、`docs/05-decisions.md`
 
 ## 目标
 - 将已确认的产品、技术、数据、交互、路线图及跨模型协作方案完整写入项目文档，形成可直接指导后续开发的规划基线。

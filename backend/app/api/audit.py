@@ -39,6 +39,7 @@ def list_audit_entries(
     request: Request,
     user: Annotated[CurrentUser, Depends(require_user)],
     target_table: str | None = Query(default=None),
+    target_id: str | None = Query(default=None),
     action: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
 ) -> list[AuditEntryResponse]:
@@ -47,6 +48,8 @@ def list_audit_entries(
         stmt = select(AuditEntry).order_by(AuditEntry.timestamp.desc())
         if target_table:
             stmt = stmt.where(AuditEntry.target_table == target_table)
+        if target_id:
+            stmt = stmt.where(AuditEntry.target_id == target_id)
         if action:
             stmt = stmt.where(AuditEntry.action == action)
         stmt = stmt.limit(limit)

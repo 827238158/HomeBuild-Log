@@ -11,6 +11,7 @@ import {
 import { clearToken, getToken, saveToken } from './token'
 import './styles.css'
 import { DomainWorkspace } from './DomainWorkspace'
+import { CoreViews } from './CoreViews'
 
 type ViewState =
   | { kind: 'loading' }
@@ -225,7 +226,7 @@ export function App() {
               </button>
             </div>
 
-            <div className="source-form">
+            <CoreViews><div className="source-form">
               <textarea
                 className="source-input"
                 placeholder="记录今天发生的事情…"
@@ -278,7 +279,7 @@ export function App() {
                 ))}
               </div>
             )}
-            <DomainWorkspace refreshKey={sources.length} />
+            <DomainWorkspace refreshKey={sources.length} /></CoreViews>
           </>
         )}
 

@@ -5,5 +5,5 @@
 - 状态：空闲
 - 写入模式：单写者串行
 - 允许修改：`backend/`、`frontend/`、`README.md`、`docs/`、`tasks/`、`.gitignore`
-- 上次完成任务：[本地建议卡片与原子确认](20260628-guided-local-suggestions.md)
+- 上次完成任务：AGENTS.md 更新 + tasks/ 文件序列化
 - 释放时间：2026-06-28

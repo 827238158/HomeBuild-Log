@@ -40,6 +40,7 @@ from app.domain_models import (
 )
 from app.local_suggestions import suggest_from_text
 from app.models import Attachment, SourceEntry
+from app.projections import serialize_records
 from app.record_schemas import RecordCreate, RecordUpdate
 
 router = APIRouter(tags=["domain"])
@@ -773,7 +774,9 @@ def _get_record(db: Session, record_id: str) -> Record:
 def get_record(record_id: str, request: Request, user: User) -> dict[str, Any]:
     db = _db(request)
     try:
-        return _record_json(db, _get_record(db, record_id))
+        record = _get_record(db, record_id)
+        # 详情与核心视图复用同一投影，避免空间、材料名称只在部分页面可见。
+        return serialize_records(db, [record])[record.id]
     finally:
         db.close()
 
