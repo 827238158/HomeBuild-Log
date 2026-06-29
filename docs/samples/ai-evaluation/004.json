@@ -1,0 +1,15 @@
+{
+  "sample_id": "004",
+  "text": "6.25日去现场时，地砖已经全部铺贴完毕。发现主卧门口处有小破裂，已确认后期做门套时可以遮挡住。",
+  "records": [
+    {"golden_id": "004-event", "record_type": "event", "certainty": "explicit", "match": {"event_kind": "construction", "status": "completed"}},
+    {"golden_id": "004-issue", "record_type": "issue", "certainty": "explicit", "match": {"status": "waiting"}},
+    {"golden_id": "004-decision", "record_type": "decision", "certainty": "explicit", "match": {"status": "confirmed"}},
+    {"golden_id": "004-todo", "record_type": "todo", "certainty": "explicit", "match": {"status": "waiting"}}
+  ],
+  "relations": [
+    {"from": "004-event", "to": "004-issue", "relation_type": "produces"},
+    {"from": "004-decision", "to": "004-issue", "relation_type": "resolves"},
+    {"from": "004-todo", "to": "004-issue", "relation_type": "relates_to"}
+  ]
+}

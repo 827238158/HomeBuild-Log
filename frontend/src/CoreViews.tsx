@@ -25,6 +25,8 @@ import {
   type SpaceEntry,
   type TimelineResponse,
 } from './domainApi'
+import { recordStatusLabel } from './recordLabels'
+import { relationLabel } from './relationLabels'
 
 type ViewName = 'capture' | 'timeline' | 'ledger' | 'issues' | 'spaces' | 'search'
 
@@ -42,16 +44,6 @@ const typeLabels: Record<string, string> = {
   decision: '决策', procurement: '采购', research: '调研', todo: '待办',
 }
 
-const statusLabels: Record<string, string> = {
-  planned: '计划', occurred: '已发生', completed: '已完成', cancelled: '已取消',
-  posted: '已入账', voided: '已作废', open: '发现', in_progress: '处理中',
-  waiting: '等待', resolved: '已解决', closed: '已关闭', active: '有效',
-  superseded: '已替代', pending: '待处理', confirmed: '已确认', ordered: '已下单',
-  partially_paid: '部分付款', paid: '已付清', delivery_pending: '待送货',
-  delivered: '已送达', returned: '已退回', done: '已完成', collecting: '收集中',
-  comparing: '比较中', concluded: '已形成结论', archived: '已归档',
-}
-
 const money = (minor: number | undefined, currency = 'CNY') =>
   new Intl.NumberFormat('zh-CN', { style: 'currency', currency }).format((minor ?? 0) / 100)
 
@@ -67,7 +59,7 @@ function RecordButton({ record, onOpen }: { record: ProjectionRecord; onOpen: (i
     <button className="projection-card" type="button" onClick={() => onOpen(record.id)}>
       <span className="record-type-tag">{typeLabels[record.record_type] || record.record_type}</span>
       <strong>{record.title}</strong>
-      <span>{statusLabels[record.status] || record.status}</span>
+      <span>{recordStatusLabel(record.record_type, record.status)}</span>
       {record.spaces.length > 0 && <small>{record.spaces.map((item) => item.name).join(' · ')}</small>}
     </button>
   )
@@ -116,7 +108,7 @@ function TimelineView({ onOpen }: { onOpen: (id: string) => void }) {
   return <section className="view-panel"><header><p className="eyebrow">阶段 2B</p><h2>装修时间线</h2><p>按真实业务日期查看事件和关联事实，未知日期不会被伪装。</p></header>
     <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} /></label><label className="field-stack"><span>记录类型</span><select value={recordType} onChange={(event) => setRecordType(event.target.value)}><option value="">全部类型</option>{Object.entries(typeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><ReferenceFilters spaces={spaces} stages={stages} spaceId={spaceId} stageId={stageId} onSpace={setSpaceId} onStage={setStageId} /><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => setReload((value) => value + 1)}>应用筛选</button></div>
     <LoadState loading={loading} error={error} empty={data?.total === 0} />
-    {data?.groups.map((group) => <section className="timeline-group" key={group.date_key}><h3>{group.label}</h3>{group.items.map((item) => <article className="timeline-item" key={item.record.id}><RecordButton record={item.record} onOpen={onOpen} />{item.related_records.length > 0 && <div className="related-strip"><span>关联事实</span>{item.related_records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div>}</article>)}</section>)}
+    {data?.groups.map((group) => <section className="timeline-group" key={group.date_key}><h3>{group.label}</h3><div className="timeline-day-items">{group.items.map((item) => <article className="timeline-item" key={item.record.id}><RecordButton record={item.record} onOpen={onOpen} />{item.related_records.length > 0 && <div className="related-strip"><span>关联事实</span>{item.related_records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div>}</article>)}</div></section>)}
   </section>
 }
 
@@ -142,7 +134,7 @@ function LedgerView({ onOpen }: { onOpen: (id: string) => void }) {
     <div className="summary-grid">{data?.totals_by_currency.map((total) => <article className="summary-card" key={total.currency}><strong>{total.currency}</strong><dl><div><dt>采购总额</dt><dd>{money(total.procurement_total_minor, total.currency)}</dd></div><div><dt>实际支出</dt><dd>{money(total.expense_minor, total.currency)}</dd></div><div><dt>退款</dt><dd>{money(total.refund_minor, total.currency)}</dd></div><div><dt>待付</dt><dd>{money(total.outstanding_minor, total.currency)}</dd></div></dl>{(total.unallocated_expense_minor > 0 || total.unallocated_refund_minor > 0) && <p className="warning-text">存在未关联采购的流水，请在详情中补充关系。</p>}</article>)}</div>
     {data?.warnings.map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
     {data && data.procurements.length > 0 && <section className="projection-section"><h3>采购付款情况</h3><div className="card-grid">{data.procurements.map((record) => <button className="projection-card ledger-card" key={record.id} type="button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong><span>订单：{money(record.order_total_minor ?? 0, record.currency)}</span><span>净付款：{money(record.net_paid_minor, record.currency)}</span><span>待付：{money(record.outstanding_minor, record.currency)}</span></button>)}</div></section>}
-    {data && data.ledger_entries.length > 0 && <section className="projection-section"><h3>资金流水</h3><div className="card-grid">{data.ledger_entries.map((record) => <button className="projection-card" key={record.id} type="button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong><span>{record.direction === 'refund' ? '退款' : '支出'} · {money(record.amount_minor, record.currency)}</span><small>{statusLabels[record.status] || record.status}</small></button>)}</div></section>}
+    {data && data.ledger_entries.length > 0 && <section className="projection-section"><h3>资金流水</h3><div className="card-grid">{data.ledger_entries.map((record) => <button className="projection-card" key={record.id} type="button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong><span>{record.direction === 'refund' ? '退款' : '支出'} · {money(record.amount_minor, record.currency)}</span><small>{recordStatusLabel(record.record_type, record.status)}</small></button>)}</div></section>}
   </section>
 }
 
@@ -256,7 +248,7 @@ function RecordDetail({ recordId, onClose }: { recordId: string; onClose: () => 
       }).catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '详情加载失败'))
     return () => { active = false }
   }, [recordId])
-  return <aside className="detail-panel" aria-label="记录详情"><div className="detail-panel__header"><div><p className="eyebrow">来源可追溯</p><h2>记录详情</h2></div><button type="button" onClick={onClose} aria-label="关闭详情">关闭</button></div>{error && <p role="alert" className="view-state--error">{error}</p>}{!record && !error && <p role="status">正在加载详情…</p>}{record && <><span className="record-type-tag">{typeLabels[record.record_type]}</span><h3>{record.title}</h3><p>{record.description || '暂无补充说明'}</p><dl className="detail-list"><div><dt>状态</dt><dd>{statusLabels[record.status] || record.status}</dd></div><div><dt>时间精度</dt><dd>{record.time_precision || 'unknown'}</dd></div><div><dt>空间</dt><dd>{record.spaces?.map((item) => item.name).join('、') || '未指定'}</dd></div></dl><section><h4>原始来源与附件</h4>{sources.map((source) => <article className="evidence-card" key={source.id}><p>{source.original_text || '仅附件来源'}</p>{source.attachments.map((attachment) => <small key={attachment.id}>附件：{attachment.original_filename} · {Math.ceil(attachment.size_bytes / 1024)} KB</small>)}</article>)}</section><section><h4>关联记录</h4>{relations.length === 0 && <p className="muted">暂无显式关系。</p>}{relations.map((relation) => { const related = relatedRecords.find((item) => item.id === (relation.from_record_id === recordId ? relation.to_record_id : relation.from_record_id)); return <p className="relation-summary" key={relation.id}>{relation.relation_type} · {related?.title || '关联记录'}</p> })}</section><section><h4>审计历史</h4>{audit.map((item) => <p className="audit-row" key={item.id}>{new Date(item.timestamp).toLocaleString('zh-CN')} · {item.action}</p>)}</section></>}
+  return <aside className="detail-panel" aria-label="记录详情"><div className="detail-panel__header"><div><p className="eyebrow">来源可追溯</p><h2>记录详情</h2></div><button type="button" onClick={onClose} aria-label="关闭详情">关闭</button></div>{error && <p role="alert" className="view-state--error">{error}</p>}{!record && !error && <p role="status">正在加载详情…</p>}{record && <><span className="record-type-tag">{typeLabels[record.record_type]}</span><h3>{record.title}</h3><p>{record.description || '暂无补充说明'}</p><dl className="detail-list"><div><dt>状态</dt><dd>{recordStatusLabel(record.record_type, record.status)}</dd></div><div><dt>时间精度</dt><dd>{record.time_precision || 'unknown'}</dd></div><div><dt>空间</dt><dd>{record.spaces?.map((item) => item.name).join('、') || '未指定'}</dd></div></dl><section><h4>原始来源与附件</h4>{sources.map((source) => <article className="evidence-card" key={source.id}><p>{source.original_text || '仅附件来源'}</p>{source.attachments.map((attachment) => <small key={attachment.id}>附件：{attachment.original_filename} · {Math.ceil(attachment.size_bytes / 1024)} KB</small>)}</article>)}</section><section><h4>关联记录</h4>{relations.length === 0 && <p className="muted">暂无显式关系。</p>}{relations.map((relation) => { const related = relatedRecords.find((item) => item.id === (relation.from_record_id === recordId ? relation.to_record_id : relation.from_record_id)); return <p className="relation-summary" key={relation.id}>{relationLabel(relation.relation_type)} · {related?.title || '关联记录'}</p> })}</section><section><h4>审计历史</h4>{audit.map((item) => <p className="audit-row" key={item.id}>{new Date(item.timestamp).toLocaleString('zh-CN')} · {item.action}</p>)}</section></>}
   </aside>
 }
 

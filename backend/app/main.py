@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -10,6 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.domain import router as domain_router
+from app.api.extractions import router as extractions_router
 from app.api.health import router as health_router
 from app.api.sources import router as sources_router
 from app.api.views import router as views_router
@@ -82,9 +84,13 @@ def create_app(
         app.state.health_checker = health_checker or RuntimeHealthChecker(engine, paths)
         app.state.engine = engine
         app.state.storage_paths = paths
+        # 共享连接池由应用生命周期统一释放；测试可替换 transport/client。
+        # 不继承系统代理，避免缺少可选 SOCKS 依赖时阻断本地服务启动。
+        app.state.ai_http_client = httpx.Client(trust_env=False)
         try:
             yield
         finally:
+            app.state.ai_http_client.close()
             engine.dispose()
 
     application = FastAPI(title="HomeBuild Log API", version="0.1.0", lifespan=lifespan)
@@ -94,6 +100,7 @@ def create_app(
     application.include_router(sources_router, prefix="/api/v1")
     application.include_router(audit_router, prefix="/api/v1")
     application.include_router(domain_router, prefix="/api/v1")
+    application.include_router(extractions_router, prefix="/api/v1")
     application.include_router(views_router, prefix="/api/v1")
     return application
 

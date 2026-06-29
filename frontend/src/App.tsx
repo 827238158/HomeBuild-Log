@@ -9,6 +9,7 @@ import {
   type SourceResponse,
 } from './api'
 import { clearToken, getToken, saveToken } from './token'
+import { BACKEND_URL, UI, UPLOAD } from './config'
 import './styles.css'
 import { DomainWorkspace } from './DomainWorkspace'
 import { CoreViews } from './CoreViews'
@@ -18,15 +19,6 @@ type ViewState =
   | { kind: 'login' }
   | { kind: 'ready'; health: HealthResponse }
   | { kind: 'error' }
-
-const allowedAttachmentTypes = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/heic',
-  'application/pdf',
-])
-const maxAttachmentBytes = 50 * 1024 * 1024
 
 interface PendingUpload {
   sourceId: string
@@ -120,7 +112,7 @@ export function App() {
           setPendingUpload(null)
           setAttachmentError('')
           setSaveStatus('saved')
-          setTimeout(() => setSaveStatus(''), 2000)
+          setTimeout(() => setSaveStatus(''), UI.toastDuration)
         } catch (error: unknown) {
           // 来源已经成功保存，附件失败时保留重试上下文，避免重复创建来源。
           setPendingUpload({ sourceId: entry.id, file: attachment })
@@ -143,12 +135,12 @@ export function App() {
       setAttachment(null)
       return
     }
-    if (!allowedAttachmentTypes.has(file.type)) {
+    if (!UPLOAD.allowedTypes.has(file.type)) {
       setAttachment(null)
       setAttachmentError('仅支持 JPG、PNG、WebP、HEIC 和 PDF。')
       return
     }
-    if (file.size > maxAttachmentBytes) {
+    if (file.size > UPLOAD.maxSize) {
       setAttachment(null)
       setAttachmentError('附件不能超过 50 MB。')
       return
@@ -286,7 +278,7 @@ export function App() {
         {state.kind === 'error' && (
           <div className="status-card status-card--error" role="alert">
             <strong>暂时无法连接本地服务</strong>
-            <p>请确认后端已在 127.0.0.1:8000 启动，然后刷新页面。</p>
+            <p>请确认后端已在 {BACKEND_URL} 启动，然后刷新页面。</p>
           </div>
         )}
       </section>

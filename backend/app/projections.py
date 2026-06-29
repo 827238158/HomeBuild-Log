@@ -11,20 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.domain_models import (
     DEFAULT_PROJECT_ID,
-    DecisionDetail,
-    EventDetail,
-    IssueDetail,
-    LedgerDetail,
     Material,
-    MeasurementDetail,
     MeasurementValue,
     Participant,
-    ProcurementDetail,
     ProjectStage,
     Record,
-    ResearchDetail,
     Space,
-    TodoDetail,
     Vendor,
     record_attachments,
     record_materials,
@@ -32,27 +24,7 @@ from app.domain_models import (
     record_sources,
     record_spaces,
 )
-
-DETAIL_MODELS = {
-    "event": EventDetail,
-    "ledger": LedgerDetail,
-    "issue": IssueDetail,
-    "measurement": MeasurementDetail,
-    "decision": DecisionDetail,
-    "procurement": ProcurementDetail,
-    "research": ResearchDetail,
-    "todo": TodoDetail,
-}
-
-DETAIL_RENAMES = {
-    "decision": {"options_json": "options"},
-    "research": {
-        "options_json": "options",
-        "dimensions_json": "dimensions",
-        "sources_json": "evidence_sources",
-    },
-}
-
+from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_JSON
 
 def _plain(value: Any) -> Any:
     if isinstance(value, Decimal):
@@ -146,7 +118,7 @@ def serialize_records(db: Session, records: list[Record]) -> dict[str, dict[str,
             for column in model.__table__.columns:
                 if column.name == "record_id":
                     continue
-                key = DETAIL_RENAMES.get(record_type, {}).get(column.name, column.name)
+                key = DETAIL_RENAMES_TO_JSON.get(record_type, {}).get(column.name, column.name)
                 values[key] = _plain(getattr(row, column.name))
             if values.get("vendor_id"):
                 vendor_ids.add(values["vendor_id"])

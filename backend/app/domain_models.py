@@ -24,6 +24,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
 
 DEFAULT_PROJECT_ID = "00000000000000000000000000000001"
+DEFAULT_ROOT_SPACE_ID = "00000000000000000000000000000002"
 
 
 def _new_id() -> str:
@@ -150,6 +151,54 @@ class Record(Base):
     materials = relationship("Material", secondary=record_materials)
     participants = relationship("Participant", secondary=record_participants)
     attachments = relationship("Attachment", secondary=record_attachments)
+
+
+class ExtractionRun(Base):
+    """一次提取请求中的单个引擎尝试，失败尝试同样保留。"""
+
+    __tablename__ = "extraction_runs"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_id)
+    request_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("source_entries.id"), nullable=False, index=True
+    )
+    attempt_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    requested_engine: Mapped[str] = mapped_column(String(16), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    engine: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    prompt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class CandidateBundle(Base):
+    """一次成功提取产生的可版本化候选包。"""
+
+    __tablename__ = "candidate_bundles"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_id)
+    source_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("source_entries.id"), nullable=False, index=True
+    )
+    extraction_run_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("extraction_runs.id"), nullable=False, unique=True
+    )
+    engine: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    bundle_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class EventDetail(Base):

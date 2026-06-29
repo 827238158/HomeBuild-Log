@@ -151,6 +151,103 @@ def test_project_space_shared_entities_and_source_listing() -> None:
     assert record.json()["space_ids"] == [room["id"]]
 
 
+def test_delete_unused_spaces_and_shared_entities_with_audit() -> None:
+    client = _client()
+    created = [
+        ("spaces", client.post("/api/v1/spaces", json={"name": "临时空间", "kind": "room"}).json()),
+        ("materials", client.post("/api/v1/materials", json={"name": "临时材料"}).json()),
+        ("vendors", client.post("/api/v1/vendors", json={"name": "临时商家"}).json()),
+        ("participants", client.post("/api/v1/participants", json={"name": "临时人员"}).json()),
+        ("stages", client.post("/api/v1/stages", json={"name": "临时阶段"}).json()),
+    ]
+
+    for endpoint, item in created:
+        response = client.delete(f"/api/v1/{endpoint}/{item['id']}")
+        assert response.status_code == 204, response.text
+        assert client.delete(f"/api/v1/{endpoint}/{item['id']}").status_code == 404
+
+    audits = client.get("/api/v1/audit?action=delete&limit=20").json()
+    assert {item["target_id"] for item in audits}.issuperset({item["id"] for _, item in created})
+
+
+def test_delete_rejects_the_last_root_house() -> None:
+    client = _client()
+    first = client.post("/api/v1/spaces", json={"name": "整套房屋", "kind": "house"}).json()
+
+    conflict = client.delete(f"/api/v1/spaces/{first['id']}")
+    assert conflict.status_code == 409
+    assert "根房屋" in conflict.json()["detail"]
+
+    second = client.post("/api/v1/spaces", json={"name": "另一套房屋", "kind": "house"}).json()
+    assert client.delete(f"/api/v1/spaces/{first['id']}").status_code == 204
+    assert client.get("/api/v1/spaces").json()[0]["id"] == second["id"]
+
+
+def test_delete_rejects_child_spaces_and_referenced_shared_entities() -> None:
+    client = _client()
+    source_id = _source(client, "引用删除保护")
+    house = client.post("/api/v1/spaces", json={"name": "房屋", "kind": "house"}).json()
+    room = client.post(
+        "/api/v1/spaces",
+        json={"name": "主卧", "kind": "room", "parent_id": house["id"]},
+    ).json()
+    material = client.post("/api/v1/materials", json={"name": "地砖"}).json()
+    participant = client.post("/api/v1/participants", json={"name": "张师傅"}).json()
+    stage = client.post("/api/v1/stages", json={"name": "泥瓦阶段"}).json()
+    vendor = client.post("/api/v1/vendors", json={"name": "瓷砖店"}).json()
+    procurement_vendor = client.post("/api/v1/vendors", json={"name": "建材店"}).json()
+
+    event = client.post(
+        "/api/v1/records",
+        json={
+            **_common(source_id, "event", "occurred"),
+            "event_kind": "construction",
+            "space_ids": [room["id"]],
+            "material_ids": [material["id"]],
+            "participant_ids": [participant["id"]],
+            "stage_id": stage["id"],
+        },
+    )
+    assert event.status_code == 201, event.text
+    ledger = client.post(
+        "/api/v1/records",
+        json={
+            **_common(source_id, "ledger", "posted"),
+            "direction": "expense",
+            "payment_kind": "deposit",
+            "amount_minor": 10000,
+            "vendor_id": vendor["id"],
+        },
+    )
+    assert ledger.status_code == 201, ledger.text
+    procurement = client.post(
+        "/api/v1/records",
+        json={
+            **_common(source_id, "procurement", "ordered"),
+            "item_name": "水泥",
+            "vendor_id": procurement_vendor["id"],
+        },
+    )
+    assert procurement.status_code == 201, procurement.text
+
+    child_conflict = client.delete(f"/api/v1/spaces/{house['id']}")
+    assert child_conflict.status_code == 409
+    assert "下级空间" in child_conflict.json()["detail"]
+
+    referenced = [
+        ("spaces", room["id"]),
+        ("materials", material["id"]),
+        ("participants", participant["id"]),
+        ("stages", stage["id"]),
+        ("vendors", vendor["id"]),
+        ("vendors", procurement_vendor["id"]),
+    ]
+    for endpoint, item_id in referenced:
+        response = client.delete(f"/api/v1/{endpoint}/{item_id}")
+        assert response.status_code == 409, response.text
+        assert "正式记录" in response.json()["detail"]
+
+
 def test_update_archive_restore_relation_and_audit() -> None:
     client = _client()
     source_id = _source(client)

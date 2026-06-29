@@ -1,0 +1,20 @@
+{
+  "sample_id": "007",
+  "text": "5月14日开始水电工弹线，后续进行开槽、底盒安装、布线、包隔音棉等工作。确认全屋开关使用智能开关，确认全屋网络布线，确认布放HDMI光纤线连接书房和客厅电视。（水电线路资料后续会补充完善）。5月29日前后完成水电阶段铺设，水电工基本结束，水管打压测试通过",
+  "records": [
+    {"golden_id": "007-start", "record_type": "event", "certainty": "explicit", "match": {"event_kind": "construction"}},
+    {"golden_id": "007-finish", "record_type": "event", "certainty": "explicit", "match": {"status": "completed"}},
+    {"golden_id": "007-switch", "record_type": "decision", "certainty": "explicit", "match": {"status": "confirmed", "selected_option": "全屋使用智能开关"}},
+    {"golden_id": "007-network", "record_type": "decision", "certainty": "explicit", "match": {"status": "confirmed", "selected_option": "全屋网络布线"}},
+    {"golden_id": "007-hdmi", "record_type": "decision", "certainty": "explicit", "match": {"status": "confirmed", "selected_option": "布放HDMI光纤线连接书房和客厅电视"}},
+    {"golden_id": "007-todo", "record_type": "todo", "certainty": "explicit", "match": {"status": "pending"}},
+    {"golden_id": "007-test", "record_type": "event", "certainty": "explicit", "match": {"event_kind": "acceptance_test"}}
+  ],
+  "relations": [
+    {"from": "007-switch", "to": "007-start", "relation_type": "implements"},
+    {"from": "007-network", "to": "007-start", "relation_type": "implements"},
+    {"from": "007-hdmi", "to": "007-start", "relation_type": "implements"},
+    {"from": "007-test", "to": "007-finish", "relation_type": "relates_to"}
+  ],
+  "forbidden_record_types": ["issue", "procurement"]
+}

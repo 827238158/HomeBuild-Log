@@ -2,7 +2,7 @@
 
 > 本文是未来开发合同，不代表接口已经实现。任何实现任务必须先核对当前框架文档和本文版本。
 
-当前已实现：健康、登录、来源/附件、审计、当前项目、空间、共享实体、八类正式记录、记录关系、本地规则建议、原子批量确认，以及阶段 2B 核心投影和基础搜索接口。AI候选、OCR任务、离线同步和导出恢复仍是未来开发合同。
+当前已实现：健康、登录、来源/附件、审计、八类正式记录与关系、阶段2B核心投影，以及阶段3A文本AI提取、持久化候选和原子确认。候选追问/拆分/合并/拒绝、OCR任务、离线同步和导出恢复仍是未来开发合同。
 
 ## 通用约定
 
@@ -78,13 +78,14 @@
 - `POST /sources/{id}/suggestions/confirm`：提交所选`key`与编辑后`payload`；服务端重新核对候选键并在同一事务创建全部正式记录、自动关系和审计。任何一项校验或写入失败时整批回滚。
 - 稳定确认键在同一项目内唯一；重复点击或重新打开来源返回已有正式记录，不重复创建。
 
-以下为阶段3计划接口：
+阶段3A当前接口：
 
-- `POST /sources/{id}/extractions`：创建提取运行；文本可快速完成，图片或票据返回持久化任务。
-- `GET /extraction-jobs/{id}`：读取任务状态、错误和重试信息。
-- `GET /candidate-bundles/{id}`：读取候选、依据、问题和警告。
-- `PATCH /candidate-bundles/{id}`：修改、拆分、合并或拒绝候选，不修改原始来源。
-- `POST /candidate-bundles/{id}/confirm`：原子确认所选候选并创建多条正式记录及关系。
+- `POST /sources/{id}/extractions?engine=auto|ai|local`：创建文本提取；`auto`按DeepSeek→MiMo→本地规则回退，AI主备共享30秒预算；`ai`不允许本地回退。
+- `GET /sources/{id}/candidate-bundles/latest`与`GET /candidate-bundles/{id}`：读取最新或指定持久化候选包。
+- `POST /candidate-bundles/{id}/confirm`：原子确认所选候选。
+- `GET /extraction-runs`返回不含prompt/原始响应的运行元数据；`GET /extraction-runs/{id}?include_raw=true`才显式返回本地审计原文。
+
+阶段3B再扩展候选追问、拆分、合并和拒绝语义；阶段3A不假装支持这些操作。
 
 确认接口必须返回创建的记录ID、关系ID、仍未确认项和审计事件ID。任何一项失败时整体回滚。
 
@@ -94,11 +95,13 @@
 - `GET/PATCH /records/{id}`：读取或修改记录；破坏性删除不作为普通接口。
 - `POST /records/{id}/archive`与`POST /records/{id}/restore`：可恢复归档。
 - `GET/PATCH /projects/current`：读取或修改单一活跃项目。
-- `GET/POST /spaces`：维护房屋、房间和局部构件层级。
-- `GET/POST/PATCH /materials`、`/vendors`、`/participants`、`/stages`：维护共享档案。
+- `GET/POST /spaces`与`PATCH /spaces/{id}`：维护房屋、房间和局部构件层级；迁移保证默认项目至少存在一个根房屋“整套房屋”，响应结构不增加特殊字段。
+- `DELETE /spaces/{id}`：永久删除未被正式记录使用且没有下级空间的误建空间；成功返回`204`，存在引用、下级空间或目标是最后一个根房屋时返回`409`。
+- `GET/POST /materials`、`/vendors`、`/participants`、`/stages`与对应`PATCH /{type}/{id}`：维护共享档案。
+- `DELETE /materials/{id}`、`/vendors/{id}`、`/participants/{id}`、`/stages/{id}`：永久删除未被正式记录使用的误建档案；成功返回`204`，存在引用返回`409`。
 - `GET/POST/DELETE /record-relations`：查询、创建或移除记录关系；移除操作保留审计。
 
-上述阶段 2A 接口已实现。`POST/PATCH /records`以`record_type`作为判别字段；PATCH必须携带原类型且不能换型，只更新显式提交字段。每条正式记录的`source_refs`至少包含一个有效来源。
+上述阶段 2A 接口已实现。所有共享实体删除均写审计且不可恢复，不会自动解除历史引用；不存在或跨项目资源返回`404`。`POST/PATCH /records`以`record_type`作为判别字段；PATCH必须携带原类型且不能换型，只更新显式提交字段。每条正式记录的`source_refs`至少包含一个有效来源。
 
 - `GET /records/{id}`额外返回空间、材料、参与者、阶段和商家名称投影，供统一详情与核心视图保持一致。
 - `GET /audit`支持`target_table`、`target_id`、`action`和`limit`过滤。

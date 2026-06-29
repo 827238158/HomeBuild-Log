@@ -15,6 +15,7 @@ from app.auth import CurrentUser, require_user
 from app.db import create_session_factory
 from app.domain_models import (
     DEFAULT_PROJECT_ID,
+    DEFAULT_ROOT_SPACE_ID,
     DecisionDetail,
     EventDetail,
     IssueDetail,
@@ -38,6 +39,7 @@ from app.domain_models import (
     record_sources,
     record_spaces,
 )
+from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_DB, RELATION_TYPES
 from app.local_suggestions import suggest_from_text
 from app.models import Attachment, SourceEntry
 from app.projections import serialize_records
@@ -63,35 +65,6 @@ ASSOCIATION_FIELDS = {
     "material_ids",
     "participant_ids",
     "attachment_ids",
-}
-DETAIL_MODELS = {
-    "event": EventDetail,
-    "ledger": LedgerDetail,
-    "issue": IssueDetail,
-    "measurement": MeasurementDetail,
-    "decision": DecisionDetail,
-    "procurement": ProcurementDetail,
-    "research": ResearchDetail,
-    "todo": TodoDetail,
-}
-DETAIL_RENAMES = {
-    "decision": {"options": "options_json"},
-    "research": {
-        "options": "options_json",
-        "dimensions": "dimensions_json",
-        "evidence_sources": "sources_json",
-    },
-}
-RELATION_TYPES = {
-    "derived_from",
-    "relates_to",
-    "implements",
-    "resolves",
-    "pays_for",
-    "tracks_delivery",
-    "supersedes",
-    "blocks",
-    "produces",
 }
 
 
@@ -308,11 +281,72 @@ def update_space(space_id: str, request: Request, body: SpaceUpdate, user: User)
         db.close()
 
 
+@router.delete("/spaces/{space_id}", status_code=204)
+def delete_space(space_id: str, request: Request, user: User) -> None:
+    db = _db(request)
+    try:
+        space = db.get(Space, space_id)
+        if space is None or space.project_id != DEFAULT_PROJECT_ID:
+            raise _not_found("空间")
+
+        # 空间层级和历史记录必须先由用户显式调整，删除不能静默断开引用。
+        child = db.execute(select(Space.id).where(Space.parent_id == space.id).limit(1)).first()
+        if child is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="该空间仍包含下级空间，请先调整或删除下级空间。",
+            )
+        record_ref = db.execute(
+            select(record_spaces.c.record_id)
+            .where(record_spaces.c.space_id == space.id)
+            .limit(1)
+        ).first()
+        if record_ref is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="该空间已被正式记录使用，请先解除记录关联。",
+            )
+        if space.kind == "house" and space.parent_id is None:
+            another_root = db.execute(
+                select(Space.id)
+                .where(
+                    Space.project_id == DEFAULT_PROJECT_ID,
+                    Space.kind == "house",
+                    Space.parent_id.is_(None),
+                    Space.id != space.id,
+                )
+                .limit(1)
+            ).first()
+            if another_root is None:
+                label = (
+                    "系统默认的整套房屋"
+                    if space.id == DEFAULT_ROOT_SPACE_ID
+                    else "最后一个根房屋"
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{label}不能删除，请先建立另一个根房屋。",
+                )
+
+        before = _space_json(space)
+        db.delete(space)
+        log_audit(db, "delete", "spaces", space.id, before=before)
+        db.commit()
+    finally:
+        db.close()
+
+
 ENTITY_MODELS = {
     "materials": Material,
     "vendors": Vendor,
     "participants": Participant,
     "stages": ProjectStage,
+}
+ENTITY_LABELS = {
+    "materials": "材料",
+    "vendors": "商家",
+    "participants": "参与者",
+    "stages": "装修阶段",
 }
 ENTITY_FIELDS = {
     "materials": {"name", "notes", "brand", "model", "color", "finish"},
@@ -378,6 +412,57 @@ def _update_entity(
         db.close()
 
 
+def _entity_reference_exists(db: Session, entity_type: str, entity_id: str) -> bool:
+    if entity_type == "materials":
+        stmt = select(record_materials.c.record_id).where(
+            record_materials.c.material_id == entity_id
+        )
+        return db.execute(stmt.limit(1)).first() is not None
+    if entity_type == "participants":
+        stmt = select(record_participants.c.record_id).where(
+            record_participants.c.participant_id == entity_id
+        )
+        return db.execute(stmt.limit(1)).first() is not None
+    if entity_type == "stages":
+        stage_ref = db.execute(
+            select(Record.id).where(Record.stage_id == entity_id).limit(1)
+        ).first()
+        return stage_ref is not None
+    if entity_type == "vendors":
+        ledger_ref = db.execute(
+            select(LedgerDetail.record_id).where(LedgerDetail.vendor_id == entity_id).limit(1)
+        ).first()
+        procurement_ref = db.execute(
+            select(ProcurementDetail.record_id)
+            .where(ProcurementDetail.vendor_id == entity_id)
+            .limit(1)
+        ).first()
+        return ledger_ref is not None or procurement_ref is not None
+    return False
+
+
+def _delete_entity(entity_type: str, entity_id: str, request: Request) -> None:
+    db = _db(request)
+    try:
+        model = ENTITY_MODELS[entity_type]
+        entity = db.get(model, entity_id)
+        label = ENTITY_LABELS[entity_type]
+        if entity is None or entity.project_id != DEFAULT_PROJECT_ID:
+            raise _not_found(label)
+        if _entity_reference_exists(db, entity_type, entity.id):
+            raise HTTPException(
+                status_code=409,
+                detail=f"该{label}已被正式记录使用，请先解除记录关联。",
+            )
+
+        before = _entity_json(entity, entity_type)
+        db.delete(entity)
+        log_audit(db, "delete", model.__tablename__, entity.id, before=before)
+        db.commit()
+    finally:
+        db.close()
+
+
 def _entity_list_endpoint(entity_type: str):
     def endpoint(request: Request, user: User) -> list[dict[str, Any]]:
         return _list_entities(entity_type, request)
@@ -401,6 +486,13 @@ def _entity_update_endpoint(entity_type: str):
     return endpoint
 
 
+def _entity_delete_endpoint(entity_type: str):
+    def endpoint(entity_id: str, request: Request, user: User) -> None:
+        return _delete_entity(entity_type, entity_id, request)
+
+    return endpoint
+
+
 for _entity_type in ENTITY_MODELS:
     router.add_api_route(
         f"/{_entity_type}",
@@ -417,6 +509,12 @@ for _entity_type in ENTITY_MODELS:
         f"/{_entity_type}/{{entity_id}}",
         _entity_update_endpoint(_entity_type),
         methods=["PATCH"],
+    )
+    router.add_api_route(
+        f"/{_entity_type}/{{entity_id}}",
+        _entity_delete_endpoint(_entity_type),
+        methods=["DELETE"],
+        status_code=204,
     )
 
 
@@ -463,7 +561,7 @@ def _validate_record_refs(db: Session, payload: dict[str, Any]) -> None:
 def _detail_values(record_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     excluded = COMMON_FIELDS | ASSOCIATION_FIELDS | {"record_type", "values"}
     values = {key: value for key, value in payload.items() if key not in excluded}
-    renames = DETAIL_RENAMES.get(record_type, {})
+    renames = DETAIL_RENAMES_TO_DB.get(record_type, {})
     return {renames.get(key, key): value for key, value in values.items()}
 
 
@@ -520,7 +618,7 @@ def _record_json(db: Session, record: Record) -> dict[str, Any]:
         for column in detail_model.__table__.columns
         if column.name != "record_id"
     }
-    reverse = {value: key for key, value in DETAIL_RENAMES.get(record.record_type, {}).items()}
+    reverse = {value: key for key, value in DETAIL_RENAMES_TO_DB.get(record.record_type, {}).items()}
     detail_values = {reverse.get(key, key): value for key, value in detail_values.items()}
     if record.record_type == "measurement":
         values = db.execute(
@@ -653,9 +751,14 @@ def confirm_local_suggestions(
             try:
                 parsed = RECORD_CREATE_ADAPTER.validate_python(payload)
             except ValidationError as exc:
+                messages = []
+                for err in exc.errors():
+                    loc = " → ".join(str(p) for p in err["loc"])
+                    messages.append(f"{loc}: {err['msg']}")
+                detail = "候选字段校验失败：" + "；".join(messages)
                 raise HTTPException(
                     status_code=422,
-                    detail=jsonable_encoder(exc.errors()),
+                    detail=detail,
                 ) from exc
             validated.append((selection, parsed, f"local:{source.id}:{selection.key}"))
 

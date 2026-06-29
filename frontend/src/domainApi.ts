@@ -1,4 +1,5 @@
-import { authHeaders } from './api'
+﻿import { authHeaders } from './api'
+import { API_BASE } from './config'
 
 export interface SourceEntry {
   id: string
@@ -156,6 +157,58 @@ export interface LocalSuggestion {
   confirmed_record_id?: string | null
 }
 
+export type CandidateCertainty =
+  | 'explicit'
+  | 'inferred'
+  | 'calculated'
+  | 'uncertain'
+  | 'missing'
+
+export interface CandidateSuggestion extends Omit<LocalSuggestion, 'certainty'> {
+  certainty: CandidateCertainty
+  review_state: 'active' | 'deferred' | 'confirmed'
+  deferred_at: string | null
+  confirmed_record_id: string | null
+}
+
+export interface CandidateBundle {
+  id: string
+  source_id: string
+  extraction_run_id: string
+  request_id: string
+  requested_engine: 'auto' | 'ai' | 'local'
+  engine: string
+  fallback_reason: string | null
+  status: 'pending' | 'partially_confirmed' | 'confirmed' | 'superseded'
+  version: number
+  created_at: string
+  updated_at: string
+  suggestions: CandidateSuggestion[]
+  relations: Array<{ from_key: string; to_key: string; relation_type: string }>
+  questions: string[]
+  warnings: string[]
+}
+
+export interface ExtractionRun {
+  id: string
+  request_id: string
+  source_id: string
+  attempt_no: number
+  requested_engine: string
+  provider: string | null
+  model: string | null
+  engine: string
+  status: 'succeeded' | 'failed'
+  duration_ms: number
+  prompt_tokens: number | null
+  completion_tokens: number | null
+  total_tokens: number | null
+  error_code: string | null
+  error_message: string | null
+  started_at: string
+  finished_at: string
+}
+
 export interface SuggestionBundle {
   source_id: string
   engine: string
@@ -174,68 +227,100 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   })
   if (!response.ok) {
     const error = await response.json().catch(() => ({}))
-    throw new Error(error.detail || '请求失败')
+    const detail = error.detail
+    throw new Error(typeof detail === 'string' ? detail : '请求失败，请检查候选字段。')
   }
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
 
-export const listSources = () => requestJson<SourceEntry[]>('/api/v1/sources')
+export const listSources = () => requestJson<SourceEntry[]>(`${API_BASE}/sources`)
 export const listRecords = (sourceId?: string, includeArchived = true) =>
   requestJson<DomainRecord[]>(
-    `/api/v1/records?include_archived=${includeArchived}${sourceId ? `&source_id=${encodeURIComponent(sourceId)}` : ''}`,
+    `${API_BASE}/records?include_archived=${includeArchived}${sourceId ? `&source_id=${encodeURIComponent(sourceId)}` : ''}`,
   )
 export const createRecord = (payload: Record<string, unknown>) =>
-  requestJson<DomainRecord>('/api/v1/records', {
+  requestJson<DomainRecord>(`${API_BASE}/records`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })
 export const getSuggestions = (sourceId: string) =>
-  requestJson<SuggestionBundle>(`/api/v1/sources/${sourceId}/suggestions`)
+  requestJson<SuggestionBundle>(`${API_BASE}/sources/${sourceId}/suggestions`)
 export const confirmSuggestions = (
   sourceId: string,
   selections: Array<{ key: string; payload: Record<string, unknown> }>,
 ) => requestJson<{ records: Array<{ key: string; created: boolean; record: DomainRecord }> }>(
-  `/api/v1/sources/${sourceId}/suggestions/confirm`,
+  `${API_BASE}/sources/${sourceId}/suggestions/confirm`,
   { method: 'POST', body: JSON.stringify({ selections }) },
 )
+export const createExtraction = (
+  sourceId: string,
+  engine: 'auto' | 'ai' | 'local' = 'auto',
+) => requestJson<CandidateBundle>(
+  `${API_BASE}/sources/${sourceId}/extractions?engine=${engine}`,
+  { method: 'POST' },
+)
+export const getCandidateBundle = (bundleId: string) =>
+  requestJson<CandidateBundle>(`${API_BASE}/candidate-bundles/${bundleId}`)
+export const getLatestCandidateBundle = (sourceId: string) =>
+  requestJson<CandidateBundle | null>(
+    `${API_BASE}/sources/${sourceId}/candidate-bundles/latest`,
+  )
+export const confirmCandidateBundle = (
+  bundleId: string,
+  expectedVersion: number,
+  selections: Array<{ key: string; payload: Record<string, unknown> }>,
+) => requestJson<{
+  records: Array<{ key: string; created: boolean; record: DomainRecord }>
+  bundle: CandidateBundle
+}>(`${API_BASE}/candidate-bundles/${bundleId}/confirm`, {
+  method: 'POST',
+  body: JSON.stringify({ expected_version: expectedVersion, selections }),
+})
+export const listExtractionRuns = (sourceId?: string) => requestJson<ExtractionRun[]>(
+  `${API_BASE}/extraction-runs${sourceId ? `?source_id=${encodeURIComponent(sourceId)}` : ''}`,
+)
 export const updateRecord = (id: string, payload: Record<string, unknown>) =>
-  requestJson<DomainRecord>(`/api/v1/records/${id}`, {
+  requestJson<DomainRecord>(`${API_BASE}/records/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   })
 export const setRecordArchived = (id: string, archived: boolean) =>
-  requestJson<DomainRecord>(`/api/v1/records/${id}/${archived ? 'archive' : 'restore'}`, {
+  requestJson<DomainRecord>(`${API_BASE}/records/${id}/${archived ? 'archive' : 'restore'}`, {
     method: 'POST',
   })
 
-export const listSpaces = () => requestJson<SpaceEntry[]>('/api/v1/spaces')
+export const listSpaces = () => requestJson<SpaceEntry[]>(`${API_BASE}/spaces`)
 export const createSpace = (payload: Record<string, unknown>) =>
-  requestJson<SpaceEntry>('/api/v1/spaces', {
+  requestJson<SpaceEntry>(`${API_BASE}/spaces`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })
+export const deleteSpace = (id: string) =>
+  requestJson<void>(`${API_BASE}/spaces/${id}`, { method: 'DELETE' })
 
 export type EntityType = 'materials' | 'vendors' | 'participants' | 'stages'
 export const listEntities = (type: EntityType) =>
-  requestJson<NamedEntity[]>(`/api/v1/${type}`)
+  requestJson<NamedEntity[]>(`${API_BASE}/${type}`)
 export const createEntity = (type: EntityType, payload: Record<string, unknown>) =>
-  requestJson<NamedEntity>(`/api/v1/${type}`, {
+  requestJson<NamedEntity>(`${API_BASE}/${type}`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })
+export const deleteEntity = (type: EntityType, id: string) =>
+  requestJson<void>(`${API_BASE}/${type}/${id}`, { method: 'DELETE' })
 
 export const listRelations = (recordId?: string) =>
   requestJson<RecordRelation[]>(
-    `/api/v1/record-relations${recordId ? `?record_id=${encodeURIComponent(recordId)}` : ''}`,
+    `${API_BASE}/record-relations${recordId ? `?record_id=${encodeURIComponent(recordId)}` : ''}`,
   )
 export const createRelation = (payload: Record<string, unknown>) =>
-  requestJson<RecordRelation>('/api/v1/record-relations', {
+  requestJson<RecordRelation>(`${API_BASE}/record-relations`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })
 export const removeRelation = (id: string) =>
-  requestJson<void>(`/api/v1/record-relations/${id}`, { method: 'DELETE' })
+  requestJson<void>(`${API_BASE}/record-relations/${id}`, { method: 'DELETE' })
 
 const withQuery = (path: string, params: Record<string, string>) => {
   const query = new URLSearchParams(
@@ -245,18 +330,18 @@ const withQuery = (path: string, params: Record<string, string>) => {
 }
 
 export const getRecord = (id: string) =>
-  requestJson<ProjectionRecord>(`/api/v1/records/${id}`)
+  requestJson<ProjectionRecord>(`${API_BASE}/records/${id}`)
 export const getSource = (id: string) =>
-  requestJson<SourceDetail>(`/api/v1/sources/${id}`)
+  requestJson<SourceDetail>(`${API_BASE}/sources/${id}`)
 export const listRecordAudit = (id: string) =>
-  requestJson<AuditEntry[]>(`/api/v1/audit?target_table=records&target_id=${encodeURIComponent(id)}`)
+  requestJson<AuditEntry[]>(`${API_BASE}/audit?target_table=records&target_id=${encodeURIComponent(id)}`)
 export const getTimeline = (params: Record<string, string> = {}) =>
-  requestJson<TimelineResponse>(withQuery('/api/v1/timeline', params))
+  requestJson<TimelineResponse>(withQuery(`${API_BASE}/timeline`, params))
 export const getLedgerSummary = (params: Record<string, string> = {}) =>
-  requestJson<LedgerResponse>(withQuery('/api/v1/ledger/summary', params))
+  requestJson<LedgerResponse>(withQuery(`${API_BASE}/ledger/summary`, params))
 export const getIssueBoard = (params: Record<string, string> = {}) =>
-  requestJson<IssueBoardResponse>(withQuery('/api/v1/issues/board', params))
+  requestJson<IssueBoardResponse>(withQuery(`${API_BASE}/issues/board`, params))
 export const getSpaceArchive = (id: string) =>
-  requestJson<SpaceArchiveResponse>(`/api/v1/spaces/${id}/archive`)
+  requestJson<SpaceArchiveResponse>(`${API_BASE}/spaces/${id}/archive`)
 export const searchRecords = (params: Record<string, string>) =>
-  requestJson<SearchResponse>(withQuery('/api/v1/search', params))
+  requestJson<SearchResponse>(withQuery(`${API_BASE}/search`, params))

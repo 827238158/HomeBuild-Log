@@ -96,6 +96,21 @@ describe('CoreViews', () => {
     expect(api.getSource).toHaveBeenCalledWith('source-1')
   })
 
+  it('记录详情使用中文关系名称', async () => {
+    const procurement = { ...record, id: 'procurement-1', record_type: 'procurement', title: '花砖采购' }
+    vi.mocked(api.listRelations).mockResolvedValue([{
+      id: 'relation-1', from_record_id: record.id, to_record_id: procurement.id, relation_type: 'produces',
+    }])
+    vi.mocked(api.getRecord).mockImplementation(async (id) => id === procurement.id ? procurement : record)
+
+    render(<CoreViews><p>录入工作台</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
+
+    expect(await screen.findByText('产生 · 花砖采购')).toBeTruthy()
+    expect(screen.queryByText(/produces/)).toBeNull()
+  })
+
   it('账本明确展示采购、支出和待付', async () => {
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '账本' }))

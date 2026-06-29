@@ -1,4 +1,5 @@
 import { getToken, clearToken } from './token'
+import { API_BASE } from './config'
 
 export interface HealthResponse {
   status: 'ok'
@@ -31,7 +32,7 @@ export interface AttachmentResponse {
 }
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
-  const response = await fetch('/api/v1/health', { signal })
+  const response = await fetch(`${API_BASE}/health`, { signal })
   if (!response.ok) {
     throw new Error('本地服务暂不可用')
   }
@@ -39,7 +40,7 @@ export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse>
 }
 
 export async function login(password: string): Promise<LoginResponse> {
-  const response = await fetch('/api/v1/auth/login', {
+  const response = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
@@ -63,7 +64,7 @@ export async function createSource(
   text: string,
   reportedTime?: string,
 ): Promise<SourceResponse> {
-  const response = await fetch('/api/v1/sources', {
+  const response = await fetch(`${API_BASE}/sources`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -88,7 +89,7 @@ export async function uploadAttachment(
   const form = new FormData()
   form.append('file', file)
   const response = await fetch(
-    `/api/v1/attachments?source_id=${encodeURIComponent(sourceId)}`,
+    `${API_BASE}/attachments?source_id=${encodeURIComponent(sourceId)}`,
     {
       method: 'POST',
       headers: authHeaders(),

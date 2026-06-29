@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目已完成阶段 1 本地数据底座和阶段 2 手工记录闭环：阶段 2A 已实现来源、八类正式记录、关系与本地规则确认，阶段 2B 已实现时间线、账本、问题看板、空间档案、基础搜索和统一详情，并由小主亲自验收通过。阶段 3 文本AI、阶段 4 OCR/PWA及阶段 5 稳定化均尚未开始。
+项目已完成阶段 1 本地数据底座和阶段 2 手工记录闭环；阶段 3A 已实现可选 DeepSeek/MiMo 文本提取、持久化候选、待确认箱、人工确认与黄金样本评测，本地规则继续作为无 Key、失败和断网时的兜底。阶段 3B 候选高级编辑、阶段 3C ECharts AI 可视化、阶段 4 OCR/PWA 及阶段 5 稳定化仍待单独授权。
 
 规划基线：个人私用的响应式Web/PWA，Windows本地自托管，React/TypeScript/Vite PWA前端、FastAPI后端、SQLite与本地附件目录、可插拔AI，以及跨模型Agent单写者串行协作。
 
@@ -49,6 +49,44 @@ fastapi dev app/main.py --host 127.0.0.1 --port 8000
 ```
 
 后端健康接口：`http://127.0.0.1:8000/api/v1/health`；OpenAPI文档：`http://127.0.0.1:8000/docs`。
+
+### 文本 AI 配置
+
+AI 默认关闭。推荐先设置环境变量，再将`.local-data/config/secrets.json`中的`ai.enabled`改为`true`；环境变量优先于文件内Key：
+
+```powershell
+$env:DEEPSEEK_API_KEY = "你的 DeepSeek Key"
+$env:MIMO_API_KEY = "你的 MiMo Key"
+```
+
+`secrets.json`的AI区块默认值如下，修改时保留已有管理员密码哈希和JWT密钥：
+
+```json
+{
+  "ai": {
+    "enabled": true,
+    "provider_order": ["deepseek", "mimo"],
+    "timeout_seconds": 30,
+    "temperature": 0.3,
+    "providers": {
+      "deepseek": {
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-v4-flash",
+        "auth_style": "bearer",
+        "api_key": ""
+      },
+      "mimo": {
+        "base_url": "https://api.xiaomimimo.com/v1",
+        "model": "mimo-v2.5-pro",
+        "auth_style": "api-key",
+        "api_key": ""
+      }
+    }
+  }
+}
+```
+
+未配置任何Key时服务仍正常启动，`auto`自动使用本地规则。真实黄金样本评测命令见`docs/samples/ai-evaluation/README.md`。
 
 ### 前端
 

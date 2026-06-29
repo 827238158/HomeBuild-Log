@@ -49,14 +49,17 @@ Project
 
 ### ExtractionRun
 
-- 记录模型/适配器、运行时间、输入范围、状态、错误和输出版本。
-- 同一来源允许多次运行；新结果不会删除旧结果。
+- 一行表示一次引擎尝试；同一请求的DeepSeek、MiMo和本地回退使用相同`request_id`及递增`attempt_no`。
+- 保存请求模式、供应商/模型、状态、完整prompt/原始响应、耗时、token和错误；密钥永不落库。
+- 同一来源允许多次运行；新结果不会删除旧结果。列表接口默认不返回prompt和原始响应。
 
 ### CandidateBundle
 
-- 聚合一次提取产生的候选记录、待补充问题、冲突和重复提示。
-- 状态：`pending`、`partially_confirmed`、`confirmed`、`rejected`、`superseded`。
-- 候选字段分别保存值、证据、确定性和用户确认状态。
+- 聚合一次成功提取产生的候选记录、关系、待补充问题和警告，并关联成功的`ExtractionRun`。
+- 阶段3A状态：`pending`、`partially_confirmed`、`confirmed`、`superseded`；`rejected`保留给阶段3B。
+- `version`用于乐观并发；重新提取创建新包并把旧活动包标为`superseded`，不覆盖JSON。
+- 每个候选保存稳定键、类型、摘要、证据、确定性、载荷、缺失字段、`active/deferred/confirmed`处理状态及正式记录ID。
+- 确定性统一为`explicit`、`inferred`、`calculated`、`uncertain`、`missing`；本地规则`likely`在包装层映射为`inferred`。
 
 ## RecordBase公共语义
 
@@ -180,6 +183,7 @@ Project
 ### Space
 
 - 层级：项目/房屋 → 房间 → 局部构件或表面。
+- 默认项目始终至少保留一个根房屋；没有根房屋的旧数据升级时创建“整套房屋”，并将原有无上级的非房屋空间归入其中。
 - 首版用父子关系表达卫生间、淋浴区、墙面、壁龛等层级。
 - 空间拆改通过事件和决策记录，不在首版实现完整几何版本历史。
 

@@ -4,9 +4,55 @@ import hashlib
 import json
 import os
 import secrets
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 CONFIG_FILE_NAME = "secrets.json"
+
+
+@dataclass(frozen=True)
+class AIProviderConfig:
+    """单个 OpenAI 兼容供应商的有效配置。"""
+
+    name: str
+    base_url: str
+    model: str
+    auth_style: str
+    api_key: str
+
+
+@dataclass(frozen=True)
+class AIConfig:
+    """外部文本 AI 的运行时配置。"""
+
+    enabled: bool
+    provider_order: tuple[str, ...]
+    timeout_seconds: float
+    temperature: float
+    providers: dict[str, AIProviderConfig]
+
+
+DEFAULT_AI_CONFIG: dict[str, Any] = {
+    "enabled": False,
+    "provider_order": ["deepseek", "mimo"],
+    "timeout_seconds": 30,
+    "temperature": 0.3,
+    "providers": {
+        "deepseek": {
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-v4-flash",
+            "auth_style": "bearer",
+            "api_key": "",
+        },
+        "mimo": {
+            "base_url": "https://api.xiaomimimo.com/v1",
+            "model": "mimo-v2.5-pro",
+            "auth_style": "api-key",
+            "api_key": "",
+        },
+    },
+}
 
 
 def _hash_password(password: str) -> str:
@@ -55,6 +101,7 @@ class SecretsConfig:
         data = {
             "admin_password_hash": _hash_password(admin_password),
             "jwt_secret": jwt_secret,
+            "ai": DEFAULT_AI_CONFIG,
         }
 
         self._config_dir.mkdir(parents=True, exist_ok=True)
@@ -76,6 +123,56 @@ class SecretsConfig:
         """返回 JWT 签发密钥。"""
         return self._load()["jwt_secret"]
 
-    def _load(self) -> dict[str, str]:
+    def get_ai_config(self) -> AIConfig:
+        """读取 AI 配置，并让环境变量中的 Key 覆盖文件值。"""
+        data = self._load()
+        raw_ai = data.get("ai")
+        if not isinstance(raw_ai, dict):
+            raw_ai = {}
+
+        raw_order = raw_ai.get("provider_order", DEFAULT_AI_CONFIG["provider_order"])
+        if not isinstance(raw_order, list):
+            raw_order = DEFAULT_AI_CONFIG["provider_order"]
+        provider_order = tuple(
+            str(item).lower()
+            for item in raw_order
+            if isinstance(item, str) and item.strip()
+        )
+        raw_providers = raw_ai.get("providers")
+        if not isinstance(raw_providers, dict):
+            raw_providers = {}
+
+        providers: dict[str, AIProviderConfig] = {}
+        defaults_by_provider = DEFAULT_AI_CONFIG["providers"]
+        for name in provider_order:
+            defaults = defaults_by_provider.get(name)
+            if not isinstance(defaults, dict):
+                continue
+            configured = raw_providers.get(name)
+            if not isinstance(configured, dict):
+                configured = {}
+            api_key = os.getenv(f"{name.upper()}_API_KEY") or str(
+                configured.get("api_key", defaults["api_key"])
+            )
+            providers[name] = AIProviderConfig(
+                name=name,
+                base_url=str(configured.get("base_url", defaults["base_url"])).rstrip("/"),
+                model=str(configured.get("model", defaults["model"])),
+                auth_style=str(configured.get("auth_style", defaults["auth_style"])),
+                api_key=api_key.strip(),
+            )
+
+        requested_enabled = bool(raw_ai.get("enabled", DEFAULT_AI_CONFIG["enabled"]))
+        timeout_seconds = max(1.0, min(120.0, float(raw_ai.get("timeout_seconds", 30))))
+        temperature = max(-2.0, min(2.0, float(raw_ai.get("temperature", 0.3))))
+        return AIConfig(
+            enabled=requested_enabled and any(provider.api_key for provider in providers.values()),
+            provider_order=provider_order,
+            timeout_seconds=timeout_seconds,
+            temperature=temperature,
+            providers=providers,
+        )
+
+    def _load(self) -> dict[str, Any]:
         with open(self._file_path, encoding="utf-8") as f:
             return json.load(f)

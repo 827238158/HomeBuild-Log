@@ -1,0 +1,13 @@
+{
+  "sample_id": "003",
+  "text": "飘窗和壁龛后续待现场规划如何铺贴，是用花砖还是普通砖，目前还没确定。",
+  "records": [
+    {"golden_id": "003-todo", "record_type": "todo", "certainty": "explicit", "match": {"status": "pending"}},
+    {"golden_id": "003-decision", "record_type": "decision", "certainty": "uncertain", "match": {"status": "pending"}},
+    {"golden_id": "003-research", "record_type": "research", "certainty": "inferred", "match": {"status": "comparing"}}
+  ],
+  "relations": [
+    {"from": "003-research", "to": "003-decision", "relation_type": "produces"},
+    {"from": "003-todo", "to": "003-decision", "relation_type": "blocks"}
+  ]
+}

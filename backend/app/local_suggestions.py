@@ -4,16 +4,7 @@ import hashlib
 import re
 from typing import Any
 
-TYPE_LABELS = {
-    "event": "事件",
-    "ledger": "账目",
-    "issue": "施工问题",
-    "measurement": "尺寸",
-    "decision": "决策",
-    "procurement": "采购",
-    "research": "调研",
-    "todo": "待办",
-}
+from app.core.constants import TYPE_LABELS
 
 AMOUNT_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*元")
 DIMENSION_PATTERN = re.compile(

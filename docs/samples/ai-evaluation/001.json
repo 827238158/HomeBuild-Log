@@ -1,0 +1,17 @@
+{
+  "sample_id": "001",
+  "text": "6.27，在光彩大市场选购一上午，最终选定卫生间淋浴区花砖花色，共计18片60*120cm的花砖，老板承诺送货上门。共计1100元，已交500元款项。",
+  "records": [
+    {"golden_id": "001-event", "record_type": "event", "certainty": "explicit", "match": {"event_kind": "shopping"}},
+    {"golden_id": "001-decision", "record_type": "decision", "certainty": "explicit", "match": {"status": "confirmed"}},
+    {"golden_id": "001-procurement", "record_type": "procurement", "certainty": "explicit", "match": {"item_name": "花砖", "quantity": 18, "order_total_minor": 110000}},
+    {"golden_id": "001-ledger", "record_type": "ledger", "certainty": "explicit", "match": {"amount_minor": 50000, "direction": "expense"}},
+    {"golden_id": "001-todo", "record_type": "todo", "certainty": "uncertain", "match": {"status": "waiting"}}
+  ],
+  "relations": [
+    {"from": "001-event", "to": "001-decision", "relation_type": "produces"},
+    {"from": "001-decision", "to": "001-procurement", "relation_type": "implements"},
+    {"from": "001-ledger", "to": "001-procurement", "relation_type": "pays_for"},
+    {"from": "001-todo", "to": "001-procurement", "relation_type": "tracks_delivery"}
+  ]
+}

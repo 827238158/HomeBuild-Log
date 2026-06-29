@@ -9,7 +9,7 @@
 
 ## 项目定位与当前阶段
 - 本项目为装修事件与知识管理系统，代号 `HomeBuild Log`。
-- 阶段 2 已完成；下一候选任务为阶段 3 文本AI录入。
+- 阶段 3A 已完成；下一候选任务为阶段 3B 候选高级处理。
 - 技术基线：React/TypeScript/Vite PWA、FastAPI、SQLite、本地附件目录。
 - 产品范围以 `docs/00-project-spec.md` 为准；概念模块与数据流以 `docs/01-architecture.md` 为准。
 
@@ -35,7 +35,7 @@
 ## Review 要求
 - 任务完成后必须执行 `checklists/implementation-review.md`（逐条对照）。
 - 如涉及规则、架构、API、流程变化，检查 `checklists/docs-update.md`。
-- 任务完成后审查以下文件过期风险：`tasks/README.md`、`docs/08-roadmap-agent-collaboration.md`、`docs/05-decisions.md`。
+- 任务完成后审查以下文件过期风险：`tasks/README.md`、`docs/08-roadmap-agent-collaboration.md`、`docs/05-decisions.md`、`tasks/AGENT-ACTIVITY-LOG.md`。
 
 ## 本地环境
 - 默认 Python：Conda `base` 环境的 `D:\Anaconda\python.exe`，对应 pip。
