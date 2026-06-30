@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
 from app.ai_adapter import (
     AIAdapterFailure,
@@ -18,6 +19,7 @@ from app.ai_adapter import (
 from app.core.config import AIProviderConfig, SecretsConfig, _hash_password
 from app.core.paths import build_storage_paths, ensure_storage_directories
 from app.db import Base, create_database_engine
+from app.domain_models import CandidateBundle
 from app.main import create_app
 
 
@@ -69,6 +71,16 @@ def test_auto_without_key_persists_local_bundle_and_run(client: TestClient) -> N
     assert bundle["engine"] == "local-rule-v1"
     assert bundle["fallback_reason"] == "AI_NOT_CONFIGURED"
     assert bundle["suggestions"]
+    assert "questions" not in bundle
+
+    # 历史 JSON 即使残留 questions，读取接口也必须过滤该废弃协议字段。
+    with Session(client.app.state.engine) as db:
+        stored = db.get(CandidateBundle, bundle["id"])
+        assert stored is not None
+        stored.bundle_json = {**stored.bundle_json, "questions": ["旧版追问"]}
+        db.commit()
+    legacy_bundle = client.get(f"/api/v1/candidate-bundles/{bundle['id']}").json()
+    assert "questions" not in legacy_bundle
     runs = client.get(f"/api/v1/extraction-runs?source_id={source_id}").json()
     assert [(run["engine"], run["status"]) for run in runs] == [
         ("local-rule-v1", "succeeded")
@@ -263,7 +275,6 @@ def test_openai_adapter_uses_provider_auth_and_parses_json(
                                         }
                                     ],
                                     "relations": [],
-                                    "questions": [],
                                     "warnings": [],
                                 },
                                 ensure_ascii=False,

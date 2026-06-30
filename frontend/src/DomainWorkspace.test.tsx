@@ -45,7 +45,7 @@ const explicitBundle = {
   requested_engine: 'auto' as const, engine: 'local-rule-v1', fallback_reason: null,
   status: 'pending' as const, version: 1, created_at: '2026-06-29T10:00:00+08:00',
   source_revision: 1,
-  updated_at: '2026-06-29T10:00:00+08:00', relations: [], questions: [], warnings: [],
+  updated_at: '2026-06-29T10:00:00+08:00', relations: [], warnings: [],
   suggestions: [{
     key: 'issue:1', record_type: 'issue', type_label: '施工问题',
     summary: '主卧门口地砖有一处破裂', evidence: source.original_text,
@@ -159,16 +159,46 @@ describe('DomainWorkspace', () => {
     expect(screen.getByRole('heading', { name: '智能拆分' })).toBeTruthy()
     expect(await screen.findByText('施工问题：主卧门口地砖有一处破裂')).toBeTruthy()
     const checkbox = screen.getByRole('checkbox') as HTMLInputElement
+    const confirmButton = screen.getByRole('button', { name: '确认所选' }) as HTMLButtonElement
     expect(checkbox.checked).toBe(true)
+    expect(confirmButton.disabled).toBe(false)
+    fireEvent.click(checkbox)
+    expect(confirmButton.disabled).toBe(true)
+    fireEvent.click(checkbox)
+    expect(confirmButton.disabled).toBe(false)
     fireEvent.change(screen.getAllByText('标题')[0].closest('label')!.querySelector('input')!, {
       target: { value: '主卧地砖破裂' },
     })
-    fireEvent.click(screen.getByText('确认所选'))
+    fireEvent.click(confirmButton)
 
     await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
     expect(vi.mocked(api.confirmCandidateBundle).mock.calls[0][2][0]).toMatchObject({
       key: 'issue:1', payload: { title: '主卧地砖破裂' },
     })
+  })
+
+  it('全部候选已确认时禁用按钮，添加未确认手工记录后恢复', async () => {
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({
+      ...explicitBundle,
+      status: 'confirmed',
+      suggestions: [{
+        ...explicitBundle.suggestions[0],
+        review_state: 'confirmed',
+        confirmed_record_id: 'record-1',
+      }],
+    })
+    render(<DomainWorkspace refreshKey={0} />)
+
+    await screen.findByText('施工问题：主卧门口地砖有一处破裂')
+    const confirmButton = screen.getByRole('button', { name: '确认所选' }) as HTMLButtonElement
+    expect(confirmButton.disabled).toBe(true)
+
+    fireEvent.click(screen.getByText('+ 添加手工记录'))
+    expect(confirmButton.disabled).toBe(false)
+
+    const manualPanel = screen.getAllByLabelText('标题').at(-1)!.closest('article')!
+    fireEvent.click(within(manualPanel).getByText('移除'))
+    expect(confirmButton.disabled).toBe(true)
   })
 
   it('不确定建议默认也会勾选', async () => {
@@ -311,7 +341,8 @@ describe('DomainWorkspace', () => {
       to_record_id: procurement.id,
       relation_type: 'pays_for',
     }))
-    fireEvent.click(screen.getByText('移除'))
+    const relationList = screen.getByText('已有记录关联').closest('.relation-list') as HTMLElement
+    fireEvent.click(within(relationList).getByText('移除'))
     await waitFor(() => expect(api.removeRelation).toHaveBeenCalledWith('relation-1'))
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('可能影响账本待付'))
     expect(screen.queryByText('pays_for')).toBeNull()
@@ -338,14 +369,34 @@ describe('DomainWorkspace', () => {
     fireEvent.click(screen.getByText('+ 添加手工记录'))
     expect(screen.getAllByLabelText('标题').length).toBe(2)
 
-    const removeButton = screen.getByText('移除')
-    fireEvent.click(removeButton)
+    const panels = screen.getAllByLabelText('标题')
+    const manualPanel = panels.at(-1)!.closest('article')!
+    fireEvent.click(within(manualPanel).getByText('移除'))
 
     await waitFor(() => expect(screen.getAllByLabelText('标题').length).toBe(1))
     fireEvent.click(screen.getByText('确认所选'))
 
     await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
     expect(api.createRecord).not.toHaveBeenCalled()
+  })
+
+  it('AI 候选记录也可本地移除且不提交已移除项', async () => {
+    render(<DomainWorkspace refreshKey={0} />)
+    await screen.findByText('施工问题：主卧门口地砖有一处破裂')
+
+    fireEvent.click(screen.getByText('+ 添加手工记录'))
+    expect(screen.getAllByLabelText('标题').length).toBe(2)
+
+    const panels = screen.getAllByLabelText('标题')
+    const aiPanel = panels[0]!.closest('article')!
+    fireEvent.click(within(aiPanel).getByText('移除'))
+
+    await waitFor(() => expect(screen.queryByText('施工问题：主卧门口地砖有一处破裂')).toBeNull())
+    expect(screen.getAllByLabelText('标题').length).toBe(1)
+    fireEvent.click(screen.getByText('确认所选'))
+
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalled())
+    expect(api.confirmCandidateBundle).not.toHaveBeenCalled()
   })
 
   it('从原始来源创建可追溯的待办记录', async () => {

@@ -492,12 +492,12 @@ h1 {
 }
 
 .secondary-button {
-  padding: 6px 10px;
+  padding: 10px 22px;
   border: 1px solid rgb(83 76 63 / 18%);
-  border-radius: 7px;
+  border-radius: 10px;
   background: #fffdf8;
   color: #6e6657;
-  font-size: 0.8rem;
+  font-size: 0.92rem;
   cursor: pointer;
 }
 

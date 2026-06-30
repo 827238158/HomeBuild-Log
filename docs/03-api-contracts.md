@@ -2,7 +2,7 @@
 
 > 本文是未来开发合同，不代表接口已经实现。任何实现任务必须先核对当前框架文档和本文版本。
 
-当前已实现：健康、登录、来源/附件、审计、八类正式记录与关系、阶段2B核心投影，以及阶段3A文本AI提取、持久化候选和原子确认。候选追问/拆分/合并/拒绝、OCR任务、离线同步和导出恢复仍是未来开发合同。
+当前已实现：健康、登录、来源/附件、审计、八类正式记录与关系、阶段2B核心投影，以及阶段3A文本AI提取、持久化候选和原子确认。阶段3B全项目数据可视化、OCR任务、离线同步和导出恢复仍是未来开发合同。
 
 ## 通用约定
 
@@ -34,9 +34,8 @@
 ### CandidateBundle
 
 - `id`、`source_id`、`source_revision`、`extraction_run_id`。
-- `status`：`pending`、`partially_confirmed`、`confirmed`、`rejected`或`superseded`。
+- `status`：`pending`、`partially_confirmed`、`confirmed`或`superseded`。
 - `candidates`：候选记录列表。
-- `questions`：需要用户补充或确认的问题。
 - `warnings`：冲突、重复、低确定性和推算提示。
 
 每个候选字段包含：
@@ -44,7 +43,7 @@
 - `value`：候选值。
 - `evidence`：原文片段或附件区域引用。
 - `certainty`：`explicit`、`inferred`、`calculated`、`uncertain`或`missing`。
-- `confirmation`：`pending`、`confirmed`、`corrected`或`rejected`。
+- `confirmation`：`pending`、`confirmed`或`corrected`。
 
 ### RecordBase
 
@@ -89,9 +88,16 @@
 - `POST /candidate-bundles/{id}/confirm`：原子确认所选候选。
 - `GET /extraction-runs`返回不含prompt/原始响应的运行元数据；`GET /extraction-runs/{id}?include_raw=true`才显式返回本地审计原文。
 
-阶段3B再扩展候选追问、拆分、合并和拒绝语义；阶段3A不假装支持这些操作。
-
 确认接口必须返回创建的记录ID、关系ID、仍未确认项和审计事件ID。任何一项失败时整体回滚。
+
+### 阶段3B全项目数据可视化接口（计划）
+
+- `GET /timeline`、`GET /ledger/summary`、`GET /issues/board`和`GET /spaces/{id}/archive`在保持现有明细结构的基础上增加`analytics`，聚合结果必须应用与明细相同的日期、空间、阶段和状态筛选。
+- `GET /records/analytics`按`record_type`、日期、空间、阶段和状态返回摘要、状态分布、时间趋势及类型专属统计；统一记录分析页使用该接口切换八类正式记录。
+- `GET /ai-analytics/overview?range=7d|30d|90d|all`返回请求数、成功率、回退率、平均耗时、总token、趋势、最终引擎和错误类型聚合，默认`30d`。
+- `GET /ai-analytics/runs`返回按`request_id`分组的安全明细，包括时间、请求方式、最终模型、结果、回退、总耗时、token和错误摘要，不得返回完整prompt、原始响应或API Key。
+- AI请求以唯一`request_id`计数；任一尝试成功即成功，全部失败才失败；只有非空`fallback_reason`计回退，主动本地模式不计回退；耗时按请求内尝试合计，缺失token不按零统计，日期按北京时间聚合。
+- 所有图表只消费服务端聚合结果，前端不得重新实现账本金额、空间继承或问题状态口径。
 
 ### 领域记录与共享实体
 

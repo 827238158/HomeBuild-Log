@@ -39,3 +39,6 @@
 | 2026-06-30 | 智能拆分区域文案优化 | deepseek-v4-pro (opencode) | 按钮状态驱动（有候选=重新分析/无候选=分析）；模型标签从标题行移入状态行括号后缀；移除「高级选项」label、只保留 select 下拉；lint 通过、35 项测试全通过 | 已完成 |
 | 2026-06-30 | 智能拆分状态文案微调 | deepseek-v4-pro (opencode) | DomainWorkspace.tsx 状态行删除「等待确认」（因卡片已显示确认状态，面板重复提示误导） | 已完成 |
 | 2026-06-30 | 分析按钮缩小与下拉框高度对齐 | deepseek-v4-pro | 调整职能拆分区域组件布局 | 已完成 |
+| 2026-06-30 | 修复录入按钮对齐与 AI 候选移除逻辑 | Kimi Code CLI | App.tsx 保存/保存并分析按钮统一 source-action-btn 样式；DomainWorkspace.tsx 将 removeManualSuggestion 泛化为 removeSuggestion，未确认 AI 候选也显示移除按钮；styles.css 统一按钮高度、字体、圆角；更新 2 个现有测试选择器并新增 1 个 AI 移除测试；前端 lint/build/36 项测试通过 | 已完成 |
+| 2026-06-30 | 重构阶段 3B 规划并清理候选 questions 协议 | GPT-5 Codex | 停用候选包顶层 questions 并兼容过滤历史 JSON；删除旧候选高级处理与独立 3C 规划，将阶段 3B 重构为覆盖八类记录、核心视图和 AI 运行的全项目数据可视化 | 已完成 |
+| 2026-06-30 | 优化“确认所选”按钮禁用状态 | GPT-5 Codex | 仅在存在已勾选且未确认的AI或手工记录时启用确认按钮；补齐全部确认、取消勾选及手工记录增删测试，前端lint与37项测试通过 | 已完成 |

@@ -502,7 +502,8 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
     })
   }
 
-  const removeManualSuggestion = (key: string) => {
+  const removeSuggestion = (key: string) => {
+    // 本地移除未确认的候选记录；已确认项对应正式记录，需到已保存记录中删除。
     setSuggestions((current) => current.filter((item) => item.key !== key))
     setSelectedKeys((current) => {
       const next = new Set(current)
@@ -742,6 +743,11 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
     }
   }
 
+  // 只有已勾选且尚未生成正式记录的候选，才属于当前可提交内容。
+  const hasSelectedUnconfirmed = suggestions.some(
+    (item) => selectedKeys.has(item.key) && !item.confirmed_record_id,
+  )
+
   return (
     <section className="domain-workspace" aria-labelledby="domain-title">
       <div className="section-heading">
@@ -862,7 +868,7 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
                 />
                 <strong>{suggestion.type_label}：{suggestion.summary}</strong>
               </label>
-              {isManual && !confirmed && <button className="suggestion-remove" type="button" onClick={() => removeManualSuggestion(suggestion.key)}>移除</button>}
+              {!confirmed && <button className="suggestion-remove" type="button" onClick={() => removeSuggestion(suggestion.key)}>移除</button>}
             </div>
             <p>原文依据：{suggestion.evidence}</p>
             <p>{confirmed ? '已确认并生成正式记录' : `可信程度：${suggestion.certainty_label}`}</p>
@@ -982,7 +988,7 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
           </article>
         })}
         {suggestions.length > 0 && <div className="suggestion-actions">
-          <button className="source-save" type="button" disabled={confirming} onClick={() => void confirmSelected()}>{confirming ? '正在确认…' : '确认所选'}</button>
+          <button className="source-save" type="button" disabled={confirming || !hasSelectedUnconfirmed} onClick={() => void confirmSelected()}>{confirming ? '正在确认…' : '确认所选'}</button>
           <button className="add-manual-suggestion" type="button" onClick={addManualSuggestion}>+ 添加手工记录</button>
         </div>}
         {suggestions.length === 0 && !analyzing && sourceId && <div className="suggestion-actions">

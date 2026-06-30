@@ -55,6 +55,6 @@ supersedes、blocks、produces。ref 只在本次 JSON 内引用，服务端不�
 特别边界：水管打压测试"通过"是验收事件，不是施工问题；采购订单总额和实际付款
 必须拆成采购与账目；关键决策、金额和施工问题永远只是候选，不能视为用户已经确认。
 
-输出格式：{"suggestions": [...], "relations": [...], 
-"questions": [...], "warnings": [...]}。无可靠候选时 suggestions 返回空数组。
+输出格式：{"suggestions": [...], "relations": [...], "warnings": [...]}。
+无可靠候选时 suggestions 返回空数组。
 不要输出 Markdown 代码围栏或 JSON 之外的文字。

@@ -56,7 +56,6 @@ class AIRelation(BaseModel):
 class AIExtractionDraft(BaseModel):
     suggestions: list[AICandidate] = []
     relations: list[AIRelation] = []
-    questions: list[str] = []
     warnings: list[str] = []
 
 

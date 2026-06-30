@@ -56,8 +56,8 @@ Project
 
 ### CandidateBundle
 
-- 聚合一次成功提取产生的候选记录、关系、待补充问题和警告，并关联成功的`ExtractionRun`。
-- 阶段3A状态：`pending`、`partially_confirmed`、`confirmed`、`superseded`；`rejected`保留给阶段3B。
+- 聚合一次成功提取产生的候选记录、关系和警告，并关联成功的`ExtractionRun`；废弃的顶层`questions`不再写入或返回。
+- 状态：`pending`、`partially_confirmed`、`confirmed`、`superseded`。
 - `version`用于乐观并发；重新提取创建新包并把旧活动包标为`superseded`，不覆盖JSON。
 - `source_revision`固定候选生成时的来源版本；与当前来源版本不一致的候选不得确认。
 - 每个候选保存稳定键、类型、摘要、证据、确定性、载荷、缺失字段、`active/deferred/confirmed`处理状态及正式记录ID。

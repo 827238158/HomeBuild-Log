@@ -286,7 +286,7 @@ describe('App', () => {
           json: async () => ({
             id: 'bundle-3', source_id: 'source-3', extraction_run_id: 'run-3',
             engine: 'local-rule-v1', fallback_reason: null, version: 1,
-            suggestions: [], relations: [], questions: [], warnings: [],
+            suggestions: [], relations: [], warnings: [],
           }),
         })
       }

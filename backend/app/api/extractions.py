@@ -63,6 +63,8 @@ def _now() -> datetime:
 
 def _bundle_json(bundle: CandidateBundle) -> dict[str, Any]:
     content = copy.deepcopy(bundle.bundle_json)
+    # 兼容历史候选包：旧版 questions 追问协议已停用，不再对外返回。
+    content.pop("questions", None)
     return {
         "id": bundle.id,
         "source_id": bundle.source_id,
@@ -162,7 +164,6 @@ def _local_bundle_content(db: Session, source: SourceEntry) -> dict[str, Any]:
     return {
         "suggestions": suggestions,
         "relations": local["relations"],
-        "questions": [],
         "warnings": [],
     }
 
@@ -236,7 +237,6 @@ def _ai_bundle_content(
     return {
         "suggestions": suggestions,
         "relations": relations,
-        "questions": draft.questions,
         "warnings": warnings,
     }
 
@@ -452,7 +452,7 @@ def create_extraction(
             run=successful_run,
             requested_engine=engine,
             content=content
-            or {"suggestions": [], "relations": [], "questions": [], "warnings": []},
+            or {"suggestions": [], "relations": [], "warnings": []},
             fallback_reason="；".join(failures) if failures else None,
         )
         result = _bundle_json(bundle)

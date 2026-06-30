@@ -194,7 +194,6 @@ export interface CandidateBundle {
   updated_at: string
   suggestions: CandidateSuggestion[]
   relations: Array<{ from_key: string; to_key: string; relation_type: string }>
-  questions: string[]
   warnings: string[]
 }
 
