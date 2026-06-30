@@ -15,6 +15,17 @@
 4. 在`tasks/README.md`登记状态、在`tasks/AGENT-ACTIVITY-LOG.md`添加活动记录，并在`tasks/ACTIVE.md`认领唯一写入权。
 5. 只读取`Need:`中的资料；信息不足时再进行下一轮按需检索。
 
+## 轻量改动流程
+
+改动 ≤10 文件且不涉及架构/API/DB schema/新模块时，采用精简流程：
+1. 读取 `AGENTS.md` 确认规则
+2. 读取 `tasks/ACTIVE.md`，认领写入权，登记当前 Agent 和任务简述
+3. 执行修改
+4. 在 `tasks/AGENT-ACTIVITY-LOG.md` 追加记录（日期、任务描述、执行 Agent、改动摘要、状态）
+5. 释放 `tasks/ACTIVE.md` 写入权
+
+轻量改动不需要创建独立任务文件、不执行完整 checklist review、不检查全部过期文档。
+
 ## 执行与验证
 
 1. 小步修改，不把范围外重构混入当前任务。

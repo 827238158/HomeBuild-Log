@@ -19,6 +19,8 @@ export interface SourceResponse {
   original_text: string | null
   captured_at: string
   reported_time_text: string | null
+  updated_at: string
+  revision: number
 }
 
 export interface AttachmentResponse {

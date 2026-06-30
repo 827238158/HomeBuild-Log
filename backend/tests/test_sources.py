@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -61,6 +62,8 @@ class TestSourcesAPI:
         assert data["original_text"] == "今天去看了瓷砖"
         assert data["reported_time_text"] == "2026-06-28"
         assert data["input_type"] == "text"
+        assert data["revision"] == 1
+        assert datetime.fromisoformat(data["captured_at"]).utcoffset() is not None
 
     def test_create_source_without_text(self):
         client = _make_client()
@@ -168,3 +171,131 @@ class TestAttachmentsAPI:
         )
         assert response.status_code == 201
         assert response.json()["source_id"] == source_id
+
+
+class TestSourceMaintenance:
+    @staticmethod
+    def _event(client: TestClient, title: str, source_ids: list[str]) -> dict:
+        response = client.post(
+            "/api/v1/records",
+            json={
+                "record_type": "event",
+                "title": title,
+                "status": "occurred",
+                "event_kind": "site_visit",
+                "source_refs": [
+                    {"source_id": source_id, "evidence_excerpt": title}
+                    for source_id in source_ids
+                ],
+            },
+        )
+        assert response.status_code == 201, response.text
+        return response.json()
+
+    def test_update_marks_records_for_review_and_review_clears_flag(self):
+        client = _make_client()
+        source = client.post(
+            "/api/v1/sources", json={"original_text": "旧原文"}
+        ).json()
+        record = self._event(client, "现场查看", [source["id"]])
+
+        updated = client.patch(
+            f"/api/v1/sources/{source['id']}",
+            json={"original_text": "修正后的原文"},
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["revision"] == 2
+        stale = client.get(f"/api/v1/records/{record['id']}").json()
+        assert stale["source_refs"][0]["needs_review"] is True
+
+        reviewed = client.post(
+            f"/api/v1/records/{record['id']}/source-reviews/{source['id']}"
+        )
+        assert reviewed.status_code == 200, reviewed.text
+        assert reviewed.json()["source_refs"][0]["needs_review"] is False
+        audits = client.get(
+            f"/api/v1/audit?target_table=records&target_id={record['id']}"
+        ).json()
+        assert "review_source" in {entry["action"] for entry in audits}
+
+    def test_api_returns_occurred_date_and_aware_audit_time(self):
+        client = _make_client()
+        source = client.post(
+            "/api/v1/sources", json={"original_text": "北京时间测试"}
+        ).json()
+        record = client.post(
+            "/api/v1/records",
+            json={
+                "record_type": "event",
+                "title": "上午八点进场",
+                "status": "occurred",
+                "event_kind": "construction_start",
+                "occurred_date": "2026-06-28",
+                "source_refs": [{"source_id": source["id"]}],
+            },
+        )
+        assert record.status_code == 201, record.text
+        projected = client.get(f"/api/v1/records/{record.json()['id']}").json()
+        assert projected["occurred_date"] == "2026-06-28"
+        audit = client.get("/api/v1/audit?limit=1").json()[0]
+        assert datetime.fromisoformat(audit["timestamp"]).utcoffset() is not None
+
+    def test_safe_cascade_deletes_exclusive_record_and_detaches_shared_record(self):
+        client = _make_client()
+        first = client.post(
+            "/api/v1/sources", json={"original_text": "无用来源"}
+        ).json()
+        second = client.post(
+            "/api/v1/sources", json={"original_text": "保留来源"}
+        ).json()
+        exclusive = self._event(client, "独占记录", [first["id"]])
+        shared = self._event(client, "共享记录", [first["id"], second["id"]])
+        relation = client.post(
+            "/api/v1/record-relations",
+            json={
+                "from_record_id": exclusive["id"],
+                "to_record_id": shared["id"],
+                "relation_type": "relates_to",
+            },
+        )
+        assert relation.status_code == 201, relation.text
+
+        impact = client.get(
+            f"/api/v1/sources/{first['id']}/deletion-impact"
+        ).json()
+        assert impact["exclusive_records"] == 1
+        assert impact["shared_records"] == 1
+        assert impact["affected_relations"] == 1
+
+        deleted = client.delete(f"/api/v1/sources/{first['id']}")
+        assert deleted.status_code == 200, deleted.text
+        assert client.get(f"/api/v1/records/{exclusive['id']}").status_code == 404
+        kept = client.get(f"/api/v1/records/{shared['id']}")
+        assert kept.status_code == 200
+        assert [ref["source_id"] for ref in kept.json()["source_refs"]] == [second["id"]]
+        assert client.get(f"/api/v1/sources/{first['id']}").status_code == 404
+        source_audit = client.get(
+            f"/api/v1/audit?target_table=source_entries&target_id={first['id']}"
+        ).json()
+        assert source_audit[0]["action"] == "delete"
+
+    def test_content_addressed_file_is_removed_only_after_last_reference(self):
+        client = _make_client()
+        first = client.post("/api/v1/sources", json={"original_text": "图一"}).json()
+        second = client.post("/api/v1/sources", json={"original_text": "图二"}).json()
+        content = b"\x89PNG\r\n\x1a\n" + b"same-content"
+        for source in (first, second):
+            response = client.post(
+                f"/api/v1/attachments?source_id={source['id']}",
+                files={"file": ("same.png", io.BytesIO(content), "image/png")},
+            )
+            assert response.status_code == 201, response.text
+        stored_files = list(client.app.state.storage_paths.attachment_originals.iterdir())
+        assert len(stored_files) == 1
+
+        first_delete = client.delete(f"/api/v1/sources/{first['id']}").json()
+        assert first_delete["deleted_physical_files"] == 0
+        assert stored_files[0].exists()
+        second_delete = client.delete(f"/api/v1/sources/{second['id']}").json()
+        assert second_delete["deleted_physical_files"] == 1
+        assert not stored_files[0].exists()

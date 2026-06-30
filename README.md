@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-项目已完成阶段 1 本地数据底座和阶段 2 手工记录闭环；阶段 3A 已实现可选 DeepSeek/MiMo 文本提取、持久化候选、待确认箱、人工确认与黄金样本评测，本地规则继续作为无 Key、失败和断网时的兜底。阶段 3B 候选高级编辑、阶段 3C ECharts AI 可视化、阶段 4 OCR/PWA 及阶段 5 稳定化仍待单独授权。
+项目已完成阶段 1 本地数据底座和阶段 2 手工记录闭环；阶段 3A 已实现可选 DeepSeek/MiMo 文本提取、持久化候选、人工确认与黄金样本评测，本地规则继续作为无 Key、失败和断网时的兜底。阶段 3B 前置维护已补齐来源维护、正式记录详细修改/删除、来源版本复核和发生日期语义；阶段 3B 候选高级编辑、阶段 3C ECharts AI 可视化、阶段 4 OCR/PWA 及阶段 5 稳定化仍待单独授权。
 
 规划基线：个人私用的响应式Web/PWA，Windows本地自托管，React/TypeScript/Vite PWA前端、FastAPI后端、SQLite与本地附件目录、可插拔AI，以及跨模型Agent单写者串行协作。
 
@@ -65,7 +65,7 @@ $env:MIMO_API_KEY = "你的 MiMo Key"
 {
   "ai": {
     "enabled": true,
-    "provider_order": ["deepseek", "mimo"],
+    "provider_order": ["mimo", "deepseek"],
     "timeout_seconds": 30,
     "temperature": 0.3,
     "providers": {

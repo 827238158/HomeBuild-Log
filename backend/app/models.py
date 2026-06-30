@@ -4,10 +4,11 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+from app.db_types import UTCDateTime
 
 if TYPE_CHECKING:
     pass
@@ -31,9 +32,13 @@ class SourceEntry(Base):
     input_type: Mapped[str] = mapped_column(String(16), nullable=False, default="text")
     original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     captured_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utcnow
+        UTCDateTime(), nullable=False, default=_utcnow
     )
     reported_time_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), nullable=False, default=_utcnow
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     attachments: Mapped[list[Attachment]] = relationship(
         "Attachment", back_populates="source", cascade="all, delete-orphan"
@@ -56,7 +61,7 @@ class Attachment(Base):
     sha256_hex: Mapped[str] = mapped_column(String(64), nullable=False)
     storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utcnow
+        UTCDateTime(), nullable=False, default=_utcnow
     )
 
     source: Mapped[SourceEntry | None] = relationship(
@@ -72,7 +77,7 @@ class AuditEntry(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=_utcnow
+        UTCDateTime(), nullable=False, default=_utcnow
     )
     actor: Mapped[str] = mapped_column(String(128), nullable=False, default="admin")
     action: Mapped[str] = mapped_column(String(32), nullable=False)

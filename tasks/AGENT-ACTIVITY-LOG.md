@@ -24,5 +24,18 @@
 | 2026-06-29 | （时间线布局修复） | deepseek-v4-pro | 修复 `.timeline-group` Grid Z 字形交错布局 + 添加连续时间轴线与圆点节点 | 已完成 |
 | 2026-06-29 | （删除待确认流程 + 精简确认按钮） | deepseek-v4-pro | 删除整个待确认/PendingBox 功能、「稍后处理」按钮、「一键确认全部明确项」、「保存候选修改」；保留单个「确认所选」按钮 + 全部未确认条目默认勾选；同步清理前后端相关接口、模型和测试 | 已完成 |
 | 2026-06-29 | 13-entry-archive-ux | GPT-5 Codex | 优化手工录入、空间/共享档案安全删除与记录关系中文说明；全量检查及响应式浏览器验收通过 | 已完成 |
-| 2026-06-29 | 14-ai-entry-default-space-ux | GPT-5 Codex | 优化 AI 录入、默认根空间、材料品牌与正式记录说明；自动化通过，待用户视觉验收 | 待验收 |
+| 2026-06-29 | 14-ai-entry-default-space-ux | GPT-5 Codex | 优化 AI 录入、默认根空间、材料品牌与正式记录说明；自动化和用户视觉验收均通过 | 已完成 |
 | 2026-06-29 | 项目轻量化清理 | deepseek-v4-pro | 删除 ~390MB 缓存/依赖/临时目录与旧备份；新建 constants.py/config.ts/extraction.txt 消除 4 组代码重复与硬编码；前端 API 路径统一为 API_BASE 常量 | 已完成 |
+| 2026-06-29 | 15-unify-ai-manual-entry | Kimi Code CLI | 统一 AI 录入与手工录入体验：工具栏对齐、候选卡片类型下拉、手工追加同形候选、保存并分析入口 | 已完成 |
+| 2026-06-30 | （添加 income 方向 + 记录时间选择与校验） | deepseek-v4-pro | 8 类型 record_schemas 加 income 枚举、VIEWS 账本汇总三向分支、AI prompt/LOCAL_SUGGESTIONS 加收入正则、DomainWorkspace 加 direction 下拉 + 时间日期控件 + 月份精度最低校验、defaultPayload 补 time 字段 | 已完成 |
+| 2026-06-30 | （时间选择器修复 + AI/Local 英文值汉化） | deepseek-v4-pro | 时间输入 date→datetime-local/month 条件渲染、local_suggestions/extractions 英文 kind/event_kind 改中文、extraction.txt 加 event_kind/payment_kind 中文枚举 + 全中文要求、recordLabels.ts 加翻译兜底映射 | 已完成 |
+| 2026-06-30 | 16-source-maintenance-timezone | GPT-5 Codex | 来源编辑/安全级联删除、来源版本复核与北京时间统一 | 已完成 |
+| 2026-06-30 | 轻量改动 — 任务规模分级机制 | deepseek-v4-pro（opencode） | AGENTS.md 新增「任务规模与执行模式」节（≤10文件默认轻量，跳完整 checklists/docs-update/过期审查）；04-dev-workflow 新增「轻量改动流程」；implementation-review/docs-update 顶部加适用范围说明 | 已完成 |
+| 2026-06-30 | 已保存记录详细编辑、删除以及发生年月 | GPT-5 Codex | 新增正式记录详细编辑/二次确认删除；以 occurred_month 替换分钟时间与精度，迁移正式记录/候选JSON并升级真实库至0010；Ruff、后端81项、前端35项、lint/build/audit通过 | 已完成 |
+| 2026-06-30 | 明确 AGENTS.md 轻量化流程 | GPT-5 Codex | 明确所有任务默认轻量化、仅用户指定才启用完整流程；限定三项强制记录，并将测试与 review 改为按风险选择 | 已完成 |
+| 2026-06-30 | 优化智能拆分区域为紧凑 AI 分析面板 | deepseek-v4-pro (opencode) | DomainWorkspace.tsx 重构 suggestion-toolbar → ai-panel 左右双栏布局；styles.css 新增 .ai-panel/.model-label 等样式，移除 engine-badge 胶囊、废弃旧 toolbar 类名；按钮改为「分析」、下拉改为「高级选项」；新增动态状态文案；lint 通过、35 项测试全通过 | 已完成 |
+| 2026-06-30 | 任务 14 用户验收收口 | GPT-5 Codex | 根据小主验收结论，将任务 14、任务总览及原活动记录同步为已完成 | 已完成 |
+| 2026-06-30 | 记录发生时间精确到日 | GPT-5 Codex | 以`occurred_date`替换`occurred_month`，视图改为按日筛选；旧月份值按小主要求留空，备份并升级真实库至0011；Ruff、迁移5项、领域/来源/视图46项、前端lint与35项测试通过 | 已完成 |
+| 2026-06-30 | 智能拆分区域文案优化 | deepseek-v4-pro (opencode) | 按钮状态驱动（有候选=重新分析/无候选=分析）；模型标签从标题行移入状态行括号后缀；移除「高级选项」label、只保留 select 下拉；lint 通过、35 项测试全通过 | 已完成 |
+| 2026-06-30 | 智能拆分状态文案微调 | deepseek-v4-pro (opencode) | DomainWorkspace.tsx 状态行删除「等待确认」（因卡片已显示确认状态，面板重复提示误导） | 已完成 |
+| 2026-06-30 | 分析按钮缩小与下拉框高度对齐 | deepseek-v4-pro | 调整职能拆分区域组件布局 | 已完成 |

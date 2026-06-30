@@ -72,8 +72,7 @@ def test_timeline_preserves_unknown_time_and_groups_related_records() -> None:
             "record_type": "event",
             "title": "选购花砖",
             "status": "occurred",
-            "occurred_at": "2026-06-27T10:00:00+08:00",
-            "time_precision": "date",
+            "occurred_date": "2026-06-28",
             "event_kind": "shopping",
         },
     )
@@ -110,10 +109,11 @@ def test_timeline_preserves_unknown_time_and_groups_related_records() -> None:
     response = client.get("/api/v1/timeline")
     assert response.status_code == 200, response.text
     data = response.json()
-    assert [group["date_key"] for group in data["groups"]] == ["2026-06-27", "unknown"]
+    assert [group["date_key"] for group in data["groups"]] == ["2026-06-28", "unknown"]
+    assert data["groups"][0]["label"] == "2026年6月28日"
     assert data["groups"][0]["items"][0]["related_records"][0]["id"] == decision["id"]
     assert data["groups"][1]["label"] == "时间待补充"
-    assert client.get("/api/v1/timeline?date_from=2026-06-28").json()["total"] == 0
+    assert client.get("/api/v1/timeline?date_from=2026-07-01").json()["total"] == 0
 
 
 def test_ledger_summary_keeps_order_and_cash_flow_semantics_separate() -> None:

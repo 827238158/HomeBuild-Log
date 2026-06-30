@@ -1,6 +1,8 @@
 <!-- project-agent-bootstrap:start -->
 # 文档更新检查
 
+> 轻量改动（≤10 文件且不涉及架构/API/DB schema/模块变更）可跳过本文档更新检查。
+
 - [ ] 产品目标、用户、范围、非目标或验收口径变化时，已更新 `docs/00-project-spec.md`。
 - [ ] 模块、数据流、边界或关键约束变化时，已更新 `docs/01-architecture.md`。
 - [ ] 术语、命名、注释、错误处理或测试规则变化时，已更新 `docs/02-style-guide.md`。

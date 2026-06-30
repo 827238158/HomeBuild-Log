@@ -10,7 +10,6 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     Date,
-    DateTime,
     ForeignKey,
     Integer,
     Numeric,
@@ -22,6 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+from app.db_types import UTCDateTime
 
 DEFAULT_PROJECT_ID = "00000000000000000000000000000001"
 DEFAULT_ROOT_SPACE_ID = "00000000000000000000000000000002"
@@ -60,6 +60,7 @@ record_sources = Table(
     ),
     Column("source_id", String(32), ForeignKey("source_entries.id"), primary_key=True),
     Column("evidence_excerpt", Text, nullable=True),
+    Column("source_revision", Integer, nullable=False, default=1, server_default="1"),
 )
 record_spaces = _association_table("record_spaces", "spaces", "space_id")
 record_materials = _association_table("record_materials", "materials", "material_id")
@@ -73,8 +74,8 @@ class Project(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_id)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
 
 
 class Space(Base):
@@ -88,9 +89,9 @@ class Space(Base):
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
 
 
 class NamedEntityMixin:
@@ -98,8 +99,8 @@ class NamedEntityMixin:
     project_id: Mapped[str] = mapped_column(String(32), ForeignKey("projects.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
 
 
 class Material(NamedEntityMixin, Base):
@@ -136,15 +137,14 @@ class Record(Base):
     origin_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    time_precision: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
+    occurred_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     original_time_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Shanghai")
     stage_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("project_stages.id"))
     status: Mapped[str] = mapped_column(String(32), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     sources = relationship("SourceEntry", secondary=record_sources)
     spaces = relationship("Space", secondary=record_spaces)
@@ -171,8 +171,8 @@ class ExtractionRun(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     prompt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     raw_response: Mapped[str | None] = mapped_column(Text, nullable=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    finished_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -196,9 +196,10 @@ class CandidateBundle(Base):
     engine: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    source_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     bundle_json: Mapped[dict] = mapped_column(JSON, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
 
 
 class EventDetail(Base):
@@ -207,8 +208,8 @@ class EventDetail(Base):
         String(32), ForeignKey("records.id", ondelete="CASCADE"), primary_key=True
     )
     event_kind: Mapped[str] = mapped_column(String(64), nullable=False)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     process: Mapped[str | None] = mapped_column(Text)
     result: Mapped[str | None] = mapped_column(Text)
 
@@ -232,7 +233,7 @@ class IssueDetail(Base):
     record_id: Mapped[str] = mapped_column(
         String(32), ForeignKey("records.id", ondelete="CASCADE"), primary_key=True
     )
-    discovered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    discovered_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     phenomenon: Mapped[str] = mapped_column(Text, nullable=False)
     severity: Mapped[str | None] = mapped_column(String(32))
     responsible_party: Mapped[str | None] = mapped_column(String(200))
@@ -250,7 +251,7 @@ class MeasurementDetail(Base):
     measurement_role: Mapped[str] = mapped_column(String(32), nullable=False)
     approximate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     tolerance_text: Mapped[str | None] = mapped_column(String(200))
-    measured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    measured_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     method: Mapped[str | None] = mapped_column(String(200))
 
 
@@ -276,7 +277,7 @@ class DecisionDetail(Base):
     options_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     selected_option: Mapped[str | None] = mapped_column(Text)
     rationale: Mapped[str | None] = mapped_column(Text)
-    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    confirmed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
 class ProcurementDetail(Base):
@@ -317,11 +318,11 @@ class TodoDetail(Base):
         String(32), ForeignKey("records.id", ondelete="CASCADE"), primary_key=True
     )
     action: Mapped[str] = mapped_column(Text, nullable=False)
-    planned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    planned_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    due_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     trigger_condition: Mapped[str | None] = mapped_column(Text)
     priority: Mapped[str | None] = mapped_column(String(32))
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     completion_evidence: Mapped[str | None] = mapped_column(Text)
 
 
@@ -338,4 +339,4 @@ class RecordRelation(Base):
     )
     to_record_id: Mapped[str] = mapped_column(String(32), ForeignKey("records.id"), nullable=False)
     relation_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)

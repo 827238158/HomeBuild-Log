@@ -18,6 +18,7 @@ vi.mock('./domainApi', () => ({
   getSource: vi.fn(),
   listRelations: vi.fn(),
   listRecordAudit: vi.fn(),
+  reviewRecordSource: vi.fn(),
 }))
 
 const record: ProjectionRecord = {
@@ -27,9 +28,10 @@ const record: ProjectionRecord = {
   status: 'occurred',
   description: null,
   archived_at: null,
-  source_refs: [{ source_id: 'source-1', evidence_excerpt: '现场查看' }],
-  occurred_at: '2026-06-27T10:00:00+08:00',
-  time_precision: 'date',
+  source_refs: [{
+    source_id: 'source-1', evidence_excerpt: '现场查看', source_revision: 1, needs_review: false,
+  }],
+  occurred_date: '2026-06-28',
   original_time_text: '6月27日',
   created_at: '2026-06-28T10:00:00+08:00',
   space_ids: [],
@@ -44,13 +46,14 @@ beforeEach(() => {
   vi.mocked(api.listEntities).mockResolvedValue([])
   vi.mocked(api.getTimeline).mockResolvedValue({
     total: 1,
-    groups: [{ date_key: '2026-06-27', label: '2026-06-27', items: [{ record, related_records: [] }] }],
+    groups: [{ date_key: '2026-06', label: '2026年6月', items: [{ record, related_records: [] }] }],
   })
   vi.mocked(api.getLedgerSummary).mockResolvedValue({
     totals_by_currency: [{
       currency: 'CNY', procurement_total_minor: 110000, expense_minor: 50000,
-      refund_minor: 0, net_paid_minor: 50000, outstanding_minor: 60000,
+      refund_minor: 0, income_minor: 0, net_paid_minor: 50000, outstanding_minor: 60000,
       overpaid_minor: 0, unallocated_expense_minor: 0, unallocated_refund_minor: 0,
+      unallocated_income_minor: 0,
     }],
     procurements: [], ledger_entries: [], warnings: [],
   })
@@ -78,7 +81,8 @@ beforeEach(() => {
   vi.mocked(api.listRecordAudit).mockResolvedValue([])
   vi.mocked(api.getSource).mockResolvedValue({
     id: 'source-1', project_id: 'project-1', input_type: 'text', original_text: '现场查看',
-    captured_at: '2026-06-28T10:00:00+08:00', reported_time_text: null, attachments: [],
+    captured_at: '2026-06-28T10:00:00+08:00', reported_time_text: null,
+    updated_at: '2026-06-28T10:00:00+08:00', revision: 1, attachments: [],
   })
 })
 

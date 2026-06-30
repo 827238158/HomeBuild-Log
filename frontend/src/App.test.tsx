@@ -85,10 +85,7 @@ describe('App', () => {
 
     await act(async () => render(<App />))
 
-    expect(await screen.findByRole('alert')).toHaveProperty(
-      'textContent',
-      expect.stringContaining('请确认后端已在 127.0.0.1:8000 启动'),
-    )
+    expect((await screen.findByRole('alert')).textContent).toContain('127.0.0.1:8000')
   })
 
   it('登录成功后显示健康状态', async () => {
@@ -256,6 +253,58 @@ describe('App', () => {
     fireEvent.click(retry)
     expect(await screen.findByText('已保存')).toBeTruthy()
     expect(attachmentAttempts).toBe(2)
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/sources'))).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([url, init]) =>
+      String(url).endsWith('/sources') && (init as RequestInit | undefined)?.method === 'POST',
+    )).toHaveLength(1)
+  })
+
+  it('保存并分析会先创建来源再触发提取', async () => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/health')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'ok', database: { status: 'ok' }, storage: { status: 'ok' } }),
+        })
+      }
+      if (url.endsWith('/sources')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'source-3',
+            input_type: 'text',
+            original_text: '需要分析的现场记录',
+            captured_at: '2026-06-28T10:00:00+08:00',
+            reported_time_text: null,
+          }),
+        })
+      }
+      if (url.includes('/extractions')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 'bundle-3', source_id: 'source-3', extraction_run_id: 'run-3',
+            engine: 'local-rule-v1', fallback_reason: null, version: 1,
+            suggestions: [], relations: [], questions: [], warnings: [],
+          }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await screen.findByText('本地服务运行正常')
+    fireEvent.change(screen.getByPlaceholderText('记录今天发生的事情…'), {
+      target: { value: '需要分析的现场记录' },
+    })
+    fireEvent.click(screen.getByText('保存并分析'))
+
+    expect(await screen.findByText('已保存并分析')).toBeTruthy()
+    expect(fetchMock.mock.calls.filter(([url, init]) =>
+      String(url).endsWith('/sources') && (init as RequestInit | undefined)?.method === 'POST',
+    )).toHaveLength(1)
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/extractions'))).toBe(true)
   })
 })

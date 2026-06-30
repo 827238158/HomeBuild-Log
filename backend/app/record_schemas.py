@@ -15,18 +15,7 @@ class SourceRef(BaseModel):
 class RecordCommonCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     description: str | None = None
-    occurred_at: datetime | None = None
-    time_precision: Literal[
-        "exact",
-        "date",
-        "early_month",
-        "mid_month",
-        "late_month",
-        "month",
-        "approximate",
-        "range",
-        "unknown",
-    ] = "unknown"
+    occurred_date: date | None = None
     original_time_text: str | None = None
     timezone: str = "Asia/Shanghai"
     stage_id: str | None = None
@@ -40,21 +29,7 @@ class RecordCommonCreate(BaseModel):
 class RecordCommonUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
     description: str | None = None
-    occurred_at: datetime | None = None
-    time_precision: (
-        Literal[
-            "exact",
-            "date",
-            "early_month",
-            "mid_month",
-            "late_month",
-            "month",
-            "approximate",
-            "range",
-            "unknown",
-        ]
-        | None
-    ) = None
+    occurred_date: date | None = None
     original_time_text: str | None = None
     timezone: str | None = None
     stage_id: str | None = None
@@ -88,7 +63,7 @@ class EventUpdate(RecordCommonUpdate):
 class LedgerCreate(RecordCommonCreate):
     record_type: Literal["ledger"]
     status: Literal["planned", "posted", "voided"]
-    direction: Literal["expense", "refund"]
+    direction: Literal["expense", "refund", "income"]
     payment_kind: str
     amount_minor: int = Field(gt=0)
     currency: str = Field(default="CNY", min_length=3, max_length=3)
@@ -100,7 +75,7 @@ class LedgerCreate(RecordCommonCreate):
 class LedgerUpdate(RecordCommonUpdate):
     record_type: Literal["ledger"]
     status: Literal["planned", "posted", "voided"] | None = None
-    direction: Literal["expense", "refund"] | None = None
+    direction: Literal["expense", "refund", "income"] | None = None
     payment_kind: str | None = None
     amount_minor: int | None = Field(default=None, gt=0)
     currency: str | None = Field(default=None, min_length=3, max_length=3)

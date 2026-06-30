@@ -22,3 +22,23 @@ export function recordStatusDescription(recordType: string, status: string): str
   if (recordType === 'todo' && status === 'pending') return '这项待办还没有开始处理。'
   return null
 }
+
+const eventKindLabels: Record<string, string> = {
+  acceptance_test: '验收测试', acceptance_test_passed: '验收测试通过',
+  construction: '施工', site_visit: '现场查看',
+  meeting: '会议沟通', selection: '选购选品', other: '其他事件',
+}
+
+const paymentKindLabels: Record<string, string> = {
+  advance: '预付款', deposit: '订金', final: '尾款',
+  full: '全款', refund: '退款', reimbursement: '报销款',
+  income: '收入', other: '其他款项',
+}
+
+export function eventKindLabel(kind: string): string {
+  return eventKindLabels[kind] ?? kind
+}
+
+export function paymentKindLabel(kind: string): string {
+  return paymentKindLabels[kind] ?? kind
+}

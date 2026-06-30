@@ -4,8 +4,12 @@ import { API_BASE } from './config'
 export interface SourceEntry {
   id: string
   project_id: string
+  input_type: string
   original_text: string | null
   captured_at: string
+  reported_time_text: string | null
+  updated_at: string
+  revision: number
 }
 
 export interface AttachmentEntry {
@@ -16,8 +20,6 @@ export interface AttachmentEntry {
 }
 
 export interface SourceDetail extends SourceEntry {
-  input_type: string
-  reported_time_text: string | null
   attachments: AttachmentEntry[]
 }
 
@@ -28,13 +30,17 @@ export interface DomainRecord {
   status: string
   description: string | null
   archived_at: string | null
-  source_refs: Array<{ source_id: string; evidence_excerpt: string | null }>
+  source_refs: Array<{
+    source_id: string
+    evidence_excerpt: string | null
+    source_revision: number
+    needs_review: boolean
+  }>
   [key: string]: unknown
 }
 
 export interface ProjectionRecord extends DomainRecord {
-  occurred_at: string | null
-  time_precision: string
+  occurred_date: string | null
   original_time_text: string | null
   created_at: string
   space_ids: string[]
@@ -44,7 +50,7 @@ export interface ProjectionRecord extends DomainRecord {
   attachment_ids: string[]
   amount_minor?: number
   currency?: string
-  direction?: 'expense' | 'refund'
+  direction?: 'expense' | 'refund' | 'income'
   order_total_minor?: number | null
   outstanding_minor?: number
   net_paid_minor?: number
@@ -70,11 +76,13 @@ export interface LedgerResponse {
     procurement_total_minor: number
     expense_minor: number
     refund_minor: number
+    income_minor: number
     net_paid_minor: number
     outstanding_minor: number
     overpaid_minor: number
     unallocated_expense_minor: number
     unallocated_refund_minor: number
+    unallocated_income_minor: number
   }>
   procurements: ProjectionRecord[]
   ledger_entries: ProjectionRecord[]
@@ -174,6 +182,7 @@ export interface CandidateSuggestion extends Omit<LocalSuggestion, 'certainty'> 
 export interface CandidateBundle {
   id: string
   source_id: string
+  source_revision: number
   extraction_run_id: string
   request_id: string
   requested_engine: 'auto' | 'ai' | 'local'
@@ -216,6 +225,21 @@ export interface SuggestionBundle {
   relations: Array<{ from_key: string; to_key: string; relation_type: string }>
 }
 
+export interface SourceDeletionImpact {
+  source_id: string
+  attachments: number
+  candidate_bundles: number
+  extraction_runs: number
+  exclusive_records: number
+  shared_records: number
+  affected_relations: number
+}
+
+export interface SourceDeletionResult extends SourceDeletionImpact {
+  deleted_physical_files: number
+  file_cleanup_warnings: string[]
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -235,6 +259,17 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const listSources = () => requestJson<SourceEntry[]>(`${API_BASE}/sources`)
+export const updateSource = (
+  id: string,
+  payload: { original_text?: string | null; reported_time_text?: string | null },
+) => requestJson<SourceEntry>(`${API_BASE}/sources/${id}`, {
+  method: 'PATCH',
+  body: JSON.stringify(payload),
+})
+export const getSourceDeletionImpact = (id: string) =>
+  requestJson<SourceDeletionImpact>(`${API_BASE}/sources/${id}/deletion-impact`)
+export const deleteSource = (id: string) =>
+  requestJson<SourceDeletionResult>(`${API_BASE}/sources/${id}`, { method: 'DELETE' })
 export const listRecords = (sourceId?: string, includeArchived = true) =>
   requestJson<DomainRecord[]>(
     `${API_BASE}/records?include_archived=${includeArchived}${sourceId ? `&source_id=${encodeURIComponent(sourceId)}` : ''}`,
@@ -285,10 +320,17 @@ export const updateRecord = (id: string, payload: Record<string, unknown>) =>
     method: 'PATCH',
     body: JSON.stringify(payload),
   })
+export const deleteRecord = (id: string) =>
+  requestJson<void>(`${API_BASE}/records/${id}`, { method: 'DELETE' })
 export const setRecordArchived = (id: string, archived: boolean) =>
   requestJson<DomainRecord>(`${API_BASE}/records/${id}/${archived ? 'archive' : 'restore'}`, {
     method: 'POST',
   })
+export const reviewRecordSource = (recordId: string, sourceId: string) =>
+  requestJson<DomainRecord>(
+    `${API_BASE}/records/${recordId}/source-reviews/${sourceId}`,
+    { method: 'POST' },
+  )
 
 export const listSpaces = () => requestJson<SpaceEntry[]>(`${API_BASE}/spaces`)
 export const createSpace = (payload: Record<string, unknown>) =>

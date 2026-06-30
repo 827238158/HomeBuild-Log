@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_JSON
 from app.domain_models import (
     DEFAULT_PROJECT_ID,
     Material,
@@ -24,7 +25,8 @@ from app.domain_models import (
     record_sources,
     record_spaces,
 )
-from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_JSON
+from app.models import SourceEntry
+
 
 def _plain(value: Any) -> Any:
     if isinstance(value, Decimal):
@@ -76,12 +78,21 @@ def serialize_records(db: Session, records: list[Record]) -> dict[str, dict[str,
             record_sources.c.record_id,
             record_sources.c.source_id,
             record_sources.c.evidence_excerpt,
-        ).where(record_sources.c.record_id.in_(record_ids))
+            record_sources.c.source_revision,
+            SourceEntry.revision.label("current_revision"),
+        )
+        .join(SourceEntry, SourceEntry.id == record_sources.c.source_id)
+        .where(record_sources.c.record_id.in_(record_ids))
     ).all()
     source_refs: dict[str, list[dict[str, str | None]]] = defaultdict(list)
     for row in source_rows:
         source_refs[row.record_id].append(
-            {"source_id": row.source_id, "evidence_excerpt": row.evidence_excerpt}
+            {
+                "source_id": row.source_id,
+                "evidence_excerpt": row.evidence_excerpt,
+                "source_revision": row.source_revision,
+                "needs_review": row.source_revision < row.current_revision,
+            }
         )
 
     spaces = _named_associations(db, record_spaces, Space, "space_id", record_ids)
@@ -154,8 +165,7 @@ def serialize_records(db: Session, records: list[Record]) -> dict[str, dict[str,
             "record_type": record.record_type,
             "title": record.title,
             "description": record.description,
-            "occurred_at": _plain(record.occurred_at),
-            "time_precision": record.time_precision,
+            "occurred_date": _plain(record.occurred_date),
             "original_time_text": record.original_time_text,
             "timezone": record.timezone,
             "stage_id": record.stage_id,
@@ -180,7 +190,7 @@ def serialize_records(db: Session, records: list[Record]) -> dict[str, dict[str,
 
 def effective_date(record: dict[str, Any]) -> date | None:
     candidates = [
-        record.get("occurred_at"),
+        record.get("occurred_date"),
         record.get("started_at"),
         record.get("payment_date"),
         record.get("discovered_at"),

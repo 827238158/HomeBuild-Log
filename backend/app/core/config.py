@@ -35,7 +35,7 @@ class AIConfig:
 
 DEFAULT_AI_CONFIG: dict[str, Any] = {
     "enabled": False,
-    "provider_order": ["deepseek", "mimo"],
+    "provider_order": ["mimo", "deepseek"],
     "timeout_seconds": 30,
     "temperature": 0.3,
     "providers": {

@@ -72,12 +72,11 @@ def _base_payload(
         "material_ids": [],
         "participant_ids": [],
         "attachment_ids": [],
-        "time_precision": "unknown",
+        "occurred_date": None,
         "original_time_text": None,
         "timezone": "Asia/Shanghai",
         "stage_id": None,
         "description": None,
-        "occurred_at": None,
     }
 
 
@@ -137,10 +136,14 @@ def suggest_from_text(source_id: str, original_text: str | None) -> dict[str, An
         re.finditer(r"(?:已交|已付|支付|付款|付了|交了)\s*(\d+(?:\.\d+)?)\s*元", text)
     )
     refund_matches = list(re.finditer(r"(?:已退款|退款|退回)\s*(\d+(?:\.\d+)?)\s*元", text))
+    income_matches = list(re.finditer(
+        r"(?:到账|报销|回收款|转入|收到)\s*(\d+(?:\.\d+)?)\s*元", text
+    ))
     ledger_keys: list[str] = []
     for match, direction, kind, verb in [
-        *((item, "expense", "other", "已支付") for item in payment_matches),
-        *((item, "refund", "refund", "已退款") for item in refund_matches),
+        *((item, "expense", "其他款项", "已支付") for item in payment_matches),
+        *((item, "refund", "退款", "已退款") for item in refund_matches),
+        *((item, "income", "收入", "已收入") for item in income_matches),
     ]:
         amount = match.group(1)
         evidence = _evidence_clause(text, match.group(0))
@@ -369,7 +372,7 @@ def suggest_from_text(source_id: str, original_text: str | None) -> dict[str, An
         evidence = acceptance_match.group(0).strip()
         payload = _base_payload(source_id, evidence, "event", "验收测试通过", "completed")
         payload.update(
-            event_kind="acceptance_test",
+            event_kind="验收测试通过",
             started_at=None,
             ended_at=None,
             process=None,
@@ -395,9 +398,9 @@ def suggest_from_text(source_id: str, original_text: str | None) -> dict[str, An
         )
         date_match = DATE_TEXT_PATTERN.search(evidence)
         payload.update(
-            event_kind="construction"
+            event_kind="施工"
             if re.search(r"施工|铺贴|开槽|布线|拆打|水电", evidence)
-            else "site_visit",
+            else "现场查看",
             started_at=None,
             ended_at=None,
             process=evidence,

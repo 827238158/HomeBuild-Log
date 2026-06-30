@@ -12,6 +12,7 @@ import {
   listRelations,
   listSpaces,
   searchRecords,
+  reviewRecordSource,
   updateRecord,
   type AuditEntry,
   type IssueBoardResponse,
@@ -27,6 +28,7 @@ import {
 } from './domainApi'
 import { recordStatusLabel } from './recordLabels'
 import { relationLabel } from './relationLabels'
+import { formatBeijingDateTime, formatCalendarDate } from './time'
 
 type ViewName = 'capture' | 'timeline' | 'ledger' | 'issues' | 'spaces' | 'search'
 
@@ -105,7 +107,7 @@ function TimelineView({ onOpen }: { onOpen: (id: string) => void }) {
     return () => { active = false }
   }, [reload])
 
-  return <section className="view-panel"><header><p className="eyebrow">阶段 2B</p><h2>装修时间线</h2><p>按真实业务日期查看事件和关联事实，未知日期不会被伪装。</p></header>
+  return <section className="view-panel"><header><p className="eyebrow">阶段 2B</p><h2>装修时间线</h2><p>按真实发生日期查看事件和关联事实，未知时间不会被伪装。</p></header>
     <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} /></label><label className="field-stack"><span>记录类型</span><select value={recordType} onChange={(event) => setRecordType(event.target.value)}><option value="">全部类型</option>{Object.entries(typeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><ReferenceFilters spaces={spaces} stages={stages} spaceId={spaceId} stageId={stageId} onSpace={setSpaceId} onStage={setStageId} /><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => setReload((value) => value + 1)}>应用筛选</button></div>
     <LoadState loading={loading} error={error} empty={data?.total === 0} />
     {data?.groups.map((group) => <section className="timeline-group" key={group.date_key}><h3>{group.label}</h3><div className="timeline-day-items">{group.items.map((item) => <article className="timeline-item" key={item.record.id}><RecordButton record={item.record} onOpen={onOpen} />{item.related_records.length > 0 && <div className="related-strip"><span>关联事实</span>{item.related_records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div>}</article>)}</div></section>)}
@@ -128,13 +130,13 @@ function LedgerView({ onOpen }: { onOpen: (id: string) => void }) {
       .finally(() => active && setLoading(false))
     return () => { active = false }
   }, [reload])
-  return <section className="view-panel"><header><p className="eyebrow">资金流与订单分开</p><h2>装修账本</h2><p>订单金额、实际付款、退款和可计算待付各自保留依据。</p></header>
+  return <section className="view-panel"><header><p className="eyebrow">资金流与订单分开</p><h2>装修账本</h2><p>订单金额、实际付款、退款、收入和可计算待付各自保留依据。</p></header>
     <div className="filter-grid filter-grid--compact"><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => setReload((value) => value + 1)}>应用筛选</button></div>
     <LoadState loading={loading} error={error} empty={data?.totals_by_currency.length === 0} />
-    <div className="summary-grid">{data?.totals_by_currency.map((total) => <article className="summary-card" key={total.currency}><strong>{total.currency}</strong><dl><div><dt>采购总额</dt><dd>{money(total.procurement_total_minor, total.currency)}</dd></div><div><dt>实际支出</dt><dd>{money(total.expense_minor, total.currency)}</dd></div><div><dt>退款</dt><dd>{money(total.refund_minor, total.currency)}</dd></div><div><dt>待付</dt><dd>{money(total.outstanding_minor, total.currency)}</dd></div></dl>{(total.unallocated_expense_minor > 0 || total.unallocated_refund_minor > 0) && <p className="warning-text">存在未关联采购的流水，请在详情中补充关系。</p>}</article>)}</div>
+    <div className="summary-grid">{data?.totals_by_currency.map((total) => <article className="summary-card" key={total.currency}><strong>{total.currency}</strong><dl><div><dt>采购总额</dt><dd>{money(total.procurement_total_minor, total.currency)}</dd></div><div><dt>实际支出</dt><dd>{money(total.expense_minor, total.currency)}</dd></div><div><dt>退款</dt><dd>{money(total.refund_minor, total.currency)}</dd></div><div><dt>收入</dt><dd>{money(total.income_minor, total.currency)}</dd></div><div><dt>待付</dt><dd>{money(total.outstanding_minor, total.currency)}</dd></div></dl>{(total.unallocated_expense_minor > 0 || total.unallocated_refund_minor > 0 || total.unallocated_income_minor > 0) && <p className="warning-text">存在未关联采购的流水，请在详情中补充关系。</p>}</article>)}</div>
     {data?.warnings.map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
     {data && data.procurements.length > 0 && <section className="projection-section"><h3>采购付款情况</h3><div className="card-grid">{data.procurements.map((record) => <button className="projection-card ledger-card" key={record.id} type="button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong><span>订单：{money(record.order_total_minor ?? 0, record.currency)}</span><span>净付款：{money(record.net_paid_minor, record.currency)}</span><span>待付：{money(record.outstanding_minor, record.currency)}</span></button>)}</div></section>}
-    {data && data.ledger_entries.length > 0 && <section className="projection-section"><h3>资金流水</h3><div className="card-grid">{data.ledger_entries.map((record) => <button className="projection-card" key={record.id} type="button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong><span>{record.direction === 'refund' ? '退款' : '支出'} · {money(record.amount_minor, record.currency)}</span><small>{recordStatusLabel(record.record_type, record.status)}</small></button>)}</div></section>}
+    {data && data.ledger_entries.length > 0 && <section className="projection-section"><h3>资金流水</h3><div className="card-grid">{data.ledger_entries.map((record) => <button className="projection-card" key={record.id} type="button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong>      <span>{{ expense: '支出', refund: '退款', income: '收入' }[record.direction as string] || record.direction} · {money(record.amount_minor, record.currency)}</span><small>{recordStatusLabel(record.record_type, record.status)}</small></button>)}</div></section>}
   </section>
 }
 
@@ -225,7 +227,7 @@ function SearchView({ onOpen }: { onOpen: (id: string) => void }) {
   return <section className="view-panel"><header><p className="eyebrow">基础搜索</p><h2>查找装修事实</h2><p>搜索原始来源、正式记录、材料、商家和空间；结果保持来源追溯。</p></header>
     <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void runSearch() }} placeholder="例如：花砖、主卧、门套" /></label><label className="field-stack"><span>记录类型</span><select value={recordType} onChange={(event) => setRecordType(event.target.value)}><option value="">全部类型</option>{Object.entries(typeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label className="field-stack"><span>状态</span><input value={status} onChange={(event) => setStatus(event.target.value)} placeholder="例如 waiting" /></label><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => void runSearch()}>搜索</button></div>
     <LoadState loading={loading} error={error} empty={total === 0} />
-    {data && <><p className="result-count">共找到 {total} 项</p>{data.groups.records.length > 0 && <section className="projection-section"><h3>正式记录 · {data.counts.records}</h3><div className="card-grid">{data.groups.records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div></section>}{data.groups.sources.length > 0 && <section className="projection-section"><h3>原始来源 · {data.counts.sources}</h3>{data.groups.sources.map((source) => <article className="source-result" key={source.id}><p>{source.original_text || '仅附件来源'}</p><time>{new Date(source.captured_at).toLocaleString('zh-CN')}</time></article>)}</section>}{(['materials', 'vendors', 'spaces'] as const).map((group) => data.groups[group].length > 0 && <section className="projection-section" key={group}><h3>{{ materials: '材料', vendors: '商家', spaces: '空间' }[group]} · {data.counts[group]}</h3><div className="tag-list">{data.groups[group].map((item) => <span key={item.id}>{item.name}</span>)}</div></section>)}</>}
+    {data && <><p className="result-count">共找到 {total} 项</p>{data.groups.records.length > 0 && <section className="projection-section"><h3>正式记录 · {data.counts.records}</h3><div className="card-grid">{data.groups.records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div></section>}{data.groups.sources.length > 0 && <section className="projection-section"><h3>原始来源 · {data.counts.sources}</h3>{data.groups.sources.map((source) => <article className="source-result" key={source.id}><p>{source.original_text || '仅附件来源'}</p><time>{formatBeijingDateTime(source.captured_at)}</time></article>)}</section>}{(['materials', 'vendors', 'spaces'] as const).map((group) => data.groups[group].length > 0 && <section className="projection-section" key={group}><h3>{{ materials: '材料', vendors: '商家', spaces: '空间' }[group]} · {data.counts[group]}</h3><div className="tag-list">{data.groups[group].map((item) => <span key={item.id}>{item.name}</span>)}</div></section>)}</>}
   </section>
 }
 
@@ -236,6 +238,7 @@ function RecordDetail({ recordId, onClose }: { recordId: string; onClose: () => 
   const [relatedRecords, setRelatedRecords] = useState<ProjectionRecord[]>([])
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [error, setError] = useState('')
+  const [reload, setReload] = useState(0)
   useEffect(() => {
     let active = true
     Promise.all([getRecord(recordId), listRelations(recordId), listRecordAudit(recordId)])
@@ -247,8 +250,43 @@ function RecordDetail({ recordId, onClose }: { recordId: string; onClose: () => 
         setRecord(recordResult); setSources(sourceRows); setRelations(relationRows); setRelatedRecords(related); setAudit(auditRows)
       }).catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '详情加载失败'))
     return () => { active = false }
-  }, [recordId])
-  return <aside className="detail-panel" aria-label="记录详情"><div className="detail-panel__header"><div><p className="eyebrow">来源可追溯</p><h2>记录详情</h2></div><button type="button" onClick={onClose} aria-label="关闭详情">关闭</button></div>{error && <p role="alert" className="view-state--error">{error}</p>}{!record && !error && <p role="status">正在加载详情…</p>}{record && <><span className="record-type-tag">{typeLabels[record.record_type]}</span><h3>{record.title}</h3><p>{record.description || '暂无补充说明'}</p><dl className="detail-list"><div><dt>状态</dt><dd>{recordStatusLabel(record.record_type, record.status)}</dd></div><div><dt>时间精度</dt><dd>{record.time_precision || 'unknown'}</dd></div><div><dt>空间</dt><dd>{record.spaces?.map((item) => item.name).join('、') || '未指定'}</dd></div></dl><section><h4>原始来源与附件</h4>{sources.map((source) => <article className="evidence-card" key={source.id}><p>{source.original_text || '仅附件来源'}</p>{source.attachments.map((attachment) => <small key={attachment.id}>附件：{attachment.original_filename} · {Math.ceil(attachment.size_bytes / 1024)} KB</small>)}</article>)}</section><section><h4>关联记录</h4>{relations.length === 0 && <p className="muted">暂无显式关系。</p>}{relations.map((relation) => { const related = relatedRecords.find((item) => item.id === (relation.from_record_id === recordId ? relation.to_record_id : relation.from_record_id)); return <p className="relation-summary" key={relation.id}>{relationLabel(relation.relation_type)} · {related?.title || '关联记录'}</p> })}</section><section><h4>审计历史</h4>{audit.map((item) => <p className="audit-row" key={item.id}>{new Date(item.timestamp).toLocaleString('zh-CN')} · {item.action}</p>)}</section></>}
+  }, [recordId, reload])
+
+  const acknowledgeSource = async (sourceId: string) => {
+    try {
+      await reviewRecordSource(recordId, sourceId)
+      setReload((value) => value + 1)
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : '确认复核失败')
+    }
+  }
+
+  return <aside className="detail-panel" aria-label="记录详情">
+    <div className="detail-panel__header"><div><p className="eyebrow">来源可追溯</p><h2>记录详情</h2></div><button type="button" onClick={onClose} aria-label="关闭详情">关闭</button></div>
+    {error && <p role="alert" className="view-state--error">{error}</p>}
+    {!record && !error && <p role="status">正在加载详情…</p>}
+    {record && <>
+      <span className="record-type-tag">{typeLabels[record.record_type]}</span>
+      <h3>{record.title}</h3>
+      <p>{record.description || '暂无补充说明'}</p>
+      <dl className="detail-list">
+        <div><dt>状态</dt><dd>{recordStatusLabel(record.record_type, record.status)}</dd></div>
+        <div><dt>事情发生日期</dt><dd>{formatCalendarDate(record.occurred_date)}</dd></div>
+        <div><dt>正式记录创建时间</dt><dd>{formatBeijingDateTime(record.created_at)}</dd></div>
+        <div><dt>空间</dt><dd>{record.spaces?.map((item) => item.name).join('、') || '未指定'}</dd></div>
+      </dl>
+      <section><h4>原始来源与附件</h4>{sources.map((source) => {
+        const sourceRef = record.source_refs.find((item) => item.source_id === source.id)
+        return <article className="evidence-card" key={source.id}>
+          {sourceRef?.needs_review && <div className="source-review-warning"><span>原始数据已修改，这条正式记录待复核。</span><button type="button" onClick={() => void acknowledgeSource(source.id)}>已核对，无需修改</button></div>}
+          <p>{source.original_text || '仅附件来源'}</p>
+          <small>录入时间：{formatBeijingDateTime(source.captured_at)} · 来源版本 v{source.revision}</small>
+          {source.attachments.map((attachment) => <small key={attachment.id}>附件：{attachment.original_filename} · {Math.ceil(attachment.size_bytes / 1024)} KB</small>)}
+        </article>
+      })}</section>
+      <section><h4>关联记录</h4>{relations.length === 0 && <p className="muted">暂无显式关系。</p>}{relations.map((relation) => { const related = relatedRecords.find((item) => item.id === (relation.from_record_id === recordId ? relation.to_record_id : relation.from_record_id)); return <p className="relation-summary" key={relation.id}>{relationLabel(relation.relation_type)} · {related?.title || '关联记录'}</p> })}</section>
+      <section><h4>审计历史</h4>{audit.map((item) => <p className="audit-row" key={item.id}>{formatBeijingDateTime(item.timestamp)} · {item.action}</p>)}</section>
+    </>}
   </aside>
 }
 

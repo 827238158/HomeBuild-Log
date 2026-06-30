@@ -8,11 +8,13 @@ import {
   type HealthResponse,
   type SourceResponse,
 } from './api'
+import { createExtraction, listSources } from './domainApi'
 import { clearToken, getToken, saveToken } from './token'
 import { BACKEND_URL, UI, UPLOAD } from './config'
 import './styles.css'
 import { DomainWorkspace } from './DomainWorkspace'
 import { CoreViews } from './CoreViews'
+import { formatBeijingDateTime } from './time'
 
 type ViewState =
   | { kind: 'loading' }
@@ -35,6 +37,7 @@ export function App() {
   const [attachment, setAttachment] = useState<File | null>(null)
   const [attachmentError, setAttachmentError] = useState('')
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null)
+  const [sourceRefreshKey, setSourceRefreshKey] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -62,6 +65,13 @@ export function App() {
 
     return () => controller.abort()
   }, [])
+
+  useEffect(() => {
+    if (state.kind !== 'ready') return
+    listSources()
+      .then((rows) => setSources(Array.isArray(rows) ? rows : []))
+      .catch(() => setSources([]))
+  }, [state.kind])
 
   const handleLogin = async () => {
     setLoginError('')
@@ -98,33 +108,58 @@ export function App() {
     }
   }
 
+  const saveSource = async (text: string, file: File | null): Promise<SourceResponse | null> => {
+    const entry = await createSource(text.trim())
+    setSources((prev) => [entry, ...prev])
+    setSourceRefreshKey((value) => value + 1)
+    setSourceText('')
+    if (file) {
+      try {
+        await uploadAttachment(entry.id, file)
+        setAttachment(null)
+        setPendingUpload(null)
+        setAttachmentError('')
+      } catch (error: unknown) {
+        // 来源已经成功保存，附件失败时保留重试上下文，避免重复创建来源。
+        setPendingUpload({ sourceId: entry.id, file })
+        setAttachmentError(error instanceof Error ? error.message : '附件上传失败')
+        throw new Error('attachment-error')
+      }
+    }
+    return entry
+  }
+
   const handleSaveSource = async () => {
     if (!sourceText.trim()) return
     setSaveStatus('saving')
     try {
-      const entry = await createSource(sourceText.trim())
-      setSources((prev) => [entry, ...prev])
-      setSourceText('')
-      if (attachment) {
-        try {
-          await uploadAttachment(entry.id, attachment)
-          setAttachment(null)
-          setPendingUpload(null)
-          setAttachmentError('')
-          setSaveStatus('saved')
-          setTimeout(() => setSaveStatus(''), UI.toastDuration)
-        } catch (error: unknown) {
-          // 来源已经成功保存，附件失败时保留重试上下文，避免重复创建来源。
-          setPendingUpload({ sourceId: entry.id, file: attachment })
-          setAttachmentError(error instanceof Error ? error.message : '附件上传失败')
-          setSaveStatus('attachment-error')
-        }
+      await saveSource(sourceText, attachment)
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus(''), 2000)
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message === 'attachment-error') {
+        setSaveStatus('attachment-error')
       } else {
-        setSaveStatus('saved')
-        setTimeout(() => setSaveStatus(''), 2000)
+        setSaveStatus('error')
       }
-    } catch {
-      setSaveStatus('error')
+    }
+  }
+
+  const handleSaveAndAnalyze = async () => {
+    if (!sourceText.trim()) return
+    setSaveStatus('analyzing')
+    try {
+      const entry = await saveSource(sourceText, attachment)
+      if (!entry) return
+      await createExtraction(entry.id, 'auto')
+      setSaveStatus('analyzed')
+      setTimeout(() => setSaveStatus(''), 2000)
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message === 'attachment-error') {
+        setSaveStatus('attachment-error')
+      } else {
+        setSaveStatus('error')
+      }
     }
   }
 
@@ -240,12 +275,23 @@ export function App() {
                 <button
                   className="source-save"
                   onClick={handleSaveSource}
-                  disabled={!sourceText.trim() || saveStatus === 'saving'}
+                  disabled={!sourceText.trim() || saveStatus === 'saving' || saveStatus === 'analyzing'}
                 >
                   {saveStatus === 'saving' ? '保存中…' : '保存记录'}
                 </button>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={handleSaveAndAnalyze}
+                  disabled={!sourceText.trim() || saveStatus === 'saving' || saveStatus === 'analyzing'}
+                >
+                  {saveStatus === 'analyzing' ? '分析中…' : '保存并分析'}
+                </button>
                 {saveStatus === 'saved' && (
                   <span className="source-saved">已保存</span>
+                )}
+                {saveStatus === 'analyzed' && (
+                  <span className="source-saved">已保存并分析</span>
                 )}
                 {saveStatus === 'error' && (
                   <span className="source-error">保存失败</span>
@@ -265,13 +311,18 @@ export function App() {
                   <div key={s.id} className="source-item">
                     <p className="source-item-text">{s.original_text}</p>
                     <time className="source-item-time">
-                      {new Date(s.captured_at).toLocaleString('zh-CN')}
+                      {formatBeijingDateTime(s.captured_at)}
                     </time>
                   </div>
                 ))}
               </div>
             )}
-            <DomainWorkspace refreshKey={sources.length} /></CoreViews>
+            <DomainWorkspace
+              refreshKey={sourceRefreshKey}
+              onSourcesChanged={() => void listSources().then((rows) => {
+                setSources(Array.isArray(rows) ? rows : [])
+              })}
+            /></CoreViews>
           </>
         )}
 

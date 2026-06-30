@@ -26,13 +26,14 @@
 - `original_text`：用户原始文字，可为空但不能被后续识别覆盖。
 - `captured_at`：系统收录时间。
 - `reported_time_text`：用户原始时间表达，可为空。
+- `updated_at`、`revision`：最近显式修改时间与来源版本。
 - `attachment_ids`：附件ID列表。
 - `created_by`：首版固定为本地用户身份。
 - `integrity`：来源版本及完整性信息。
 
 ### CandidateBundle
 
-- `id`、`source_id`、`extraction_run_id`。
+- `id`、`source_id`、`source_revision`、`extraction_run_id`。
 - `status`：`pending`、`partially_confirmed`、`confirmed`、`rejected`或`superseded`。
 - `candidates`：候选记录列表。
 - `questions`：需要用户补充或确认的问题。
@@ -48,9 +49,9 @@
 ### RecordBase
 
 - `id`、`project_id`、`record_type`、`title`、`description`。
-- `occurred_at`、`time_precision`、`original_time_text`、`timezone`。
+- `occurred_date`（可空 `YYYY-MM-DD`）、`original_time_text`、`timezone`。
 - `space_ids`、`stage_id`、`participant_ids`、`attachment_ids`。
-- `source_refs`：来源及证据引用。
+- `source_refs`：来源及证据引用；响应包含`source_revision`与`needs_review`。
 - `status`、`created_at`、`updated_at`、`archived_at`。
 
 八类记录的专属字段以`docs/06-domain-model.md`为准。
@@ -67,6 +68,9 @@
 
 - `POST /sources`：保存文本来源或附件录入会话。
 - `GET /sources/{id}`：读取原始来源、附件和提取历史。
+- `PATCH /sources/{id}`：显式修改原始文字或时间表达，递增版本、写审计并使旧候选失效。
+- `GET /sources/{id}/deletion-impact`：返回附件、候选、提取、独占/共享正式记录和关系影响数量。
+- `DELETE /sources/{id}`：安全级联删除；独占记录删除，多来源记录解除当前来源，并返回物理附件清理警告。
 - `POST /attachments`：上传附件并返回完整性信息。
 - `POST /offline-drafts/sync`：同步PWA离线草稿，按幂等键去重。
 
@@ -92,8 +96,10 @@
 ### 领域记录与共享实体
 
 - `GET/POST /records`：按类型创建或查询正式记录。
-- `GET/PATCH /records/{id}`：读取或修改记录；破坏性删除不作为普通接口。
+- `GET/PATCH /records/{id}`：读取或修改记录；类型和原始来源不可在详细编辑中改变。
+- `DELETE /records/{id}`：二次确认后永久删除正式记录及其关系，保留原始来源、附件实体与审计，并释放对应候选确认引用；成功返回`204`。
 - `POST /records/{id}/archive`与`POST /records/{id}/restore`：可恢复归档。
+- `POST /records/{id}/source-reviews/{source_id}`：确认正式记录已按来源当前版本复核。
 - `GET/PATCH /projects/current`：读取或修改单一活跃项目。
 - `GET/POST /spaces`与`PATCH /spaces/{id}`：维护房屋、房间和局部构件层级；迁移保证默认项目至少存在一个根房屋“整套房屋”，响应结构不增加特殊字段。
 - `DELETE /spaces/{id}`：永久删除未被正式记录使用且没有下级空间的误建空间；成功返回`204`，存在引用、下级空间或目标是最后一个根房屋时返回`409`。
@@ -109,10 +115,10 @@
 ### 查询、视图与数据管理
 
 - `GET /timeline`：支持`q`、`record_type`、`space_id`、`stage_id`、`date_from`和`date_to`；未知业务日期进入`unknown`组，事件节点可展开直接关联记录。
-- `GET /ledger/summary`：支持商家、空间、阶段和日期过滤；按币种返回采购总额、实际支出、退款、净付款、待付、超付及未分配流水。只有单一`pays_for`关系且币种一致的已入账流水参与采购待付计算。
+- `GET /ledger/summary`：支持商家、空间、阶段和日期范围过滤；按币种返回采购总额、实际支出、退款、净付款、待付、超付及未分配流水。只有单一`pays_for`关系且币种一致的已入账流水参与采购待付计算。
 - `GET /issues/board`：按五个问题状态返回看板列，可按空间过滤；卡片包含关联未完成待办和来源/附件计数。
 - `GET /spaces/{id}/archive`：聚合所选空间及所有后代空间，按记录类型返回去重结果、材料和摘要计数。
-- `GET /search`：使用关键词或至少一个结构化条件检索；支持类型、空间、阶段、状态、日期、分页，结果按来源、正式记录、材料、商家和空间分组，默认排除归档记录。
+- `GET /search`：使用关键词或至少一个结构化条件检索；支持类型、空间、阶段、状态、日期范围、分页，结果按来源、正式记录、材料、商家和空间分组，默认排除归档记录。
 - `POST /exports`、`POST /restores/validate`：创建完整导出与验证恢复包。
 
 上述五个查询接口已在阶段 2B 实现，均为现有正式事实的只读投影，不创建视图副本。基础搜索不承诺全文索引、模糊排名或重复检测。

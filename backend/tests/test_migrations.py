@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from alembic import command
@@ -30,7 +31,7 @@ def test_migrations_upgrade_temporary_database_to_head(
     finally:
         engine.dispose()
 
-    assert revision == "0008_add_default_root_space"
+    assert revision == "0011_occurred_date"
 
     engine = create_engine(url)
     try:
@@ -76,8 +77,16 @@ def test_domain_migration_backfills_existing_sources_and_round_trips(
         project_name = connection.execute(
             text("SELECT name FROM projects WHERE id=:project_id"), {"project_id": project_id}
         ).scalar_one()
+        source_revision, updated_at = connection.execute(
+            text(
+                "SELECT revision, updated_at FROM source_entries "
+                "WHERE id='legacy-source'"
+            )
+        ).one()
     engine.dispose()
     assert project_name == "我的装修"
+    assert source_revision == 1
+    assert updated_at is not None
 
     command.downgrade(config, "0003_add_audit")
     command.upgrade(config, "head")
@@ -174,3 +183,104 @@ def test_default_root_space_does_not_duplicate_existing_house(
             text("SELECT COUNT(*) FROM spaces WHERE id='existing-house'")
         ).scalar_one() == 1
     engine.dispose()
+
+
+def test_occurred_month_migration_converts_records_and_candidate_json(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database_file = tmp_path / "migration-occurred-month.sqlite3"
+    url = database_url(database_file)
+    monkeypatch.setenv("HOMEBUILD_DATABASE_URL", url)
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    command.upgrade(config, "0009_add_source_maintenance")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO source_entries "
+            "(id, project_id, input_type, original_text, captured_at, updated_at, revision) "
+            "VALUES ('month-source', '00000000000000000000000000000001', 'text', "
+            "'跨月测试', '2026-06-30 16:00:00', '2026-06-30 16:00:00', 1)"
+        ))
+        connection.execute(text(
+            "INSERT INTO records "
+            "(id, project_id, record_type, title, occurred_at, time_precision, timezone, "
+            "status, created_at, updated_at) VALUES "
+            "('month-record', '00000000000000000000000000000001', 'event', '跨月事件', "
+            "'2026-06-30 16:30:00', 'exact', 'Asia/Shanghai', 'occurred', "
+            "'2026-06-30 16:30:00', '2026-06-30 16:30:00')"
+        ))
+        connection.execute(text(
+            "INSERT INTO event_details (record_id, event_kind) "
+            "VALUES ('month-record', 'site_visit')"
+        ))
+        connection.execute(text(
+            "INSERT INTO extraction_runs "
+            "(id, request_id, source_id, attempt_no, requested_engine, engine, status, "
+            "started_at, finished_at, duration_ms) VALUES "
+            "('month-run', 'month-request', 'month-source', 1, 'local', 'local-rule-v1', "
+            "'succeeded', '2026-06-30 16:00:00', '2026-06-30 16:00:00', 1)"
+        ))
+        content = json.dumps({
+            "suggestions": [{
+                "key": "event:1",
+                "payload": {
+                    "occurred_at": "2026-06-30T16:30:00+00:00",
+                    "time_precision": "exact",
+                },
+            }],
+        })
+        connection.execute(text(
+            "INSERT INTO candidate_bundles "
+            "(id, source_id, extraction_run_id, engine, status, version, bundle_json, "
+            "created_at, updated_at, source_revision) VALUES "
+            "('month-bundle', 'month-source', 'month-run', 'local-rule-v1', 'pending', 1, "
+            ":content, '2026-06-30 16:00:00', '2026-06-30 16:00:00', 1)"
+        ), {"content": content})
+    engine.dispose()
+
+    command.upgrade(config, "0010_occurred_month")
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        assert connection.execute(text(
+            "SELECT occurred_month FROM records WHERE id='month-record'"
+        )).scalar_one() == "2026-07"
+        columns = {
+            row[1] for row in connection.execute(text("PRAGMA table_info(records)"))
+        }
+        raw_content = connection.execute(text(
+            "SELECT bundle_json FROM candidate_bundles WHERE id='month-bundle'"
+        )).scalar_one()
+    engine.dispose()
+    migrated = json.loads(raw_content)
+    payload = migrated["suggestions"][0]["payload"]
+    assert payload == {"occurred_month": "2026-07"}
+    assert "occurred_at" not in columns
+    assert "time_precision" not in columns
+
+    command.upgrade(config, "head")
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        assert connection.execute(text(
+            "SELECT occurred_date FROM records WHERE id='month-record'"
+        )).scalar_one() is None
+        columns = {
+            row[1] for row in connection.execute(text("PRAGMA table_info(records)"))
+        }
+        raw_content = connection.execute(text(
+            "SELECT bundle_json FROM candidate_bundles WHERE id='month-bundle'"
+        )).scalar_one()
+    engine.dispose()
+    payload = json.loads(raw_content)["suggestions"][0]["payload"]
+    assert payload == {"occurred_date": None}
+    assert "occurred_month" not in columns
+
+    command.downgrade(config, "0009_add_source_maintenance")
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        precision = connection.execute(text(
+            "SELECT time_precision FROM records WHERE id='month-record'"
+        )).scalar_one()
+    engine.dispose()
+    assert precision == "unknown"

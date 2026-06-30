@@ -5,7 +5,7 @@ import hashlib
 import time
 import uuid
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -18,6 +18,14 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.ai_adapter import AIAdapterFailure, AIExtractionDraft, OpenAICompatibleAdapter
 from app.auth import CurrentUser, require_user
+from app.core.constants import (
+    CERTAINTY_LABELS,
+    FIELDS_BY_TYPE,
+    RELATION_TYPES,
+    STATUS_DEFAULTS,
+    TYPE_LABELS,
+    VALID_ENUMS,
+)
 from app.db import create_session_factory
 from app.domain_models import (
     DEFAULT_PROJECT_ID,
@@ -28,14 +36,6 @@ from app.domain_models import (
 )
 from app.local_suggestions import suggest_from_text
 from app.models import SourceEntry
-
-from app.core.constants import (
-    CERTAINTY_LABELS,
-    FIELDS_BY_TYPE,
-    RELATION_TYPES,
-    STATUS_DEFAULTS,
-    TYPE_LABELS,
-)
 
 from .domain import RECORD_CREATE_ADAPTER, _create_record_in_session, _record_json, log_audit
 
@@ -67,6 +67,7 @@ def _bundle_json(bundle: CandidateBundle) -> dict[str, Any]:
         "id": bundle.id,
         "source_id": bundle.source_id,
         "extraction_run_id": bundle.extraction_run_id,
+        "source_revision": bundle.source_revision,
         "engine": bundle.engine,
         "status": bundle.status,
         "version": bundle.version,
@@ -110,13 +111,28 @@ def _candidate_key(source_id: str, record_type: str, evidence: str, occurrence: 
     return f"{record_type}-{digest}"
 
 
-def _existing_record_id(db: Session, source_id: str, key: str, engine: str) -> str | None:
+def _origin_key(prefix: str, source_id: str, key: str, source_revision: int) -> str:
+    # 第一版沿用历史键，后续来源版本使用显式版本段，避免覆盖旧正式记录。
+    return (
+        f"{prefix}:{source_id}:{key}"
+        if source_revision == 1
+        else f"{prefix}:{source_id}:r{source_revision}:{key}"
+    )
+
+
+def _existing_record_id(
+    db: Session,
+    source_id: str,
+    key: str,
+    engine: str,
+    source_revision: int,
+) -> str | None:
     prefixes = ["local"] if engine == "local-rule-v1" else ["candidate"]
     for prefix in prefixes:
         record = db.execute(
             select(Record).where(
                 Record.project_id == DEFAULT_PROJECT_ID,
-                Record.origin_key == f"{prefix}:{source_id}:{key}",
+                Record.origin_key == _origin_key(prefix, source_id, key, source_revision),
             )
         ).scalar_one_or_none()
         if record is not None:
@@ -129,7 +145,9 @@ def _local_bundle_content(db: Session, source: SourceEntry) -> dict[str, Any]:
     suggestions: list[dict[str, Any]] = []
     for item in local["suggestions"]:
         certainty = "inferred" if item["certainty"] == "likely" else item["certainty"]
-        confirmed_record_id = _existing_record_id(db, source.id, item["key"], "local-rule-v1")
+        confirmed_record_id = _existing_record_id(
+            db, source.id, item["key"], "local-rule-v1", source.revision
+        )
         suggestions.append(
             {
                 **item,
@@ -169,8 +187,20 @@ def _ai_bundle_content(
             continue
         ref_to_key[candidate.ref] = key
         payload = copy.deepcopy(candidate.payload)
+        # 候选协议只允许 YYYY-MM-DD，不再持久化旧的精度或分钟时间。
+        payload.pop("occurred_at", None)
+        payload.pop("time_precision", None)
+        occurred_date = payload.get("occurred_date")
+        if occurred_date is not None:
+            try:
+                date.fromisoformat(str(occurred_date))
+            except ValueError:
+                payload.pop("occurred_date", None)
+                warnings.append(f"候选 {candidate.ref} 的发生日期格式无效，已留空待补充。")
         payload["record_type"] = candidate.record_type
-        confirmed_record_id = _existing_record_id(db, source.id, key, engine)
+        confirmed_record_id = _existing_record_id(
+            db, source.id, key, engine, source.revision
+        )
         suggestions.append(
             {
                 "key": key,
@@ -278,6 +308,7 @@ def _persist_bundle(
         engine=run.engine,
         status="pending",
         version=1,
+        source_revision=source.revision,
         bundle_json={
             **content,
             "request_id": run.request_id,
@@ -477,6 +508,11 @@ def _load_current_bundle(db: Session, bundle_id: str, expected_version: int) -> 
         raise HTTPException(status_code=404, detail="候选包不存在。")
     if bundle.status == "superseded":
         raise HTTPException(status_code=409, detail="候选包已被新版本替代，请重新加载。")
+    source = db.get(SourceEntry, bundle.source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="候选对应的来源不存在。")
+    if bundle.source_revision != source.revision:
+        raise HTTPException(status_code=409, detail="原始数据已修改，请重新分析后确认。")
     if bundle.version != expected_version:
         raise HTTPException(status_code=409, detail="候选包版本已变化，请重新加载。")
     return bundle
@@ -493,9 +529,9 @@ def _fill_missing_required(payload: dict[str, Any], candidate: dict[str, Any]) -
         payload["title"] = summary or evidence[:100] or record_type or "未命名"
 
     _defaults: dict[str, str] = {
-        "event_kind": "other",
+        "event_kind": "其他事件",
         "direction": "expense",
-        "payment_kind": "other",
+        "payment_kind": "其他款项",
         "phenomenon": "",
         "object_name": "",
         "measurement_role": "site_measurement",
@@ -529,6 +565,17 @@ def _fill_missing_required(payload: dict[str, Any], candidate: dict[str, Any]) -
     for field, fallback in _semantic_fallbacks.items():
         if _field_required_for(record_type, field) and not payload.get(field):
             payload[field] = fallback
+
+    for field, type_map in VALID_ENUMS.items():
+        valid_set = type_map.get(record_type or "")
+        if not valid_set:
+            continue
+        current = payload.get(field)
+        if current is not None and current not in valid_set:
+            if field == "status":
+                payload[field] = STATUS_DEFAULTS.get(record_type or "", list(valid_set)[0])
+            else:
+                payload[field] = list(valid_set)[0]
 
 
 
@@ -576,7 +623,12 @@ def _prepare_bundle_selections(
             raise HTTPException(status_code=422, detail=detail) from exc
         prefix = "local" if bundle.engine == "local-rule-v1" else "candidate"
         prepared.append(
-            (selection, parsed, f"{prefix}:{source.id}:{selection.key}", candidate)
+            (
+                selection,
+                parsed,
+                _origin_key(prefix, source.id, selection.key, bundle.source_revision),
+                candidate,
+            )
         )
     return prepared
 

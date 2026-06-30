@@ -303,6 +303,106 @@ def test_update_archive_restore_relation_and_audit() -> None:
     assert {"create", "update", "archive", "restore"}.issubset(actions)
 
 
+@pytest.mark.parametrize(
+    ("record_type", "record_status", "detail", "update_payload", "field", "expected"),
+    [
+        (
+            "event",
+            "occurred",
+            {"event_kind": "site_visit"},
+            {"result": "已复核"},
+            "result",
+            "已复核",
+        ),
+        (
+            "ledger",
+            "posted",
+            {"direction": "expense", "payment_kind": "deposit", "amount_minor": 50000},
+            {"amount_minor": 60000},
+            "amount_minor",
+            60000,
+        ),
+        (
+            "issue",
+            "open",
+            {"phenomenon": "破裂"},
+            {"handling_plan": "门套遮挡"},
+            "handling_plan",
+            "门套遮挡",
+        ),
+        (
+            "measurement",
+            "active",
+            {
+                "object_name": "门洞",
+                "measurement_role": "site_measurement",
+                "values": [{"axis": "width", "value": 90, "unit": "cm"}],
+            },
+            {"values": [{"axis": "width", "value": 92, "unit": "cm"}]},
+            "values",
+            [{"axis": "width", "value": 92.0, "unit": "cm"}],
+        ),
+        (
+            "decision",
+            "confirmed",
+            {"topic": "铺贴", "options": ["横贴", "竖贴"]},
+            {"selected_option": "竖贴"},
+            "selected_option",
+            "竖贴",
+        ),
+        (
+            "procurement",
+            "ordered",
+            {"item_name": "花砖"},
+            {"quantity": 20},
+            "quantity",
+            "20",
+        ),
+        (
+            "research",
+            "collecting",
+            {"question": "选哪种砖"},
+            {"conclusion": "选柔光砖"},
+            "conclusion",
+            "选柔光砖",
+        ),
+        (
+            "todo",
+            "pending",
+            {"action": "验收"},
+            {"trigger_condition": "到货后"},
+            "trigger_condition",
+            "到货后",
+        ),
+    ],
+)
+def test_update_detail_fields_for_all_record_types(
+    record_type: str,
+    record_status: str,
+    detail: dict,
+    update_payload: dict,
+    field: str,
+    expected: object,
+) -> None:
+    client = _client()
+    source_id = _source(client)
+    record = client.post(
+        "/api/v1/records",
+        json={**_common(source_id, record_type, record_status), **detail},
+    ).json()
+    response = client.patch(
+        f"/api/v1/records/{record['id']}",
+        json={
+            "record_type": record_type,
+            "occurred_date": "2026-06-28",
+            **update_payload,
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()[field] == expected
+    assert response.json()["occurred_date"] == "2026-06-28"
+
+
 def test_record_requires_source_and_rejects_invalid_measurement() -> None:
     client = _client()
     without_source = client.post(
@@ -327,6 +427,62 @@ def test_record_requires_source_and_rejects_invalid_measurement() -> None:
         },
     )
     assert invalid_value.status_code == 422
+    invalid_month = client.post(
+        "/api/v1/records",
+        json={
+            **_common(source_id, "event", "occurred"),
+            "event_kind": "site_visit",
+            "occurred_date": "2026-02-30",
+        },
+    )
+    assert invalid_month.status_code == 422
+
+
+def test_delete_record_keeps_source_and_releases_persisted_candidate() -> None:
+    client = _client()
+    source_id = _source(client, "今天去现场查看。")
+    bundle = client.post(
+        f"/api/v1/sources/{source_id}/extractions?engine=local"
+    ).json()
+    candidate = bundle["suggestions"][0]
+    confirmed = client.post(
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json={
+            "expected_version": bundle["version"],
+            "selections": [{"key": candidate["key"], "payload": candidate["payload"]}],
+        },
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    record = confirmed.json()["records"][0]["record"]
+    other = client.post(
+        "/api/v1/records",
+        json={**_common(source_id, "todo", "pending"), "action": "后续复核"},
+    ).json()
+    relation = client.post(
+        "/api/v1/record-relations",
+        json={
+            "from_record_id": other["id"],
+            "to_record_id": record["id"],
+            "relation_type": "relates_to",
+        },
+    )
+    assert relation.status_code == 201, relation.text
+
+    deleted = client.delete(f"/api/v1/records/{record['id']}")
+    assert deleted.status_code == 204, deleted.text
+    assert client.get(f"/api/v1/records/{record['id']}").status_code == 404
+    assert client.get(f"/api/v1/sources/{source_id}").status_code == 200
+    assert client.get(f"/api/v1/record-relations?record_id={other['id']}").json() == []
+    latest = client.get(
+        f"/api/v1/sources/{source_id}/candidate-bundles/latest"
+    ).json()
+    released = next(item for item in latest["suggestions"] if item["key"] == candidate["key"])
+    assert released["confirmed_record_id"] is None
+    assert released["review_state"] == "active"
+    audits = client.get(
+        f"/api/v1/audit?target_table=records&target_id={record['id']}"
+    ).json()
+    assert "delete" in {item["action"] for item in audits}
 
 
 def test_seven_real_samples_can_be_manually_mapped_without_ai() -> None:
@@ -568,7 +724,7 @@ def test_sample_004_and_007_local_suggestion_boundaries() -> None:
     suggestions_007 = client.get(f"/api/v1/sources/{sample_007}/suggestions").json()["suggestions"]
     assert len([item for item in suggestions_007 if item["record_type"] == "decision"]) == 3
     assert any(
-        item["record_type"] == "event" and item["payload"].get("event_kind") == "acceptance_test"
+        item["record_type"] == "event" and item["payload"].get("event_kind") == "验收测试通过"
         for item in suggestions_007
     )
     assert all(item["record_type"] != "issue" for item in suggestions_007)

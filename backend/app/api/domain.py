@@ -1,27 +1,27 @@
 from __future__ import annotations
 
+import copy
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.audit import log_audit as _write_audit
 from app.auth import CurrentUser, require_user
+from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_DB, RELATION_TYPES
 from app.db import create_session_factory
 from app.domain_models import (
     DEFAULT_PROJECT_ID,
     DEFAULT_ROOT_SPACE_ID,
-    DecisionDetail,
-    EventDetail,
-    IssueDetail,
+    CandidateBundle,
     LedgerDetail,
     Material,
-    MeasurementDetail,
     MeasurementValue,
     Participant,
     ProcurementDetail,
@@ -29,9 +29,7 @@ from app.domain_models import (
     ProjectStage,
     Record,
     RecordRelation,
-    ResearchDetail,
     Space,
-    TodoDetail,
     Vendor,
     record_attachments,
     record_materials,
@@ -39,7 +37,6 @@ from app.domain_models import (
     record_sources,
     record_spaces,
 )
-from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_DB, RELATION_TYPES
 from app.local_suggestions import suggest_from_text
 from app.models import Attachment, SourceEntry
 from app.projections import serialize_records
@@ -52,8 +49,7 @@ RECORD_CREATE_ADAPTER = TypeAdapter(RecordCreate)
 COMMON_FIELDS = {
     "title",
     "description",
-    "occurred_at",
-    "time_precision",
+    "occurred_date",
     "original_time_text",
     "timezone",
     "stage_id",
@@ -574,9 +570,23 @@ def _replace_associations(db: Session, record_id: str, payload: dict[str, Any]) 
     )
     if "source_refs" in payload:
         db.execute(delete(record_sources).where(record_sources.c.record_id == record_id))
+        source_ids = [source_ref["source_id"] for source_ref in payload["source_refs"]]
+        revisions = {
+            source.id: source.revision
+            for source in db.scalars(
+                select(SourceEntry).where(SourceEntry.id.in_(source_ids))
+            ).all()
+        }
         db.execute(
             insert(record_sources),
-            [{"record_id": record_id, **source_ref} for source_ref in payload["source_refs"]],
+            [
+                {
+                    "record_id": record_id,
+                    **source_ref,
+                    "source_revision": revisions[source_ref["source_id"]],
+                }
+                for source_ref in payload["source_refs"]
+            ],
         )
     for field, table, column in mappings:
         if field not in payload:
@@ -597,11 +607,24 @@ def _replace_measurements(db: Session, record_id: str, values: list[dict[str, An
 
 def _source_refs(db: Session, record_id: str) -> list[dict[str, Any]]:
     rows = db.execute(
-        select(record_sources.c.source_id, record_sources.c.evidence_excerpt).where(
-            record_sources.c.record_id == record_id
+        select(
+            record_sources.c.source_id,
+            record_sources.c.evidence_excerpt,
+            record_sources.c.source_revision,
+            SourceEntry.revision.label("current_revision"),
         )
+        .join(SourceEntry, SourceEntry.id == record_sources.c.source_id)
+        .where(record_sources.c.record_id == record_id)
     ).all()
-    return [{"source_id": row.source_id, "evidence_excerpt": row.evidence_excerpt} for row in rows]
+    return [
+        {
+            "source_id": row.source_id,
+            "evidence_excerpt": row.evidence_excerpt,
+            "source_revision": row.source_revision,
+            "needs_review": row.source_revision < row.current_revision,
+        }
+        for row in rows
+    ]
 
 
 def _association_ids(db: Session, table: Any, column: str, record_id: str) -> list[str]:
@@ -618,7 +641,12 @@ def _record_json(db: Session, record: Record) -> dict[str, Any]:
         for column in detail_model.__table__.columns
         if column.name != "record_id"
     }
-    reverse = {value: key for key, value in DETAIL_RENAMES_TO_DB.get(record.record_type, {}).items()}
+
+
+    reverse = {
+        value: key
+        for key, value in DETAIL_RENAMES_TO_DB.get(record.record_type, {}).items()
+    }
     detail_values = {reverse.get(key, key): value for key, value in detail_values.items()}
     if record.record_type == "measurement":
         values = db.execute(
@@ -635,8 +663,7 @@ def _record_json(db: Session, record: Record) -> dict[str, Any]:
         "record_type": record.record_type,
         "title": record.title,
         "description": record.description,
-        "occurred_at": record.occurred_at,
-        "time_precision": record.time_precision,
+        "occurred_date": record.occurred_date,
         "original_time_text": record.original_time_text,
         "timezone": record.timezone,
         "stage_id": record.stage_id,
@@ -649,6 +676,14 @@ def _record_json(db: Session, record: Record) -> dict[str, Any]:
         "attachment_ids": _association_ids(db, record_attachments, "attachment_id", record.id),
         **detail_values,
     }
+
+
+def _source_origin_key(prefix: str, source: SourceEntry, key: str) -> str:
+    return (
+        f"{prefix}:{source.id}:{key}"
+        if source.revision == 1
+        else f"{prefix}:{source.id}:r{source.revision}:{key}"
+    )
 
 
 def _create_record_in_session(
@@ -702,7 +737,7 @@ def get_local_suggestions(source_id: str, request: Request, user: User) -> dict[
             raise _not_found("来源")
         bundle = suggest_from_text(source.id, source.original_text)
         for suggestion in bundle["suggestions"]:
-            origin_key = f"local:{source.id}:{suggestion['key']}"
+            origin_key = _source_origin_key("local", source, suggestion["key"])
             record = db.execute(
                 select(Record).where(
                     Record.project_id == DEFAULT_PROJECT_ID,
@@ -760,7 +795,9 @@ def confirm_local_suggestions(
                     status_code=422,
                     detail=detail,
                 ) from exc
-            validated.append((selection, parsed, f"local:{source.id}:{selection.key}"))
+            validated.append(
+                (selection, parsed, _source_origin_key("local", source, selection.key))
+            )
 
         key_to_record: dict[str, Record] = {}
         created_keys: set[str] = set()
@@ -915,6 +952,77 @@ def update_record(
         db.close()
 
 
+def _release_candidate_record(db: Session, record_id: str) -> None:
+    """删除正式记录后释放候选引用，避免界面继续误报“已确认”。"""
+    bundles = db.scalars(select(CandidateBundle)).all()
+    for bundle in bundles:
+        content = copy.deepcopy(bundle.bundle_json)
+        changed = False
+        for candidate in content.get("suggestions", []):
+            if candidate.get("confirmed_record_id") != record_id:
+                continue
+            candidate["confirmed_record_id"] = None
+            candidate["review_state"] = "active"
+            candidate["deferred_at"] = None
+            changed = True
+        if not changed:
+            continue
+        if bundle.status != "superseded":
+            rows = content.get("suggestions", [])
+            confirmed_count = sum(
+                item.get("review_state") == "confirmed" for item in rows
+            )
+            bundle.status = (
+                "confirmed"
+                if rows and confirmed_count == len(rows)
+                else "partially_confirmed" if confirmed_count else "pending"
+            )
+        bundle.bundle_json = content
+        bundle.version += 1
+        bundle.updated_at = _now()
+        flag_modified(bundle, "bundle_json")
+        log_audit(
+            db,
+            "update",
+            "candidate_bundles",
+            bundle.id,
+            after={"status": bundle.status, "version": bundle.version},
+        )
+
+
+@router.delete("/records/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_record(record_id: str, request: Request, user: User) -> None:
+    db = _db(request)
+    try:
+        record = _get_record(db, record_id)
+        before = _record_json(db, record)
+        relations = db.scalars(
+            select(RecordRelation).where(
+                (RecordRelation.from_record_id == record.id)
+                | (RecordRelation.to_record_id == record.id)
+            )
+        ).all()
+        for relation in relations:
+            log_audit(
+                db,
+                "delete",
+                "record_relations",
+                relation.id,
+                before={
+                    "from_record_id": relation.from_record_id,
+                    "to_record_id": relation.to_record_id,
+                    "relation_type": relation.relation_type,
+                },
+            )
+            db.delete(relation)
+        _release_candidate_record(db, record.id)
+        db.delete(record)
+        log_audit(db, "delete", "records", record.id, before=before)
+        db.commit()
+    finally:
+        db.close()
+
+
 def _set_archived(record_id: str, request: Request, archived: bool) -> dict[str, Any]:
     db = _db(request)
     try:
@@ -939,6 +1047,51 @@ def archive_record(record_id: str, request: Request, user: User) -> dict[str, An
 @router.post("/records/{record_id}/restore")
 def restore_record(record_id: str, request: Request, user: User) -> dict[str, Any]:
     return _set_archived(record_id, request, False)
+
+
+@router.post("/records/{record_id}/source-reviews/{source_id}")
+def review_record_source(
+    record_id: str,
+    source_id: str,
+    request: Request,
+    user: User,
+) -> dict[str, Any]:
+    db = _db(request)
+    try:
+        record = _get_record(db, record_id)
+        source = db.get(SourceEntry, source_id)
+        if source is None or source.project_id != DEFAULT_PROJECT_ID:
+            raise _not_found("来源")
+        row = db.execute(
+            select(record_sources.c.source_revision).where(
+                record_sources.c.record_id == record.id,
+                record_sources.c.source_id == source.id,
+            )
+        ).one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="正式记录未关联该来源。")
+        previous_revision = row.source_revision
+        if previous_revision < source.revision:
+            db.execute(
+                update(record_sources)
+                .where(
+                    record_sources.c.record_id == record.id,
+                    record_sources.c.source_id == source.id,
+                )
+                .values(source_revision=source.revision)
+            )
+            log_audit(
+                db,
+                "review_source",
+                "records",
+                record.id,
+                before={"source_id": source.id, "source_revision": previous_revision},
+                after={"source_id": source.id, "source_revision": source.revision},
+            )
+            db.commit()
+        return _record_json(db, record)
+    finally:
+        db.close()
 
 
 @router.get("/record-relations")

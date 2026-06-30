@@ -116,6 +116,34 @@ def test_candidate_confirmation_is_atomic_and_idempotent(client: TestClient) -> 
     assert client.get(f"/api/v1/sources/{source_id}").json()["original_text"] == text
 
 
+def test_source_edit_supersedes_bundle_and_rejects_stale_confirmation(
+    client: TestClient,
+) -> None:
+    source_id = _source(client, "今天去现场查看。")
+    bundle = client.post(
+        f"/api/v1/sources/{source_id}/extractions?engine=local"
+    ).json()
+    candidate = bundle["suggestions"][0]
+
+    updated = client.patch(
+        f"/api/v1/sources/{source_id}",
+        json={"original_text": "今天下午重新去现场查看。"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["revision"] == 2
+    assert client.get(f"/api/v1/candidate-bundles/{bundle['id']}").json()["status"] == "superseded"
+
+    confirmation = client.post(
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json={
+            "expected_version": bundle["version"],
+            "selections": [{"key": candidate["key"], "payload": candidate["payload"]}],
+        },
+    )
+    assert confirmation.status_code == 409
+    assert "重新加载" in confirmation.json()["detail"]
+
+
 def test_deepseek_failure_falls_back_to_mimo_with_one_budget(monkeypatch) -> None:
     ai = {
         "enabled": True,

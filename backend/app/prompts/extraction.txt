@@ -11,6 +11,8 @@ payload 必须匹配 HomeBuild Log 正式记录结构。金额使用人民币分
 （amount_minor/order_total_minor），采购总额不能伪装成实际付款；尺寸要区分
 材料规格、现场测量、设计要求和计算值；时间缺失不得猜年份；source_refs 由
 服务端补充，不要输出。
+发生时间只使用 occurred_date，格式为 YYYY-MM-DD；无法确定到具体日期时留空，
+不要输出 occurred_at、occurred_month 或 time_precision。
 
 各类型 payload 必填字段（部分）:
   event:       title, status, event_kind
@@ -34,8 +36,16 @@ payload 必须匹配 HomeBuild Log 正式记录结构。金额使用人民币分
   research:    collecting / comparing / concluded / archived
   todo:        pending / in_progress / waiting / done / cancelled
 
-ledger direction 合法值（仅 expense 和 refund，不得编造）:
-  expense: 支出，refund: 退款
+ledger direction 合法值（仅 expense、refund 和 income，不得编造）:
+  expense: 支出，refund: 退款，income: 收入
+
+event_kind 合法值（使用中文，常见值如下）:
+  施工、现场查看、验收测试、验收测试通过、选购选品、会议沟通、其他事件
+
+payment_kind 合法值（使用中文，常见值如下）:
+  预付款、尾款、全款、订金、退款、报销款、收入、其他款项
+
+所有 payload 字段的值请使用中文描述和中文名词，不要输出英文词或英文缩写。
 
 关系放在 relations，元素为 from_ref、to_ref、relation_type；relation_type 仅允许 
 derived_from、relates_to、implements、resolves、pays_for、tracks_delivery、

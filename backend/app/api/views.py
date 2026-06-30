@@ -130,7 +130,8 @@ def timeline(
         groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for item in items:
             item_date = effective_date(item["record"])
-            groups[item_date.isoformat() if item_date else "unknown"].append(item)
+            date_key = item_date.isoformat() if item_date else "unknown"
+            groups[date_key].append(item)
         ordered_keys = sorted((key for key in groups if key != "unknown"), reverse=True)
         if "unknown" in groups:
             ordered_keys.append("unknown")
@@ -138,7 +139,11 @@ def timeline(
             "groups": [
                 {
                     "date_key": key,
-                    "label": "时间待补充" if key == "unknown" else key,
+                    "label": (
+                        "时间待补充"
+                        if key == "unknown"
+                        else f"{key[:4]}年{int(key[5:7])}月{int(key[8:10])}日"
+                    ),
                     "items": groups[key],
                 }
                 for key in ordered_keys
@@ -216,11 +221,13 @@ def ledger_summary(
                     "procurement_total_minor": 0,
                     "expense_minor": 0,
                     "refund_minor": 0,
+                    "income_minor": 0,
                     "net_paid_minor": 0,
                     "outstanding_minor": 0,
                     "overpaid_minor": 0,
                     "unallocated_expense_minor": 0,
                     "unallocated_refund_minor": 0,
+                    "unallocated_income_minor": 0,
                 },
             )
 
@@ -242,6 +249,11 @@ def ledger_summary(
                 for item in linked
                 if item["direction"] == "refund"
             )
+            income = sum(
+                int(item["amount_minor"])
+                for item in linked
+                if item["direction"] == "income"
+            )
             net = expense - refund
             outstanding = max(order_total - net, 0) if procurement["status"] != "cancelled" else 0
             overpaid = max(net - order_total, 0) if procurement["status"] != "cancelled" else 0
@@ -252,6 +264,7 @@ def ledger_summary(
                     **procurement,
                     "paid_minor": expense,
                     "refund_minor": refund,
+                    "income_minor": income,
                     "net_paid_minor": net,
                     "outstanding_minor": outstanding,
                     "overpaid_minor": overpaid,
@@ -259,22 +272,30 @@ def ledger_summary(
                 }
             )
 
+        _DIRECTION_FIELD: dict[str, str] = {
+            "expense": "expense_minor",
+            "refund": "refund_minor",
+            "income": "income_minor",
+        }
+        _DIRECTION_UNALLOCATED: dict[str, str] = {
+            "expense": "unallocated_expense_minor",
+            "refund": "unallocated_refund_minor",
+            "income": "unallocated_income_minor",
+        }
         for ledger in ledgers:
             if ledger["status"] != "posted":
                 continue
             total = currency_total(ledger.get("currency", "CNY"))
-            field = "expense_minor" if ledger["direction"] == "expense" else "refund_minor"
-            total[field] += int(ledger["amount_minor"])
+            field = _DIRECTION_FIELD.get(ledger["direction"])
+            if field:
+                total[field] += int(ledger["amount_minor"])
         for total in totals.values():
             total["net_paid_minor"] = int(total["expense_minor"]) - int(total["refund_minor"])
         for ledger in unallocated:
             total = currency_total(ledger.get("currency", "CNY"))
-            field = (
-                "unallocated_expense_minor"
-                if ledger["direction"] == "expense"
-                else "unallocated_refund_minor"
-            )
-            total[field] += int(ledger["amount_minor"])
+            field = _DIRECTION_UNALLOCATED.get(ledger["direction"])
+            if field:
+                total[field] += int(ledger["amount_minor"])
 
         return {
             "totals_by_currency": list(totals.values()),

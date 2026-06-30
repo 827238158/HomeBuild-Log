@@ -1,4 +1,4 @@
-"""跨模块共享常量，消除 api/extractions、api/domain、projections、local_suggestions 间的代码重复。"""
+"""跨模块共享领域常量，减少提取、记录和投影模块之间的重复。"""
 
 from __future__ import annotations
 
@@ -97,4 +97,22 @@ FIELDS_BY_TYPE: dict[str, set[str]] = {
     "procurement": {"status", "item_name"},
     "research": {"status", "question"},
     "todo": {"status", "action"},
+}
+
+# 枚举字段合法值集合，用于校验已存在值是否合法（api/extractions.py _fill_missing_required 使用）
+VALID_ENUMS: dict[str, dict[str, set[str]]] = {
+    "status": {
+        "event":       {"planned", "occurred", "completed", "cancelled"},
+        "ledger":      {"planned", "posted", "voided"},
+        "issue":       {"open", "in_progress", "waiting", "resolved", "closed"},
+        "measurement": {"active", "superseded", "cancelled"},
+        "decision":    {"pending", "confirmed", "superseded", "cancelled"},
+        "procurement": {"planned", "ordered", "partially_paid", "paid", "delivery_pending",
+                        "delivered", "returned", "completed", "cancelled"},
+        "research":    {"collecting", "comparing", "concluded", "archived"},
+        "todo":        {"pending", "in_progress", "waiting", "done", "cancelled"},
+    },
+    "direction": {
+        "ledger": {"expense", "refund", "income"},
+    },
 }
