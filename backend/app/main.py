@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.api.analytics import router as analytics_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.domain import router as domain_router
@@ -99,6 +100,8 @@ def create_app(
     application.include_router(auth_router, prefix="/api/v1")
     application.include_router(sources_router, prefix="/api/v1")
     application.include_router(audit_router, prefix="/api/v1")
+    # 固定路径的分析接口必须先于 /records/{record_id} 注册。
+    application.include_router(analytics_router, prefix="/api/v1")
     application.include_router(domain_router, prefix="/api/v1")
     application.include_router(extractions_router, prefix="/api/v1")
     application.include_router(views_router, prefix="/api/v1")

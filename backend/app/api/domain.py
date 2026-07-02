@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import copy
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
@@ -70,6 +71,10 @@ def _db(request: Request) -> Session:
 
 def _now() -> datetime:
     return datetime.now(tz=UTC)
+
+
+def _today() -> date:
+    return _now().astimezone(ZoneInfo("Asia/Shanghai")).date()
 
 
 def log_audit(
@@ -693,6 +698,18 @@ def _create_record_in_session(
     origin_key: str | None = None,
 ) -> Record:
     payload = body.model_dump()
+    # 问题完成时自动登记北京时间日期；未完成记录不能伪造完成日期。
+    if payload["record_type"] == "issue":
+        if payload.get("status") == "done":
+            if not str(payload.get("actual_result") or "").strip():
+                raise HTTPException(status_code=422, detail="问题完成时必须填写实际处理结果。")
+            if payload.get("completed_at") is None:
+                payload["completed_at"] = _today()
+        elif payload.get("completed_at") is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="问题只有在已完成状态下才能填写实际完成日期。",
+            )
     _validate_record_refs(db, payload)
     record = Record(
         project_id=DEFAULT_PROJECT_ID,
@@ -708,7 +725,7 @@ def _create_record_in_session(
     if record.record_type == "measurement":
         _replace_measurements(db, record.id, payload["values"])
     db.flush()
-    log_audit(db, "create", "records", record.id, after=body.model_dump(mode="json"))
+    log_audit(db, "create", "records", record.id, after=payload)
     return record
 
 
@@ -932,7 +949,30 @@ def update_record(
             raise HTTPException(status_code=409, detail="记录类型创建后不可修改。")
         before = _record_json(db, record)
         payload = body.model_dump(exclude_unset=True)
+        if record.record_type == "issue":
+            previous_status = before.get("status")
+            next_status = payload.get("status", previous_status)
+            if next_status == "done":
+                actual_result = payload.get("actual_result", before.get("actual_result"))
+                if not str(actual_result or "").strip():
+                    raise HTTPException(status_code=422, detail="问题完成时必须填写实际处理结果。")
+                if payload.get("completed_at", before.get("completed_at")) is None:
+                    payload["completed_at"] = _today()
+            else:
+                if payload.get("completed_at") is not None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="问题只有在已完成状态下才能填写实际完成日期。",
+                    )
+                if previous_status == "done" and "completed_at" not in payload:
+                    payload["completed_at"] = None
         validation_payload = {**before, **payload}
+        if record.record_type == "ledger" and not validation_payload.get("vendor_id"):
+            raise HTTPException(status_code=422, detail="账目必须选择交易对象（商家）。")
+        if record.record_type == "issue" and validation_payload.get("severity") not in {
+            "low", "medium", "high"
+        }:
+            raise HTTPException(status_code=422, detail="问题必须选择低、中或高严重程度。")
         _validate_record_refs(db, validation_payload)
         for key in COMMON_FIELDS & payload.keys():
             setattr(record, key, payload[key])

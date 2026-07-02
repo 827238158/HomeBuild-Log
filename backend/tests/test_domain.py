@@ -64,7 +64,7 @@ RECORD_CASES = [
         "posted",
         {"direction": "expense", "payment_kind": "deposit", "amount_minor": 50000},
     ),
-    ("issue", "open", {"phenomenon": "主卧门口地砖小破裂"}),
+    ("issue", "pending", {"phenomenon": "主卧门口地砖小破裂", "severity": "medium"}),
     (
         "measurement",
         "active",
@@ -72,8 +72,8 @@ RECORD_CASES = [
             "object_name": "花砖",
             "measurement_role": "material_spec",
             "values": [
-                {"axis": "width", "value": "60", "unit": "cm"},
-                {"axis": "height", "value": "120", "unit": "cm"},
+                {"axis": "width", "value": "600", "unit": "mm"},
+                {"axis": "height", "value": "1200", "unit": "mm"},
             ],
         },
     ),
@@ -92,22 +92,76 @@ RECORD_CASES = [
         "comparing",
         {"question": "选择哪种瓷砖", "options": ["浅灰", "中灰"]},
     ),
-    ("todo", "pending", {"action": "到货后验收"}),
 ]
 
 
 @pytest.mark.parametrize(("record_type", "record_status", "detail"), RECORD_CASES)
-def test_create_all_eight_record_types(record_type: str, record_status: str, detail: dict) -> None:
+def test_create_all_seven_record_types(record_type: str, record_status: str, detail: dict) -> None:
     client = _client()
     source_id = _source(client)
     payload = {**_common(source_id, record_type, record_status), **detail}
+    if record_type == "ledger":
+        vendor = client.post("/api/v1/vendors", json={"name": "交易对象"}).json()
+        payload["vendor_id"] = vendor["id"]
     response = client.post("/api/v1/records", json=payload)
     assert response.status_code == 201, response.text
     data = response.json()
     assert data["record_type"] == record_type
     assert data["source_refs"][0]["source_id"] == source_id
     if record_type == "measurement":
-        assert [item["value"] for item in data["values"]] == [60.0, 120.0]
+        assert [item["value"] for item in data["values"]] == [600.0, 1200.0]
+
+
+def test_issue_completed_date_follows_done_status() -> None:
+    client = _client()
+    source_id = _source(client)
+
+    invalid = client.post(
+        "/api/v1/records",
+        json={
+            **_common(source_id, "issue", "pending"),
+            "phenomenon": "等待验收", "severity": "medium",
+            "completed_at": "2026-07-01",
+        },
+    )
+    assert invalid.status_code == 422
+
+    created = client.post(
+        "/api/v1/records",
+        json={
+            **_common(source_id, "issue", "pending"),
+            "phenomenon": "等待验收",
+            "severity": "medium",
+        },
+    )
+    assert created.status_code == 201, created.text
+    record_id = created.json()["id"]
+
+    completed = client.patch(
+        f"/api/v1/records/{record_id}",
+        json={"record_type": "issue", "status": "done", "actual_result": "已经验收"},
+    )
+    assert completed.status_code == 200, completed.text
+    assert len(completed.json()["completed_at"]) == 10
+
+    reopened = client.patch(
+        f"/api/v1/records/{record_id}",
+        json={"record_type": "issue", "status": "in_progress"},
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["completed_at"] is None
+
+    done_on_create = client.post(
+        "/api/v1/records",
+        json={
+            **_common(source_id, "issue", "done"),
+            "phenomenon": "等待验收",
+            "severity": "low",
+            "actual_result": "已经验收",
+        },
+    )
+    assert done_on_create.status_code == 201, done_on_create.text
+    assert len(done_on_create.json()["completed_at"]) == 10
 
 
 def test_project_space_shared_entities_and_source_listing() -> None:
@@ -257,7 +311,11 @@ def test_update_archive_restore_relation_and_audit() -> None:
     ).json()
     second = client.post(
         "/api/v1/records",
-        json={**_common(source_id, "todo", "pending"), "action": "现场复核"},
+        json={
+            **_common(source_id, "issue", "pending"),
+            "phenomenon": "现场复核",
+            "severity": "low",
+        },
     ).json()
 
     updated = client.patch(
@@ -269,7 +327,7 @@ def test_update_archive_restore_relation_and_audit() -> None:
     assert (
         client.patch(
             f"/api/v1/records/{first['id']}",
-            json={"record_type": "todo", "title": "非法换型"},
+                json={"record_type": "issue", "title": "非法换型"},
         ).status_code
         == 409
     )
@@ -303,6 +361,34 @@ def test_update_archive_restore_relation_and_audit() -> None:
     assert {"create", "update", "archive", "restore"}.issubset(actions)
 
 
+def test_issue_completion_date_follows_status_transitions() -> None:
+    client = _client()
+    source_id = _source(client)
+    issue = client.post(
+        "/api/v1/records",
+        json={
+            **_common(source_id, "issue", "pending"),
+            "phenomenon": "墙面渗水",
+            "severity": "high",
+        },
+    ).json()
+    assert issue["completed_at"] is None
+
+    resolved = client.patch(
+        f"/api/v1/records/{issue['id']}",
+        json={"record_type": "issue", "status": "done", "actual_result": "已修复并复核"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert len(resolved.json()["completed_at"]) == 10
+
+    reopened = client.patch(
+        f"/api/v1/records/{issue['id']}",
+        json={"record_type": "issue", "status": "in_progress"},
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["completed_at"] is None
+
+
 @pytest.mark.parametrize(
     ("record_type", "record_status", "detail", "update_payload", "field", "expected"),
     [
@@ -324,8 +410,8 @@ def test_update_archive_restore_relation_and_audit() -> None:
         ),
         (
             "issue",
-            "open",
-            {"phenomenon": "破裂"},
+            "pending",
+            {"phenomenon": "破裂", "severity": "low"},
             {"handling_plan": "门套遮挡"},
             "handling_plan",
             "门套遮挡",
@@ -336,11 +422,11 @@ def test_update_archive_restore_relation_and_audit() -> None:
             {
                 "object_name": "门洞",
                 "measurement_role": "site_measurement",
-                "values": [{"axis": "width", "value": 90, "unit": "cm"}],
+                "values": [{"axis": "width", "value": 900, "unit": "mm"}],
             },
-            {"values": [{"axis": "width", "value": 92, "unit": "cm"}]},
+            {"values": [{"axis": "width", "value": 920, "unit": "mm"}]},
             "values",
-            [{"axis": "width", "value": 92.0, "unit": "cm"}],
+            [{"axis": "width", "value": 920.0, "unit": "mm"}],
         ),
         (
             "decision",
@@ -366,14 +452,6 @@ def test_update_archive_restore_relation_and_audit() -> None:
             "conclusion",
             "选柔光砖",
         ),
-        (
-            "todo",
-            "pending",
-            {"action": "验收"},
-            {"trigger_condition": "到货后"},
-            "trigger_condition",
-            "到货后",
-        ),
     ],
 )
 def test_update_detail_fields_for_all_record_types(
@@ -388,7 +466,19 @@ def test_update_detail_fields_for_all_record_types(
     source_id = _source(client)
     record = client.post(
         "/api/v1/records",
-        json={**_common(source_id, record_type, record_status), **detail},
+        json={
+            **_common(source_id, record_type, record_status),
+            **detail,
+            **(
+                {
+                    "vendor_id": client.post(
+                        "/api/v1/vendors", json={"name": "交易对象"}
+                    ).json()["id"]
+                }
+                if record_type == "ledger"
+                else {}
+            ),
+        },
     ).json()
     response = client.patch(
         f"/api/v1/records/{record['id']}",
@@ -408,11 +498,12 @@ def test_record_requires_source_and_rejects_invalid_measurement() -> None:
     without_source = client.post(
         "/api/v1/records",
         json={
-            "record_type": "todo",
+            "record_type": "issue",
             "title": "无来源",
             "status": "pending",
             "source_refs": [],
-            "action": "不应创建",
+            "phenomenon": "不应创建",
+            "severity": "low",
         },
     )
     assert without_source.status_code == 422
@@ -423,7 +514,7 @@ def test_record_requires_source_and_rejects_invalid_measurement() -> None:
             **_common(source_id, "measurement", "active"),
             "object_name": "门洞",
             "measurement_role": "site_measurement",
-            "values": [{"axis": "width", "value": 0, "unit": "cm"}],
+            "values": [{"axis": "width", "value": 0, "unit": "mm"}],
         },
     )
     assert invalid_value.status_code == 422
@@ -456,7 +547,11 @@ def test_delete_record_keeps_source_and_releases_persisted_candidate() -> None:
     record = confirmed.json()["records"][0]["record"]
     other = client.post(
         "/api/v1/records",
-        json={**_common(source_id, "todo", "pending"), "action": "后续复核"},
+        json={
+            **_common(source_id, "issue", "pending"),
+            "phenomenon": "后续复核",
+            "severity": "low",
+        },
     ).json()
     relation = client.post(
         "/api/v1/record-relations",
@@ -517,7 +612,7 @@ def test_seven_real_samples_can_be_manually_mapped_without_ai() -> None:
                 "posted",
                 {"direction": "expense", "payment_kind": "deposit", "amount_minor": 50000},
             ),
-            ("todo", "pending", {"action": "等待送货并验收"}),
+            ("issue", "pending", {"phenomenon": "等待送货并验收", "severity": "low"}),
         ],
         [
             (
@@ -532,8 +627,8 @@ def test_seven_real_samples_can_be_manually_mapped_without_ai() -> None:
                     "object_name": "花砖",
                     "measurement_role": "material_spec",
                     "values": [
-                        {"axis": "width", "value": 60, "unit": "cm"},
-                        {"axis": "height", "value": 120, "unit": "cm"},
+                        {"axis": "width", "value": 600, "unit": "mm"},
+                        {"axis": "height", "value": 1200, "unit": "mm"},
                     ],
                 },
             ),
@@ -544,13 +639,21 @@ def test_seven_real_samples_can_be_manually_mapped_without_ai() -> None:
                 "collecting",
                 {"question": "飘窗和壁龛如何铺贴", "options": ["花砖", "普通纯色砖"]},
             ),
-            ("todo", "pending", {"action": "现场规划飘窗和壁龛铺贴"}),
+            ("issue", "pending", {"phenomenon": "现场规划飘窗和壁龛铺贴", "severity": "low"}),
         ],
         [
             ("event", "completed", {"event_kind": "construction", "result": "地砖铺贴完毕"}),
-            ("issue", "waiting", {"phenomenon": "主卧门口地砖小破裂", "handling_plan": "门套遮挡"}),
+            (
+                "issue",
+                "pending",
+                {
+                    "phenomenon": "主卧门口地砖小破裂",
+                    "handling_plan": "门套遮挡",
+                    "severity": "medium",
+                },
+            ),
             ("decision", "confirmed", {"topic": "破裂处理", "selected_option": "不返工，门套遮挡"}),
-            ("todo", "waiting", {"action": "门套施工后复核遮挡效果"}),
+            ("issue", "pending", {"phenomenon": "门套施工后复核遮挡效果", "severity": "low"}),
         ],
         [
             ("decision", "confirmed", {"topic": "全屋瓷砖方案", "selected_option": "柔光砖同色系"}),
@@ -561,8 +664,8 @@ def test_seven_real_samples_can_be_manually_mapped_without_ai() -> None:
                     "object_name": "地面柔光砖",
                     "measurement_role": "material_spec",
                     "values": [
-                        {"axis": "width", "value": 75, "unit": "cm"},
-                        {"axis": "height", "value": 150, "unit": "cm"},
+                        {"axis": "width", "value": 750, "unit": "mm"},
+                        {"axis": "height", "value": 1500, "unit": "mm"},
                     ],
                 },
             ),
@@ -586,7 +689,7 @@ def test_seven_real_samples_can_be_manually_mapped_without_ai() -> None:
                     "object_name": "厨房门",
                     "measurement_role": "design_requirement",
                     "approximate": True,
-                    "values": [{"axis": "width", "value": 240, "unit": "cm"}],
+                    "values": [{"axis": "width", "value": 2400, "unit": "mm"}],
                 },
             ),
         ],
@@ -595,13 +698,18 @@ def test_seven_real_samples_can_be_manually_mapped_without_ai() -> None:
             ("decision", "confirmed", {"topic": "智能开关", "selected_option": "全屋使用"}),
             ("decision", "confirmed", {"topic": "网络布线", "selected_option": "全屋布线"}),
             ("decision", "confirmed", {"topic": "HDMI光纤", "selected_option": "书房连接客厅电视"}),
-            ("todo", "pending", {"action": "补充水电线路资料"}),
+            ("issue", "pending", {"phenomenon": "补充水电线路资料", "severity": "low"}),
             ("event", "completed", {"event_kind": "acceptance_test", "result": "水管打压通过"}),
         ],
     ]
 
     for index, records in enumerate(mappings):
         for record_type, record_status, detail in records:
+            if record_type == "ledger":
+                vendor = client.post(
+                    "/api/v1/vendors", json={"name": f"交易对象{index}"}
+                ).json()
+                detail = {**detail, "vendor_id": vendor["id"]}
             response = client.post(
                 "/api/v1/records",
                 json={
@@ -615,7 +723,7 @@ def test_seven_real_samples_can_be_manually_mapped_without_ai() -> None:
         f"/api/v1/records?source_id={source_ids[6]}&include_archived=true"
     ).json()
     assert len(sample_seven) == 6
-    assert all(record["record_type"] != "issue" for record in sample_seven)
+    assert len([record for record in sample_seven if record["record_type"] == "issue"]) == 1
     assert len(client.get("/api/v1/sources").json()) == 7
 
 
@@ -647,6 +755,12 @@ def test_local_suggestion_batch_confirmation_is_atomic_and_idempotent() -> None:
     )
     bundle = client.get(f"/api/v1/sources/{source_id}/suggestions").json()
     selected = [item for item in bundle["suggestions"] if item["selected_by_default"]]
+    vendor_id = client.post("/api/v1/vendors", json={"name": "批量确认交易对象"}).json()["id"]
+    for item in selected:
+        if item["record_type"] == "ledger":
+            item["payload"]["vendor_id"] = vendor_id
+        if item["record_type"] == "issue":
+            item["payload"]["severity"] = "low"
     request_body = {
         "selections": [{"key": item["key"], "payload": item["payload"]} for item in selected]
     }
@@ -715,7 +829,7 @@ def test_sample_004_and_007_local_suggestion_boundaries() -> None:
         item["record_type"]
         for item in client.get(f"/api/v1/sources/{sample_004}/suggestions").json()["suggestions"]
     ]
-    assert {"event", "issue", "decision", "todo"}.issubset(types_004)
+    assert {"event", "issue", "decision"}.issubset(types_004)
 
     sample_007 = _source(
         client,
@@ -727,4 +841,4 @@ def test_sample_004_and_007_local_suggestion_boundaries() -> None:
         item["record_type"] == "event" and item["payload"].get("event_kind") == "验收测试通过"
         for item in suggestions_007
     )
-    assert all(item["record_type"] != "issue" for item in suggestions_007)
+    assert any(item["record_type"] == "issue" for item in suggestions_007)

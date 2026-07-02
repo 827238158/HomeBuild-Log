@@ -12,9 +12,21 @@ import { createExtraction, listSources } from './domainApi'
 import { clearToken, getToken, saveToken } from './token'
 import { BACKEND_URL, UI, UPLOAD } from './config'
 import './styles.css'
+import './workspace-overrides.css'
 import { DomainWorkspace } from './DomainWorkspace'
 import { CoreViews } from './CoreViews'
 import { formatBeijingDateTime } from './time'
+
+const HIDDEN_RECENT_SOURCES_KEY = 'homebuild-log-hidden-recent-sources'
+
+function readHiddenRecentSources(): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(HIDDEN_RECENT_SOURCES_KEY) || '[]')
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
 
 type ViewState =
   | { kind: 'loading' }
@@ -38,6 +50,23 @@ export function App() {
   const [attachmentError, setAttachmentError] = useState('')
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null)
   const [sourceRefreshKey, setSourceRefreshKey] = useState(0)
+  const [hiddenRecentSourceIds, setHiddenRecentSourceIds] = useState<string[]>(readHiddenRecentSources)
+
+  const visibleRecentSources = sources
+    .slice(0, 3)
+    .filter((source) => !hiddenRecentSourceIds.includes(source.id))
+
+  const hideRecentSource = (sourceId: string) => {
+    setHiddenRecentSourceIds((current) => {
+      const next = current.includes(sourceId) ? current : [...current, sourceId]
+      try {
+        localStorage.setItem(HIDDEN_RECENT_SOURCES_KEY, JSON.stringify(next))
+      } catch {
+        // 本地存储不可用时仍允许本次页面内关闭。
+      }
+      return next
+    })
+  }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -199,8 +228,34 @@ export function App() {
     }
   }
 
+  if (state.kind === 'ready') {
+    return <main className="app-workspace">
+      <CoreViews onLogout={handleLogout}>
+        <section className="capture-workspace">
+          <header className="capture-workspace__header"><p className="eyebrow">快速录入</p><h2>记录装修现场</h2><p>先保存原始事实，再选择是否交给智能分析拆分。</p></header>
+          <div className="source-form">
+            <textarea className="source-input" placeholder="记录今天发生的事情…" value={sourceText} onChange={(e) => setSourceText(e.target.value)} rows={3} />
+            <label className="attachment-field"><span>附件（可选，单个文件）</span><input type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)} /></label>
+            {attachment && <p className="attachment-name">已选择：{attachment.name}</p>}
+            {attachmentError && <p className="source-error">{attachmentError}</p>}
+            <div className="source-actions">
+              <button className="source-save" onClick={handleSaveSource} disabled={!sourceText.trim() || saveStatus === 'saving' || saveStatus === 'analyzing'}>{saveStatus === 'saving' ? '保存中…' : '保存记录'}</button>
+              <button className="secondary-button" type="button" onClick={handleSaveAndAnalyze} disabled={!sourceText.trim() || saveStatus === 'saving' || saveStatus === 'analyzing'}>{saveStatus === 'analyzing' ? '分析中…' : '保存并分析'}</button>
+              {saveStatus === 'saved' && <span className="source-saved">已保存</span>}
+              {saveStatus === 'analyzed' && <span className="source-saved">已保存并分析</span>}
+              {saveStatus === 'error' && <span className="source-error">保存失败</span>}
+              {saveStatus === 'attachment-error' && pendingUpload && <button className="attachment-retry" type="button" onClick={handleRetryAttachment}>来源已保存，重试附件</button>}
+            </div>
+          </div>
+          {visibleRecentSources.length > 0 && <div className="source-list"><h2 className="source-list-title">最近记录</h2>{visibleRecentSources.map((s) => <div key={s.id} className="source-item"><button className="source-item-close" type="button" aria-label={`关闭最近记录：${s.original_text || '仅附件记录'}`} onClick={() => hideRecentSource(s.id)}>×</button><p className="source-item-text">{s.original_text}</p><time className="source-item-time">{formatBeijingDateTime(s.captured_at)}</time></div>)}</div>}
+          <DomainWorkspace refreshKey={sourceRefreshKey} onSourcesChanged={() => void listSources().then((rows) => setSources(Array.isArray(rows) ? rows : []))} />
+        </section>
+      </CoreViews>
+    </main>
+  }
+
   return (
-    <main className="shell">
+    <main className="shell shell--auth">
       <section className="hero" aria-labelledby="page-title">
         <p className="eyebrow">装修事实，留得清楚</p>
         <h1 id="page-title">HomeBuild Log</h1>
@@ -235,95 +290,6 @@ export function App() {
               )}
             </div>
           </div>
-        )}
-
-        {state.kind === 'ready' && (
-          <>
-            <div className="status-card status-card--ready" role="status">
-              <span className="status-dot" aria-hidden="true" />
-              <div>
-                <strong>本地服务运行正常</strong>
-                <p>
-                  数据库：{state.health.database.status} · 存储：
-                  {state.health.storage.status}
-                </p>
-              </div>
-              <button className="logout-button" onClick={handleLogout} type="button">
-                退出
-              </button>
-            </div>
-
-            <CoreViews><div className="source-form">
-              <textarea
-                className="source-input"
-                placeholder="记录今天发生的事情…"
-                value={sourceText}
-                onChange={(e) => setSourceText(e.target.value)}
-                rows={3}
-              />
-              <label className="attachment-field">
-                <span>附件（可选，单个文件）</span>
-                <input
-                  type="file"
-                  accept=".jpg,.jpeg,.png,.webp,.heic,.pdf"
-                  onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)}
-                />
-              </label>
-              {attachment && <p className="attachment-name">已选择：{attachment.name}</p>}
-              {attachmentError && <p className="source-error">{attachmentError}</p>}
-              <div className="source-actions">
-                <button
-                  className="source-save"
-                  onClick={handleSaveSource}
-                  disabled={!sourceText.trim() || saveStatus === 'saving' || saveStatus === 'analyzing'}
-                >
-                  {saveStatus === 'saving' ? '保存中…' : '保存记录'}
-                </button>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={handleSaveAndAnalyze}
-                  disabled={!sourceText.trim() || saveStatus === 'saving' || saveStatus === 'analyzing'}
-                >
-                  {saveStatus === 'analyzing' ? '分析中…' : '保存并分析'}
-                </button>
-                {saveStatus === 'saved' && (
-                  <span className="source-saved">已保存</span>
-                )}
-                {saveStatus === 'analyzed' && (
-                  <span className="source-saved">已保存并分析</span>
-                )}
-                {saveStatus === 'error' && (
-                  <span className="source-error">保存失败</span>
-                )}
-                {saveStatus === 'attachment-error' && pendingUpload && (
-                  <button className="attachment-retry" type="button" onClick={handleRetryAttachment}>
-                    来源已保存，重试附件
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {sources.length > 0 && (
-              <div className="source-list">
-                <h2 className="source-list-title">最近记录</h2>
-                {sources.map((s) => (
-                  <div key={s.id} className="source-item">
-                    <p className="source-item-text">{s.original_text}</p>
-                    <time className="source-item-time">
-                      {formatBeijingDateTime(s.captured_at)}
-                    </time>
-                  </div>
-                ))}
-              </div>
-            )}
-            <DomainWorkspace
-              refreshKey={sourceRefreshKey}
-              onSourcesChanged={() => void listSources().then((rows) => {
-                setSources(Array.isArray(rows) ? rows : [])
-              })}
-            /></CoreViews>
-          </>
         )}
 
         {state.kind === 'error' && (

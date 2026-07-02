@@ -28,7 +28,6 @@ class AICandidate(BaseModel):
         "decision",
         "procurement",
         "research",
-        "todo",
     ]
     summary: str = Field(min_length=1, max_length=500)
     evidence: str = Field(min_length=1)

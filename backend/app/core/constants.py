@@ -10,18 +10,16 @@ from app.domain_models import (
     MeasurementDetail,
     ProcurementDetail,
     ResearchDetail,
-    TodoDetail,
 )
 
 TYPE_LABELS: dict[str, str] = {
     "event": "事件",
     "ledger": "账目",
-    "issue": "施工问题",
+    "issue": "问题",
     "measurement": "尺寸",
     "decision": "决策",
     "procurement": "采购",
     "research": "调研",
-    "todo": "待办",
 }
 
 CERTAINTY_LABELS: dict[str, str] = {
@@ -52,7 +50,6 @@ DETAIL_MODELS: dict[str, type] = {
     "decision": DecisionDetail,
     "procurement": ProcurementDetail,
     "research": ResearchDetail,
-    "todo": TodoDetail,
 }
 
 # JSON 字段 -> DB 列名（写入方向，api/domain.py 使用）
@@ -79,24 +76,22 @@ DETAIL_RENAMES_TO_JSON: dict[str, dict[str, str]] = {
 STATUS_DEFAULTS: dict[str, str] = {
     "event": "planned",
     "ledger": "planned",
-    "issue": "open",
+    "issue": "pending",
     "measurement": "active",
     "decision": "pending",
     "procurement": "planned",
     "research": "collecting",
-    "todo": "pending",
 }
 
 # 记录类型必填字段集合（api/extractions.py 使用）
 FIELDS_BY_TYPE: dict[str, set[str]] = {
     "event": {"status", "event_kind"},
     "ledger": {"status", "direction", "payment_kind", "amount_minor"},
-    "issue": {"status", "phenomenon"},
+    "issue": {"status", "phenomenon", "severity"},
     "measurement": {"status", "object_name", "measurement_role", "values"},
     "decision": {"status", "topic"},
     "procurement": {"status", "item_name"},
     "research": {"status", "question"},
-    "todo": {"status", "action"},
 }
 
 # 枚举字段合法值集合，用于校验已存在值是否合法（api/extractions.py _fill_missing_required 使用）
@@ -104,13 +99,12 @@ VALID_ENUMS: dict[str, dict[str, set[str]]] = {
     "status": {
         "event":       {"planned", "occurred", "completed", "cancelled"},
         "ledger":      {"planned", "posted", "voided"},
-        "issue":       {"open", "in_progress", "waiting", "resolved", "closed"},
+        "issue":       {"pending", "in_progress", "done"},
         "measurement": {"active", "superseded", "cancelled"},
-        "decision":    {"pending", "confirmed", "superseded", "cancelled"},
+        "decision":    {"pending", "confirmed", "cancelled"},
         "procurement": {"planned", "ordered", "partially_paid", "paid", "delivery_pending",
                         "delivered", "returned", "completed", "cancelled"},
         "research":    {"collecting", "comparing", "concluded", "archived"},
-        "todo":        {"pending", "in_progress", "waiting", "done", "cancelled"},
     },
     "direction": {
         "ledger": {"expense", "refund", "income"},

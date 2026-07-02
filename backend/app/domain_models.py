@@ -238,6 +238,7 @@ class IssueDetail(Base):
     severity: Mapped[str | None] = mapped_column(String(32))
     responsible_party: Mapped[str | None] = mapped_column(String(200))
     handling_plan: Mapped[str | None] = mapped_column(Text)
+    completed_at: Mapped[date | None] = mapped_column(Date)
     actual_result: Mapped[str | None] = mapped_column(Text)
     resolution_kind: Mapped[str | None] = mapped_column(String(32))
 
@@ -319,10 +320,10 @@ class TodoDetail(Base):
     )
     action: Mapped[str] = mapped_column(Text, nullable=False)
     planned_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
-    due_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    due_at: Mapped[date | None] = mapped_column(Date)
     trigger_condition: Mapped[str | None] = mapped_column(Text)
     priority: Mapped[str | None] = mapped_column(String(32))
-    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    completed_at: Mapped[date | None] = mapped_column(Date)
     completion_evidence: Mapped[str | None] = mapped_column(Text)
 
 

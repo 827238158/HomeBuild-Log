@@ -272,7 +272,7 @@ def suggest_from_text(source_id: str, original_text: str | None) -> dict[str, An
     ):
         evidence = _evidence_clause(text, issue_marker.group(0))
         payload = _base_payload(
-            source_id, evidence, "issue", _short_title(evidence, "施工问题"), "open"
+            source_id, evidence, "issue", _short_title(evidence, "问题"), "pending"
         )
         payload.update(
             discovered_at=None,
@@ -331,19 +331,18 @@ def suggest_from_text(source_id: str, original_text: str | None) -> dict[str, An
         if "已完成" in clause or "完成拆打" in clause:
             continue
         action = clause
-        payload = _base_payload(
-            source_id, clause, "todo", _short_title(action, "后续待办"), "pending"
-        )
+        payload = _base_payload(source_id, clause, "issue", _short_title(action, "问题"), "pending")
         payload.update(
-            action=action,
-            planned_at=None,
-            due_at=None,
-            trigger_condition="条件触发" if re.search(r"后期|到货|做门套时", clause) else None,
-            priority=None,
+            discovered_at=None,
+            phenomenon=action,
+            severity=None,
+            responsible_party=None,
+            handling_plan=None,
             completed_at=None,
-            completion_evidence=None,
+            actual_result=None,
+            resolution_kind=None,
         )
-        todo_keys.append(add("todo", action, clause, "explicit", payload))
+        todo_keys.append(add("issue", action, clause, "explicit", payload, ["严重程度"]))
 
     research_key: str | None = None
     if re.search(r"如何|还是|比较|调研|现场规划", text):

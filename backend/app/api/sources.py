@@ -44,6 +44,8 @@ class SourceResponse(BaseModel):
     reported_time_text: str | None
     updated_at: datetime
     revision: int
+    analysis_status: str = "unprocessed"
+    generated_record_count: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -211,14 +213,47 @@ def list_sources(
 ) -> list[SourceResponse]:
     db = _get_db(request)
     try:
-        rows = db.execute(
+        rows = list(db.execute(
             select(SourceEntryModel)
             .where(SourceEntryModel.project_id == DEFAULT_PROJECT_ID)
             .order_by(SourceEntryModel.captured_at.desc())
             .limit(min(max(limit, 1), 500))
             .offset(max(offset, 0))
-        ).scalars()
-        return [SourceResponse.model_validate(row) for row in rows]
+        ).scalars())
+        result: list[SourceResponse] = []
+        for row in rows:
+            record_count = db.scalar(
+                select(func.count()).select_from(record_sources).where(
+                    record_sources.c.source_id == row.id
+                )
+            ) or 0
+            bundle = db.scalar(
+                select(CandidateBundle)
+                .where(
+                    CandidateBundle.source_id == row.id,
+                    CandidateBundle.status != "superseded",
+                )
+                .order_by(CandidateBundle.created_at.desc())
+                .limit(1)
+            )
+            analysis_status = "unprocessed"
+            if record_count:
+                analysis_status = "confirmed"
+            if bundle is not None:
+                analysis_status = (
+                    "partially_confirmed"
+                    if bundle.status == "partially_confirmed"
+                    else "pending"
+                )
+                if bundle.status == "confirmed" or (record_count and bundle.status != "pending"):
+                    analysis_status = "confirmed"
+            payload = SourceResponse.model_validate(row).model_dump()
+            payload.update(
+                analysis_status=analysis_status,
+                generated_record_count=int(record_count),
+            )
+            result.append(SourceResponse(**payload))
+        return result
     finally:
         db.close()
 

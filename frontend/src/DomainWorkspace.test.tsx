@@ -11,6 +11,7 @@ vi.mock('./domainApi', () => ({
   getLatestCandidateBundle: vi.fn(),
   createExtraction: vi.fn(),
   confirmCandidateBundle: vi.fn(),
+  deferCandidate: vi.fn(),
   updateRecord: vi.fn(),
   deleteRecord: vi.fn(),
   setRecordArchived: vi.fn(),
@@ -88,13 +89,38 @@ beforeEach(() => {
     exclusive_records: 1, shared_records: 0, affected_relations: 0,
     deleted_physical_files: 0, file_cleanup_warnings: [],
   })
-  vi.mocked(api.reviewRecordSource).mockResolvedValue({
-    id: 'event-1', record_type: 'event', title: '现场查看', status: 'occurred',
-    description: null, archived_at: null, source_refs: [],
+  vi.mocked(api.deferCandidate).mockResolvedValue({
+    ...explicitBundle,
+    version: 2,
+    suggestions: [{ ...explicitBundle.suggestions[0], review_state: 'deferred', deferred_at: '2026-07-01T10:00:00Z' }],
   })
 })
 
 describe('DomainWorkspace', () => {
+  it('历史待办候选统一转换为问题', async () => {
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({
+      ...explicitBundle,
+      suggestions: [{
+        ...explicitBundle.suggestions[0],
+        key: 'todo:1', record_type: 'todo', type_label: '待办',
+        payload: {
+          record_type: 'todo', title: '完成验收', status: 'done', action: '完成验收',
+          completed_at: '2026-06-30', completion_evidence: '已经验收', source_refs: [{ source_id: source.id }],
+        },
+      }],
+    })
+    render(<DomainWorkspace refreshKey={0} />)
+
+    expect(await screen.findByText('问题：主卧门口地砖有一处破裂')).toBeTruthy()
+    expect(screen.getByLabelText('实际完成日期')).toHaveProperty('value', '2026-06-30')
+    fireEvent.change(screen.getByLabelText('严重程度'), { target: { value: 'low' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
+    expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0].payload)
+      .toMatchObject({ record_type: 'issue', completed_at: '2026-06-30', actual_result: '已经验收' })
+  })
+
   it('没有已有候选时不会静默触发重新分析', async () => {
     vi.mocked(api.getLatestCandidateBundle).mockResolvedValue(null)
     render(<DomainWorkspace refreshKey={0} />)
@@ -121,7 +147,7 @@ describe('DomainWorkspace', () => {
       original_text: '修正后的原始数据', reported_time_text: null,
     }))
     expect(await screen.findByText(/旧候选已失效/)).toBeTruthy()
-    expect(screen.getByText(/来源版本 v2/)).toBeTruthy()
+    expect(screen.getByText(/来源版本 2/)).toBeTruthy()
   })
 
   it('删除前展示影响统计并在确认后级联删除', async () => {
@@ -139,25 +165,11 @@ describe('DomainWorkspace', () => {
     confirm.mockRestore()
   })
 
-  it('待复核记录可明确确认已核对', async () => {
-    vi.mocked(api.listRecords).mockResolvedValue([{
-      id: 'event-1', record_type: 'event', title: '现场查看', status: 'occurred',
-      description: null, archived_at: null, source_refs: [{
-        source_id: source.id, evidence_excerpt: source.original_text,
-        source_revision: 1, needs_review: true,
-      }],
-    }])
-    render(<DomainWorkspace refreshKey={0} />)
-
-    fireEvent.click(await screen.findByText('已核对，无需修改'))
-    await waitFor(() => expect(api.reviewRecordSource).toHaveBeenCalledWith('event-1', source.id))
-  })
-
   it('默认勾选明确建议并批量确认', async () => {
     render(<DomainWorkspace refreshKey={0} />)
 
     expect(screen.getByRole('heading', { name: '智能拆分' })).toBeTruthy()
-    expect(await screen.findByText('施工问题：主卧门口地砖有一处破裂')).toBeTruthy()
+    expect(await screen.findByText('问题：主卧门口地砖有一处破裂')).toBeTruthy()
     const checkbox = screen.getByRole('checkbox') as HTMLInputElement
     const confirmButton = screen.getByRole('button', { name: '确认所选' }) as HTMLButtonElement
     expect(checkbox.checked).toBe(true)
@@ -189,7 +201,7 @@ describe('DomainWorkspace', () => {
     })
     render(<DomainWorkspace refreshKey={0} />)
 
-    await screen.findByText('施工问题：主卧门口地砖有一处破裂')
+    await screen.findByText('问题：主卧门口地砖有一处破裂')
     const confirmButton = screen.getByRole('button', { name: '确认所选' }) as HTMLButtonElement
     expect(confirmButton.disabled).toBe(true)
 
@@ -216,20 +228,36 @@ describe('DomainWorkspace', () => {
     expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
   })
 
-  it('可通过下拉框切换 AI 候选的记录类型', async () => {
+  it('记录类型中不再提供待办并可切换其他类型', async () => {
     render(<DomainWorkspace refreshKey={0} />)
-    await screen.findByText('施工问题：主卧门口地砖有一处破裂')
+    await screen.findByText('问题：主卧门口地砖有一处破裂')
 
     const typeSelect = screen.getAllByLabelText('记录类型')[0].closest('label')!.querySelector('select')!
-    fireEvent.change(typeSelect, { target: { value: 'todo' } })
-
-    expect(screen.getByLabelText('待办动作')).toBeTruthy()
+    expect(Array.from(typeSelect.options).some((option) => option.value === 'todo')).toBe(false)
+    fireEvent.change(typeSelect, { target: { value: 'research' } })
+    expect(screen.getByLabelText('调研问题')).toBeTruthy()
     expect(screen.queryByLabelText('问题现象')).toBeNull()
+  })
+
+  it('问题业务时间只提交年月日', async () => {
+    render(<DomainWorkspace refreshKey={0} />)
+    await screen.findByText('问题：主卧门口地砖有一处破裂')
+
+    fireEvent.change(screen.getByLabelText('严重程度'), { target: { value: 'medium' } })
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'done' } })
+    fireEvent.change(screen.getByLabelText('实际完成日期'), { target: { value: '2026-07-07' } })
+    fireEvent.change(screen.getByLabelText('实际处理结果'), { target: { value: '已完成复核' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
+    expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0].payload).toMatchObject({
+      completed_at: '2026-07-07', actual_result: '已完成复核', severity: 'medium',
+    })
   })
 
   it('添加手工记录后显示示例且确认时调用 createRecord', async () => {
     render(<DomainWorkspace refreshKey={0} />)
-    await screen.findByText('施工问题：主卧门口地砖有一处破裂')
+    await screen.findByText('问题：主卧门口地砖有一处破裂')
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
     const panels = screen.getAllByLabelText('标题')
@@ -247,18 +275,19 @@ describe('DomainWorkspace', () => {
     expect(form.getByLabelText('金额（元）')).toHaveProperty('value', '')
 
     fireEvent.change(typeSelect, { target: { value: 'measurement' } })
-    expect(form.getByLabelText('宽度（cm）')).toHaveProperty('placeholder', '例如：90')
-    expect(form.getByLabelText('高度（cm，可选）')).toHaveProperty('placeholder', '例如：210')
+    expect(form.getByLabelText('宽度')).toHaveProperty('type', 'number')
+    expect(form.getByLabelText('高度')).toHaveProperty('type', 'number')
+    expect(form.getByLabelText('长度')).toHaveProperty('type', 'number')
 
     fireEvent.change(typeSelect, { target: { value: 'decision' } })
     fireEvent.change(form.getByLabelText('标题'), { target: { value: '铺贴方案' } })
     fireEvent.change(form.getByLabelText('决策主题'), { target: { value: '花砖方向' } })
-    fireEvent.change(form.getByLabelText('选项（逗号分隔）'), { target: { value: '横贴，竖贴' } })
+    fireEvent.change(form.getByLabelText('选项（逗号分隔）'), { target: { value: '横贴（省料），竖贴：更整齐' } })
     fireEvent.click(screen.getByText('确认所选'))
 
     await waitFor(() => expect(api.createRecord).toHaveBeenCalled())
     expect(vi.mocked(api.createRecord).mock.calls.at(-1)?.[0]).toMatchObject({
-      options: ['横贴', '竖贴'],
+      options: ['横贴（省料）', '竖贴：更整齐'],
     })
   })
 
@@ -312,7 +341,7 @@ describe('DomainWorkspace', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<DomainWorkspace refreshKey={0} />)
-    await screen.findByText('施工问题：主卧门口地砖有一处破裂')
+    await screen.findByText('问题：主卧门口地砖有一处破裂')
     fireEvent.click(within(screen.getByLabelText('已有材料')).getByText('删除'))
 
     expect(await screen.findByText('该材料已被正式记录使用，请先解除记录关联。')).toBeTruthy()
@@ -352,7 +381,7 @@ describe('DomainWorkspace', () => {
   it('批量确认失败时保留勾选和编辑内容', async () => {
     vi.mocked(api.confirmCandidateBundle).mockRejectedValue(new Error('整批未保存'))
     render(<DomainWorkspace refreshKey={0} />)
-    await screen.findByText('施工问题：主卧门口地砖有一处破裂')
+    await screen.findByText('问题：主卧门口地砖有一处破裂')
     const titleInput = screen.getAllByText('标题')[0].closest('label')!.querySelector('input')!
     fireEvent.change(titleInput, { target: { value: '保留这个标题' } })
     fireEvent.click(screen.getByText('确认所选'))
@@ -364,7 +393,7 @@ describe('DomainWorkspace', () => {
 
   it('添加的手工记录可单独移除且不影响提交', async () => {
     render(<DomainWorkspace refreshKey={0} />)
-    await screen.findByText('施工问题：主卧门口地砖有一处破裂')
+    await screen.findByText('问题：主卧门口地砖有一处破裂')
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
     expect(screen.getAllByLabelText('标题').length).toBe(2)
@@ -380,9 +409,9 @@ describe('DomainWorkspace', () => {
     expect(api.createRecord).not.toHaveBeenCalled()
   })
 
-  it('AI 候选记录也可本地移除且不提交已移除项', async () => {
+  it('AI 候选移除后持久化，确认其他记录时不会重新出现', async () => {
     render(<DomainWorkspace refreshKey={0} />)
-    await screen.findByText('施工问题：主卧门口地砖有一处破裂')
+    await screen.findByText('问题：主卧门口地砖有一处破裂')
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
     expect(screen.getAllByLabelText('标题').length).toBe(2)
@@ -391,7 +420,8 @@ describe('DomainWorkspace', () => {
     const aiPanel = panels[0]!.closest('article')!
     fireEvent.click(within(aiPanel).getByText('移除'))
 
-    await waitFor(() => expect(screen.queryByText('施工问题：主卧门口地砖有一处破裂')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('问题：主卧门口地砖有一处破裂')).toBeNull())
+    expect(api.deferCandidate).toHaveBeenCalledWith('bundle-1', 'issue:1', 1)
     expect(screen.getAllByLabelText('标题').length).toBe(1)
     fireEvent.click(screen.getByText('确认所选'))
 
@@ -399,107 +429,35 @@ describe('DomainWorkspace', () => {
     expect(api.confirmCandidateBundle).not.toHaveBeenCalled()
   })
 
-  it('从原始来源创建可追溯的待办记录', async () => {
+  it('从原始来源创建可追溯的问题记录', async () => {
     render(<DomainWorkspace refreshKey={0} />)
-    expect(await screen.findByText(source.original_text)).toBeTruthy()
+    expect(await screen.findByRole('option', { name: new RegExp(source.original_text) })).toBeTruthy()
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
     const panels = screen.getAllByLabelText('标题')
     const manualPanel = panels.at(-1)!.closest('article')!
     const form = within(manualPanel)
     fireEvent.change(form.getByLabelText('记录类型').closest('label')!.querySelector('select')!, {
-      target: { value: 'todo' },
+      target: { value: 'issue' },
     })
     fireEvent.change(form.getByLabelText('标题'), { target: { value: '现场复核' } })
-    fireEvent.change(form.getByLabelText('待办动作'), { target: { value: '等待门套施工后复核' } })
+    fireEvent.change(form.getByLabelText('问题现象'), { target: { value: '等待门套施工后复核' } })
+    fireEvent.change(form.getByLabelText('严重程度'), { target: { value: 'low' } })
     fireEvent.click(screen.getByText('确认所选'))
 
     await waitFor(() => expect(api.createRecord).toHaveBeenCalled())
     expect(vi.mocked(api.createRecord).mock.calls[0][0]).toMatchObject({
-      record_type: 'todo',
+      record_type: 'issue',
       title: '现场复核',
       source_refs: [{ source_id: source.id, evidence_excerpt: source.original_text }],
-      action: '等待门套施工后复核',
+      phenomenon: '等待门套施工后复核',
+      severity: 'low',
     })
   })
 
-  it('可以归档来源下的正式记录', async () => {
-    const record = {
-      id: 'event-1', record_type: 'event', title: '现场查看', status: 'occurred',
-      description: null, archived_at: null, source_refs: [{
-        source_id: source.id, evidence_excerpt: null, source_revision: 1, needs_review: false,
-      }],
-    }
-    vi.mocked(api.listRecords).mockResolvedValue([record])
-    vi.mocked(api.setRecordArchived).mockResolvedValue({ ...record, archived_at: '2026-06-28' })
-
+  it('录入界面不再展示已保存记录组件', async () => {
     render(<DomainWorkspace refreshKey={0} />)
-    fireEvent.click(await screen.findByText('归档并隐藏'))
-
-    await waitFor(() => expect(api.setRecordArchived).toHaveBeenCalledWith('event-1', true))
-  })
-
-  it('按记录类型解释待确认待处理以及编辑归档操作', async () => {
-    const decision = {
-      id: 'decision-1', record_type: 'decision', title: '确定铺贴方向', status: 'pending',
-      description: null, archived_at: null, source_refs: [{
-        source_id: source.id, evidence_excerpt: null, source_revision: 1, needs_review: false,
-      }],
-    }
-    const todo = {
-      id: 'todo-1', record_type: 'todo', title: '现场复核', status: 'pending',
-      action: '现场复核', occurred_date: null,
-      description: null, archived_at: null, source_refs: [{
-        source_id: source.id, evidence_excerpt: null, source_revision: 1, needs_review: false,
-      }],
-    }
-    vi.mocked(api.listRecords).mockResolvedValue([decision, todo])
-
-    render(<DomainWorkspace refreshKey={0} />)
-    expect(await screen.findByText('已保存的记录')).toBeTruthy()
-    expect(screen.getByText('这个决定还没有最终确定。')).toBeTruthy()
-    expect(screen.getByText('这项待办还没有开始处理。')).toBeTruthy()
-
-    const recordList = screen.getByText('已保存的记录')
-      .closest('.record-list') as HTMLElement
-    const decisionCard = within(recordList).getByText('决策 · 确定铺贴方向').closest('article')!
-    const todoCard = within(recordList).getByText('待办 · 现场复核').closest('article')!
-    expect(decisionCard.textContent).toContain('状态：待确认')
-    expect(todoCard.textContent).toContain('状态：待处理')
-    expect(within(todoCard).getByText(/删除无法恢复/)).toBeTruthy()
-
-    fireEvent.click(within(todoCard).getByText('详细修改'))
-    expect(within(todoCard).getByLabelText('标题')).toBeTruthy()
-    expect(within(todoCard).getByLabelText('状态')).toBeTruthy()
-    expect(within(todoCard).getByLabelText('发生日期')).toHaveProperty('type', 'date')
-    expect(within(todoCard).getByLabelText('待办动作')).toBeTruthy()
-    expect(within(todoCard).getByText('保存修改')).toBeTruthy()
-    fireEvent.change(within(todoCard).getByLabelText('发生日期'), { target: { value: '2026-07-01' } })
-    fireEvent.change(within(todoCard).getByLabelText('待办动作'), { target: { value: '到货后复核' } })
-    fireEvent.click(within(todoCard).getByText('保存修改'))
-    await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('todo-1', expect.objectContaining({
-      record_type: 'todo', occurred_date: '2026-07-01', action: '到货后复核',
-    })))
-    expect(vi.mocked(api.updateRecord).mock.calls.at(-1)?.[1]).not.toHaveProperty('source_refs')
-  })
-
-  it('二次确认后删除正式记录并重新加载候选', async () => {
-    const record = {
-      id: 'event-1', record_type: 'event', title: '误存的现场查看', status: 'occurred',
-      description: null, archived_at: null, event_kind: 'site_visit', occurred_date: '2026-06-28',
-      source_refs: [{ source_id: source.id, evidence_excerpt: null, source_revision: 1, needs_review: false }],
-    }
-    vi.mocked(api.listRecords).mockResolvedValue([record])
-    vi.mocked(api.deleteRecord).mockResolvedValue(undefined)
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-
-    render(<DomainWorkspace refreshKey={0} />)
-    const recordList = (await screen.findByText('已保存的记录')).closest('.record-list') as HTMLElement
-    fireEvent.click(within(recordList).getByText('删除记录'))
-
-    await waitFor(() => expect(api.deleteRecord).toHaveBeenCalledWith(record.id))
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('此操作无法恢复'))
-    expect(api.getLatestCandidateBundle).toHaveBeenCalled()
-    confirm.mockRestore()
+    await screen.findByText('问题：主卧门口地砖有一处破裂')
+    expect(screen.queryByText('已保存的记录')).toBeNull()
   })
 })

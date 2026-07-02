@@ -53,6 +53,10 @@ class CandidateConfirmRequest(BaseModel):
     selections: list[CandidateSelection] = Field(min_length=1)
 
 
+class CandidateDeferRequest(BaseModel):
+    expected_version: int = Field(ge=1)
+
+
 def _db(request: Request) -> Session:
     return create_session_factory(request.app.state.engine)()
 
@@ -518,6 +522,46 @@ def _load_current_bundle(db: Session, bundle_id: str, expected_version: int) -> 
     return bundle
 
 
+@router.post("/candidate-bundles/{bundle_id}/suggestions/{candidate_key}/defer")
+def defer_candidate(
+    bundle_id: str,
+    candidate_key: str,
+    request: Request,
+    body: CandidateDeferRequest,
+    user: User,
+) -> dict[str, Any]:
+    db = _db(request)
+    try:
+        bundle = _load_current_bundle(db, bundle_id, body.expected_version)
+        content = copy.deepcopy(bundle.bundle_json)
+        candidate = next(
+            (item for item in content.get("suggestions", []) if item.get("key") == candidate_key),
+            None,
+        )
+        if candidate is None:
+            raise HTTPException(status_code=404, detail="候选记录不存在。")
+        if candidate.get("confirmed_record_id"):
+            raise HTTPException(status_code=409, detail="已确认候选不能移除，请到记录详情中处理。")
+        candidate["review_state"] = "deferred"
+        candidate["deferred_at"] = _now().isoformat()
+        bundle.bundle_json = content
+        bundle.version += 1
+        bundle.updated_at = _now()
+        flag_modified(bundle, "bundle_json")
+        log_audit(
+            db,
+            "defer",
+            "candidate_bundles",
+            bundle.id,
+            after={"candidate_key": candidate_key, "version": bundle.version},
+        )
+        result = _bundle_json(bundle)
+        db.commit()
+        return result
+    finally:
+        db.close()
+
+
 def _fill_missing_required(payload: dict[str, Any], candidate: dict[str, Any]) -> None:
     """为 AI 可能漏掉的必填字段补充合理默认值，避免不必要的 422。"""
     record_type = payload.get("record_type")
@@ -606,6 +650,8 @@ def _prepare_bundle_selections(
     prepared: list[tuple[CandidateSelection, Any, str, dict[str, Any]]] = []
     for selection in selections:
         candidate = suggestion_map[selection.key]
+        if candidate.get("review_state") == "deferred":
+            raise HTTPException(status_code=409, detail="候选已移除，请重新加载后确认。")
         payload = copy.deepcopy(selection.payload or candidate["payload"])
         payload["record_type"] = candidate["record_type"]
         payload["source_refs"] = [

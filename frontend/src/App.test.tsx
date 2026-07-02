@@ -1,13 +1,16 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./DomainWorkspace', () => ({ DomainWorkspace: () => null }))
+vi.mock('./CoreViews', () => ({ CoreViews: ({ children }: { children: ReactNode }) => children }))
 
 import { App } from './App'
 
 
 beforeEach(() => {
   sessionStorage.clear()
+  localStorage.clear()
 })
 
 afterEach(() => {
@@ -15,6 +18,48 @@ afterEach(() => {
 })
 
 describe('App', () => {
+  it('最近记录最多显示三条，关闭后持久隐藏且不补位', async () => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    const rows = ['第一条', '第二条', '第三条', '第四条'].map((original_text, index) => ({
+      id: `source-${index + 1}`,
+      input_type: 'text',
+      original_text,
+      captured_at: `2026-07-01T0${4 - index}:00:00+08:00`,
+      reported_time_text: null,
+    }))
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/health')) return Promise.resolve({
+        ok: true,
+        json: async () => ({ status: 'ok', database: { status: 'ok' }, storage: { status: 'ok' } }),
+      })
+      if (url.endsWith('/sources')) return Promise.resolve({ ok: true, json: async () => rows })
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const firstRender = render(<App />)
+    await screen.findByText('第一条')
+    expect(screen.getByText('第二条')).toBeTruthy()
+    expect(screen.getByText('第三条')).toBeTruthy()
+    expect(screen.queryByText('第四条')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭最近记录：第二条' }))
+    expect(screen.queryByText('第二条')).toBeNull()
+    expect(screen.queryByText('第四条')).toBeNull()
+    expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'DELETE')).toBe(false)
+
+    firstRender.unmount()
+    render(<App />)
+    await screen.findByText('第一条')
+    expect(screen.queryByText('第二条')).toBeNull()
+    expect(screen.getByText('第三条')).toBeTruthy()
+    expect(screen.queryByText('第四条')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '关闭最近记录：第一条' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭最近记录：第三条' }))
+    expect(screen.queryByText('最近记录')).toBeNull()
+  })
+
   it('请求尚未完成时显示加载状态', () => {
     vi.stubGlobal('fetch', vi.fn(() => new Promise(() => undefined)))
 
@@ -59,8 +104,7 @@ describe('App', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('本地服务运行正常')).toBeTruthy()
-    expect(screen.getByText(/数据库：ok/)).toBeTruthy()
+    expect(await screen.findByText('记录装修现场')).toBeTruthy()
   })
 
   it('token 过期时显示登录页', async () => {
@@ -139,7 +183,7 @@ describe('App', () => {
     })
 
     // 应显示健康状态
-    expect(await screen.findByText('本地服务运行正常')).toBeTruthy()
+    expect(await screen.findByText('记录装修现场')).toBeTruthy()
   })
 
   it('保存文字来源后上传所选附件', async () => {
@@ -184,7 +228,7 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
-    await screen.findByText('本地服务运行正常')
+    await screen.findByText('记录装修现场')
     fireEvent.change(screen.getByPlaceholderText('记录今天发生的事情…'), {
       target: { value: '现场记录' },
     })
@@ -239,7 +283,7 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
-    await screen.findByText('本地服务运行正常')
+    await screen.findByText('记录装修现场')
     fireEvent.change(screen.getByPlaceholderText('记录今天发生的事情…'), {
       target: { value: '带附件记录' },
     })
@@ -295,7 +339,7 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
-    await screen.findByText('本地服务运行正常')
+    await screen.findByText('记录装修现场')
     fireEvent.change(screen.getByPlaceholderText('记录今天发生的事情…'), {
       target: { value: '需要分析的现场记录' },
     })

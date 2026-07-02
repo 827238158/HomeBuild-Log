@@ -10,6 +10,8 @@ export interface SourceEntry {
   reported_time_text: string | null
   updated_at: string
   revision: number
+  analysis_status?: 'unprocessed' | 'pending' | 'partially_confirmed' | 'confirmed'
+  generated_record_count?: number
 }
 
 export interface AttachmentEntry {
@@ -47,6 +49,9 @@ export interface ProjectionRecord extends DomainRecord {
   spaces: Array<{ id: string; name: string }>
   material_ids: string[]
   materials: Array<{ id: string; name: string }>
+  participant_ids: string[]
+  participants: Array<{ id: string; name: string }>
+  stage_id?: string | null
   attachment_ids: string[]
   amount_minor?: number
   currency?: string
@@ -58,7 +63,24 @@ export interface ProjectionRecord extends DomainRecord {
   phenomenon?: string
   severity?: string | null
   handling_plan?: string | null
-  next_todos?: ProjectionRecord[]
+  promised_date?: string | null
+  actual_result?: string | null
+  completed_at?: string | null
+  stage?: { id: string; name: string } | null
+}
+
+export interface DistributionItem {
+  key: string
+  label: string
+  value: number
+}
+
+export interface BaseAnalytics {
+  total: number
+  unknown_date_count: number
+  status_distribution: DistributionItem[]
+  type_distribution: DistributionItem[]
+  time_trend: DistributionItem[]
 }
 
 export interface TimelineResponse {
@@ -68,11 +90,11 @@ export interface TimelineResponse {
     items: Array<{ record: ProjectionRecord; related_records: ProjectionRecord[] }>
   }>
   total: number
+  analytics: BaseAnalytics
 }
 
 export interface LedgerResponse {
-  totals_by_currency: Array<{
-    currency: string
+  totals: {
     procurement_total_minor: number
     expense_minor: number
     refund_minor: number
@@ -83,15 +105,27 @@ export interface LedgerResponse {
     unallocated_expense_minor: number
     unallocated_refund_minor: number
     unallocated_income_minor: number
-  }>
+  }
   procurements: ProjectionRecord[]
   ledger_entries: ProjectionRecord[]
   warnings: string[]
+  analytics: {
+    money_trend: Array<{
+      key: string; label: string; expense_minor: number; refund_minor: number; income_minor: number
+    }>
+    payment_composition: DistributionItem[]
+    vendor_distribution: DistributionItem[]
+  }
 }
 
 export interface IssueBoardResponse {
   columns: Array<{ status: string; label: string; items: ProjectionRecord[] }>
   total: number
+  analytics: {
+    status_distribution: DistributionItem[]
+    space_distribution: DistributionItem[]
+    severity_distribution: DistributionItem[]
+  }
 }
 
 export interface SpaceArchiveResponse {
@@ -107,6 +141,71 @@ export interface SpaceArchiveResponse {
   }
   records_by_type: Record<string, ProjectionRecord[]>
   materials: Array<{ id: string; name: string }>
+  analytics: {
+    type_distribution: DistributionItem[]
+    issue_status_distribution: DistributionItem[]
+    expense_minor: number
+    refund_minor: number
+  }
+}
+
+export interface OverviewResponse {
+  as_of_date: string
+  horizon_date: string
+  summary: { open_issue_count: number; overdue_count: number; upcoming_count: number }
+  open_issues: ProjectionRecord[]
+  overdue: ProjectionRecord[]
+  upcoming: ProjectionRecord[]
+  recent_records: ProjectionRecord[]
+  stage_distribution: DistributionItem[]
+}
+
+export interface RecordsAnalyticsResponse {
+  summary: BaseAnalytics
+  specific: {
+    dimension?: string
+    distribution?: DistributionItem[]
+    unit_distribution?: DistributionItem[]
+    overdue_count?: number
+  }
+  records: ProjectionRecord[]
+}
+
+export interface AiAnalyticsOverview {
+  range: string
+  summary: {
+    request_count: number; success_rate: number; fallback_rate: number
+    average_duration_ms: number; p95_duration_ms: number
+    total_tokens: number; token_request_count: number
+  }
+  trend: Array<{
+    key: string; label: string; requests: number; successes: number; fallbacks: number
+    average_duration_ms: number; total_tokens: number
+  }>
+  engine_distribution: DistributionItem[]
+  error_distribution: DistributionItem[]
+}
+
+export interface AiAnalyticsRun {
+  request_id: string
+  started_at: string
+  requested_engine: string
+  final_engine: string
+  final_model: string | null
+  status: 'succeeded' | 'failed'
+  fallback: boolean
+  fallback_reason: string | null
+  duration_ms: number
+  total_tokens: number | null
+  error_code: string | null
+  error_summary: string | null
+}
+
+export interface AiAnalyticsRunsResponse {
+  items: AiAnalyticsRun[]
+  total: number
+  limit: number
+  offset: number
 }
 
 export interface SearchResponse {
@@ -311,6 +410,11 @@ export const confirmCandidateBundle = (
   method: 'POST',
   body: JSON.stringify({ expected_version: expectedVersion, selections }),
 })
+export const deferCandidate = (bundleId: string, candidateKey: string, expectedVersion: number) =>
+  requestJson<CandidateBundle>(
+    `${API_BASE}/candidate-bundles/${bundleId}/suggestions/${encodeURIComponent(candidateKey)}/defer`,
+    { method: 'POST', body: JSON.stringify({ expected_version: expectedVersion }) },
+  )
 export const listExtractionRuns = (sourceId?: string) => requestJson<ExtractionRun[]>(
   `${API_BASE}/extraction-runs${sourceId ? `?source_id=${encodeURIComponent(sourceId)}` : ''}`,
 )
@@ -386,3 +490,12 @@ export const getSpaceArchive = (id: string) =>
   requestJson<SpaceArchiveResponse>(`${API_BASE}/spaces/${id}/archive`)
 export const searchRecords = (params: Record<string, string>) =>
   requestJson<SearchResponse>(withQuery(`${API_BASE}/search`, params))
+export const getOverview = () => requestJson<OverviewResponse>(`${API_BASE}/overview`)
+export const getRecordsAnalytics = (params: Record<string, string> = {}) =>
+  requestJson<RecordsAnalyticsResponse>(withQuery(`${API_BASE}/records/analytics`, params))
+export const getAiAnalyticsOverview = (range = '30d') =>
+  requestJson<AiAnalyticsOverview>(`${API_BASE}/ai-analytics/overview?range=${encodeURIComponent(range)}`)
+export const getAiAnalyticsRuns = (range = '30d', offset = 0) =>
+  requestJson<AiAnalyticsRunsResponse>(
+    `${API_BASE}/ai-analytics/runs?range=${encodeURIComponent(range)}&offset=${offset}`,
+  )

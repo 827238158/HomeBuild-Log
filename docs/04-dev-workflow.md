@@ -11,33 +11,45 @@
 
 1. 读取`AGENTS.md`并输出当前步骤的`Need:`。
 2. 读取`tasks/ACTIVE.md`，确认写入权未被占用或任务已明确交接给自己。
-3. 从`tasks/TASK-TEMPLATE.md`创建任务，明确目标、非目标、验收、风险和允许修改的文件。
-4. 在`tasks/README.md`登记状态、在`tasks/AGENT-ACTIVITY-LOG.md`添加活动记录，并在`tasks/ACTIVE.md`认领唯一写入权。
-5. 只读取`Need:`中的资料；信息不足时再进行下一轮按需检索。
+3. 默认采用轻量化流程：在`tasks/ACTIVE.md`登记当前执行Agent与任务简述并认领唯一写入权。
+4. 只读取`Need:`中的资料；信息不足时再进行下一轮按需检索。
+5. 只有用户明确要求完整流程时，才创建独立任务文件并执行完整清单；不得因改动文件多、涉及架构/API或数据库而自动升级。
 
-## 轻量改动流程
+## 轻量化流程（默认）
 
-改动 ≤10 文件且不涉及架构/API/DB schema/新模块时，采用精简流程：
-1. 读取 `AGENTS.md` 确认规则
-2. 读取 `tasks/ACTIVE.md`，认领写入权，登记当前 Agent 和任务简述
-3. 执行修改
-4. 在 `tasks/AGENT-ACTIVITY-LOG.md` 追加记录（日期、任务描述、执行 Agent、改动摘要、状态）
-5. 释放 `tasks/ACTIVE.md` 写入权
+所有任务默认使用轻量化流程，不按文件数量或技术风险自动切换：
 
-轻量改动不需要创建独立任务文件、不执行完整 checklist review、不检查全部过期文档。
+1. 读取`AGENTS.md`并输出`Need:`。
+2. 读取`tasks/ACTIVE.md`，登记当前执行Agent和任务简述。
+3. 在用户授权范围内执行修改，并按风险选择验证。
+4. 完成后在`tasks/AGENT-ACTIVITY-LOG.md`追加一行，记录日期、任务描述、执行Agent、改动摘要和状态。
+5. 释放`tasks/ACTIVE.md`写入权。
+
+轻量化流程不强制创建独立任务文件、更新`tasks/README.md`、执行完整checklist或审查全部长期文档。测试、lint、build和迁移验证由改动风险决定，但必须如实说明实际执行与未覆盖项。
+
+用户可明确限定文件范围；如果该范围排除了任务记录，应先确认是否将其视为本次登记规则的例外。
+
+## 完整流程（仅用户明确要求）
+
+1. 从`tasks/TASK-TEMPLATE.md`创建任务，明确目标、非目标、验收、风险和允许修改文件。
+2. 在`tasks/README.md`登记任务状态并认领活动锁。
+3. 执行修改和与风险相称的验证。
+4. 逐条执行`checklists/implementation-review.md`与`checklists/docs-update.md`。
+5. 检查任务体系、协作路线图、决策记录和活动日志的过期风险。
+6. 完成交接记录并释放写入权。
 
 ## 执行与验证
 
 1. 小步修改，不把范围外重构混入当前任务。
 2. 关键决策写入任务执行记录；范围变化先更新任务。
 3. 运行与风险相称的检查，记录真实命令、结果和未覆盖项。
-4. 执行`checklists/implementation-review.md`。
-5. 执行`checklists/docs-update.md`，同步长期有效的规格、架构、契约和决策。
-6. 验收通过后更新任务状态并释放`tasks/ACTIVE.md`。
+4. 完整流程执行`checklists/implementation-review.md`与`checklists/docs-update.md`；轻量化流程按需使用。
+5. 涉及长期有效的规格、架构、契约和决策时同步相应文档。
+6. 验收通过后更新要求范围内的任务记录并释放`tasks/ACTIVE.md`。
 
 ## 跨模型交接
 
-交出写入权前，当前Agent必须在任务文件记录：
+完整流程交出写入权前，当前Agent必须在任务文件记录：
 
 - 已完成内容和修改文件。
 - 实际执行的检查、命令与结果。
@@ -46,6 +58,8 @@
 - 当前工作区是否存在未验收改动。
 - 是否已在`tasks/AGENT-ACTIVITY-LOG.md`追加记录。
 - 是否已释放`tasks/ACTIVE.md`。
+
+轻量化流程只强制活动日志和活动锁两项记录；如存在未完成内容或已知风险，应在最终交付中明确说明。
 
 新Agent只能依靠项目任务文件和明确的`Need:`恢复上下文，不把上一模型的聊天记录视为项目事实。接手后先核对工作区和活动任务，再继续修改。
 
@@ -62,24 +76,25 @@
 - `进行中`：已由当前执行Agent认领。
 - `受阻`：存在当前授权或条件无法解决的阻碍。
 - `待验收`：交付和自检完成，等待验收。
-- `已完成`：验收、Review、文档更新和写入权释放均完成。
+- `已完成`：所选流程要求的验收、记录和写入权释放均完成。
 - `已取消`：明确停止并记录原因。
 
 ## 当前技术规划
 
-- 前端：React、TypeScript、Vite PWA。
+- 前端：React、TypeScript、Vite响应式Web；PWA安装与离线能力属于阶段4规划。
 - 后端：Python、FastAPI。
 - 存储：SQLite和本地附件目录。
-- 访问：Windows本地自托管、私有组网HTTPS。
+- 访问：当前为Windows本地自托管；私有组网HTTPS属于阶段4规划。
 
-以上是规划基线，不代表依赖已安装。进入开发任务前必须通过Context7核对当前版本、配置和迁移要求。
+当前工程和依赖已经落地。涉及库、框架、SDK、API、CLI或云服务的用法、配置、升级与库特定调试时，按`AGENTS.md`要求先通过Context7核对当前官方文档；普通业务逻辑和文档整理不需要为此调用Context7。
 
 ## 测试、构建与运行命令
 
-- Python环境：`conda create -n homebuild-log python=3.13 pip -y`，之后必须激活该环境或显式使用对应解释器。
+- Python要求：3.13。当前项目已有专用Conda环境`homebuild-log`；执行前先确认解释器与pip属于同一环境，不要重复创建环境或混用base、项目环境和系统Python。
+- Windows显式解释器：`D:\Anaconda\envs\homebuild-log\python.exe`；如使用已激活环境，可将下列`python`替换为该完整路径。
 - 后端安装：在`backend/`执行`python -m pip install -r requirements.lock`和`python -m pip install -e . --no-deps`。
 - 后端迁移：`python -m alembic -c alembic.ini upgrade head`。
-- 后端启动：`fastapi dev app/main.py --host 127.0.0.1 --port 8000`。
+- 后端启动：在已激活项目环境中执行`fastapi dev app/main.py --host 127.0.0.1 --port 8000`，或显式调用该环境的`fastapi.exe`。
 - 后端检查：`python -m ruff check . --no-cache`和`python -m pytest`。
 - 前端安装：在`frontend/`执行`npm ci`。
 - 前端启动：`npm run dev`，固定访问`http://127.0.0.1:5173`。
@@ -88,6 +103,6 @@
 
 ## 提交与发布
 
-- 当前分支、提交、PR和发布规则尚未建立。
+- 当前未建立强制的分支、提交、PR和发布流程；Git操作必须由用户任务明确授权。
 - 未来提交不得混入其他Agent未交接的更改。
 - 发布前必须完成备份恢复演练、隐私检查、PWA更新验证和私有网络访问检查。

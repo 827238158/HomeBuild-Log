@@ -94,6 +94,12 @@ def test_candidate_confirmation_is_atomic_and_idempotent(client: TestClient) -> 
         f"/api/v1/sources/{source_id}/extractions?engine=local"
     ).json()
     explicit = [item for item in bundle["suggestions"] if item["certainty"] == "explicit"]
+    vendor_id = client.post("/api/v1/vendors", json={"name": "候选交易对象"}).json()["id"]
+    for item in explicit:
+        if item["record_type"] == "ledger":
+            item["payload"]["vendor_id"] = vendor_id
+        if item["record_type"] == "issue":
+            item["payload"]["severity"] = "low"
     body = {
         "expected_version": bundle["version"],
         "selections": [
@@ -126,6 +132,36 @@ def test_candidate_confirmation_is_atomic_and_idempotent(client: TestClient) -> 
     assert all(not item["created"] for item in second.json()["records"])
     assert len(client.get(f"/api/v1/records?source_id={source_id}").json()) == first_count
     assert client.get(f"/api/v1/sources/{source_id}").json()["original_text"] == text
+
+
+def test_deferred_candidate_stays_removed_and_cannot_be_confirmed(client: TestClient) -> None:
+    source_id = _source(client, "今天去现场查看。")
+    bundle = client.post(
+        f"/api/v1/sources/{source_id}/extractions?engine=local"
+    ).json()
+    candidate = bundle["suggestions"][0]
+
+    deferred = client.post(
+        f"/api/v1/candidate-bundles/{bundle['id']}/suggestions/{candidate['key']}/defer",
+        json={"expected_version": bundle["version"]},
+    )
+    assert deferred.status_code == 200, deferred.text
+    data = deferred.json()
+    assert data["version"] == bundle["version"] + 1
+    assert data["suggestions"][0]["review_state"] == "deferred"
+    latest = client.get(
+        f"/api/v1/sources/{source_id}/candidate-bundles/latest"
+    ).json()
+    assert latest["suggestions"][0]["review_state"] == "deferred"
+
+    rejected = client.post(
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json={
+            "expected_version": data["version"],
+            "selections": [{"key": candidate["key"], "payload": candidate["payload"]}],
+        },
+    )
+    assert rejected.status_code == 409
 
 
 def test_source_edit_supersedes_bundle_and_rejects_stale_confirmation(
@@ -261,15 +297,16 @@ def test_openai_adapter_uses_provider_auth_and_parses_json(
                                     "suggestions": [
                                         {
                                             "ref": "t1",
-                                            "record_type": "todo",
+                                            "record_type": "issue",
                                             "summary": "补资料",
                                             "evidence": "补资料",
                                             "certainty": "explicit",
                                             "payload": {
-                                                "record_type": "todo",
+                                                "record_type": "issue",
                                                 "title": "补资料",
                                                 "status": "pending",
-                                                "action": "补资料",
+                                                "phenomenon": "补资料",
+                                                "severity": "low",
                                             },
                                             "missing_fields": [],
                                         }
@@ -296,5 +333,5 @@ def test_openai_adapter_uses_provider_auth_and_parses_json(
             temperature=0.3,
             client=http_client,
         ).extract_from_text("只发送这段来源", 5)
-    assert result.draft.suggestions[0].record_type == "todo"
+    assert result.draft.suggestions[0].record_type == "issue"
     assert result.total_tokens == 3

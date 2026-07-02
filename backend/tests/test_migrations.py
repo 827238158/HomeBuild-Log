@@ -31,7 +31,7 @@ def test_migrations_upgrade_temporary_database_to_head(
     finally:
         engine.dispose()
 
-    assert revision == "0011_occurred_date"
+    assert revision == "0014_unify_issues"
 
     engine = create_engine(url)
     try:
@@ -90,6 +90,66 @@ def test_domain_migration_backfills_existing_sources_and_round_trips(
 
     command.downgrade(config, "0003_add_audit")
     command.upgrade(config, "head")
+
+
+def test_business_time_migration_uses_beijing_calendar_date(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database_file = tmp_path / "migration-business-dates.sqlite3"
+    url = database_url(database_file)
+    monkeypatch.setenv("HOMEBUILD_DATABASE_URL", url)
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    command.upgrade(config, "0012_issue_resolution_times")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO records "
+            "(id, project_id, record_type, title, timezone, status, created_at, updated_at) "
+            "VALUES "
+            "('date-issue', '00000000000000000000000000000001', 'issue', '日期问题', "
+            "'Asia/Shanghai', 'open', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), "
+            "('date-todo', '00000000000000000000000000000001', 'todo', '日期待办', "
+            "'Asia/Shanghai', 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ))
+        connection.execute(text(
+            "INSERT INTO issue_details "
+            "(record_id, phenomenon, expected_resolution_at, resolved_at) VALUES "
+            "('date-issue', '测试', '2026-06-30 16:30:00', '2026-06-30 15:30:00')"
+        ))
+        connection.execute(text(
+            "INSERT INTO todo_details (record_id, action, due_at, completed_at) VALUES "
+            "('date-todo', '测试', '2026-07-01 16:30:00', '2026-07-01 15:30:00')"
+        ))
+    engine.dispose()
+
+    command.upgrade(config, "0013_business_times_dates")
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        issue_dates = connection.execute(text(
+            "SELECT expected_resolution_at, resolved_at FROM issue_details "
+            "WHERE record_id='date-issue'"
+        )).one()
+        todo_dates = connection.execute(text(
+            "SELECT due_at, completed_at FROM todo_details WHERE record_id='date-todo'"
+        )).one()
+        issue_types = {
+            row[1]: row[2]
+            for row in connection.execute(text("PRAGMA table_info(issue_details)"))
+        }
+        todo_types = {
+            row[1]: row[2]
+            for row in connection.execute(text("PRAGMA table_info(todo_details)"))
+        }
+    engine.dispose()
+
+    assert issue_dates == ("2026-07-01", "2026-06-30")
+    assert todo_dates == ("2026-07-02", "2026-07-01")
+    assert issue_types["expected_resolution_at"] == "DATE"
+    assert issue_types["resolved_at"] == "DATE"
+    assert todo_types["due_at"] == "DATE"
+    assert todo_types["completed_at"] == "DATE"
 
 
 def test_default_root_space_adopts_orphans_and_downgrades_cleanly(

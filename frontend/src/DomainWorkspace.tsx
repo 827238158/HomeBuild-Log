@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 
 import {
   createEntity,
@@ -6,7 +6,6 @@ import {
   createRecord,
   createRelation,
   createExtraction,
-  deleteRecord,
   deleteSource,
   deleteEntity,
   deleteSpace,
@@ -19,9 +18,7 @@ import {
   listSources,
   listSpaces,
   removeRelation,
-  reviewRecordSource,
-  setRecordArchived,
-  updateRecord,
+  deferCandidate,
   updateSource,
   type DomainRecord,
   type EntityType,
@@ -32,7 +29,7 @@ import {
   type SourceEntry,
   type SpaceEntry,
 } from './domainApi'
-import { recordStatusDescription, recordStatusLabel, eventKindLabel, paymentKindLabel } from './recordLabels'
+import { recordStatusLabel, eventKindLabel, paymentKindLabel } from './recordLabels'
 import { relationConfig, relationLabel, type RelationType } from './relationLabels'
 import { formatBeijingDateTime } from './time'
 
@@ -44,18 +41,17 @@ interface Props {
 const recordConfig = {
   event: { label: '事件', statuses: ['planned', 'occurred', 'completed', 'cancelled'] },
   ledger: { label: '账目', statuses: ['planned', 'posted', 'voided'] },
-  issue: { label: '施工问题', statuses: ['open', 'in_progress', 'waiting', 'resolved', 'closed'] },
+  issue: { label: '问题', statuses: ['pending', 'in_progress', 'done'] },
   measurement: { label: '尺寸', statuses: ['active', 'superseded', 'cancelled'] },
-  decision: { label: '决策', statuses: ['pending', 'confirmed', 'superseded', 'cancelled'] },
+  decision: { label: '决策', statuses: ['pending', 'confirmed', 'cancelled'] },
   procurement: {
     label: '采购',
     statuses: ['planned', 'ordered', 'partially_paid', 'paid', 'delivery_pending', 'delivered', 'returned', 'completed', 'cancelled'],
   },
   research: { label: '调研', statuses: ['collecting', 'comparing', 'concluded', 'archived'] },
-  todo: { label: '待办', statuses: ['pending', 'in_progress', 'waiting', 'done', 'cancelled'] },
 } as const
 
-type RecordType = keyof typeof recordConfig
+export type RecordType = keyof typeof recordConfig
 
 interface TypeFieldConfig {
   detailALabel: string
@@ -93,10 +89,10 @@ const typeFieldConfig: Record<RecordType, TypeFieldConfig> = {
   measurement: {
     detailALabel: '测量对象',
     detailAPlaceholder: '例如：厨房门洞',
-    detailBLabel: '宽度（cm）',
-    detailBPlaceholder: '例如：90',
-    detailCLabel: '高度（cm，可选）',
-    detailCPlaceholder: '例如：210',
+    detailBLabel: '宽度（mm）',
+    detailBPlaceholder: '未知可不填',
+    detailCLabel: '高度（mm）',
+    detailCPlaceholder: '未知可不填',
     detailBType: 'number',
     detailCType: 'number',
   },
@@ -122,14 +118,8 @@ const typeFieldConfig: Record<RecordType, TypeFieldConfig> = {
   research: {
     detailALabel: '调研问题',
     detailAPlaceholder: '例如：卫生间墙砖选哪种？',
-    detailBLabel: '选项（逗号分隔）',
+    detailBLabel: '调研对象（逗号分隔）',
     detailBPlaceholder: '例如：柔光砖，亮面砖',
-  },
-  todo: {
-    detailALabel: '待办动作',
-    detailAPlaceholder: '例如：检查门套能否遮住破损位置',
-    detailBLabel: '触发条件',
-    detailBPlaceholder: '例如：门套安装完成后',
   },
 }
 
@@ -156,16 +146,11 @@ const titlePlaceholder: Record<RecordType, string> = {
   decision: '例如：确定卫生间花砖方案',
   procurement: '例如：采购卫生间花砖',
   research: '例如：比较卫生间墙砖方案',
-  todo: '例如：门套安装后复核',
 }
 
 function numberOrUndefined(value: string): number | undefined {
   const parsed = Number(value)
   return value.trim() && Number.isFinite(parsed) ? parsed : undefined
-}
-
-function firstArrayValue(value: unknown): string {
-  return Array.isArray(value) && value.length > 0 ? String(value[0]) : ''
 }
 
 function normalizeOptions(value: unknown): string[] {
@@ -174,15 +159,71 @@ function normalizeOptions(value: unknown): string[] {
   return []
 }
 
-function normalizeMeasurementValues(values: unknown): Array<Record<string, unknown>> {
-  if (!Array.isArray(values)) return []
-  return values.map((entry) => (typeof entry === 'object' && entry !== null ? { ...(entry as Record<string, unknown>) } : {}))
+export function payloadForSave(recordType: string, payload: Record<string, unknown>) {
+  const next = { ...payload }
+  if (recordType === 'measurement') {
+    next.values = normalizeMeasurementValues(next.values).filter((item) => {
+      const value = Number(item.value)
+      return item.value !== null && item.value !== '' && Number.isFinite(value) && value > 0
+    }).map((item) => ({ ...item, unit: 'mm' }))
+  }
+  return next
 }
 
-function defaultPayload(recordType: RecordType, base: Record<string, unknown> = {}): Record<string, unknown> {
+function OptionsTextInput({
+  label, placeholder, value, onCommit,
+}: {
+  label: string
+  placeholder: string
+  value: unknown
+  onCommit: (options: string[]) => void
+}) {
+  const normalized = normalizeOptions(value).join('，')
+  const [draft, setDraft] = useState(normalized)
+  return <label className="field-stack"><span>{label}</span><input value={draft} placeholder={placeholder} onChange={(event) => {
+    // 保留用户正在输入的标点原文，同时即时同步解析结果，避免点击确认时丢失最后一次输入。
+    setDraft(event.target.value)
+    onCommit(normalizeOptions(event.target.value))
+  }} /></label>
+}
+
+function MultiSelectField({
+  label, selectedIds, options, onChange,
+}: {
+  label: string
+  selectedIds: string[]
+  options: Array<{ id: string; name: string }>
+  onChange: (ids: string[]) => void
+}) {
+  const controlId = useId()
+  const selected = options.filter((item) => selectedIds.includes(item.id))
+  const toggle = (id: string) => onChange(selectedIds.includes(id)
+    ? selectedIds.filter((item) => item !== id)
+    : [...selectedIds, id])
+  return <fieldset className="multi-select-field"><legend>{label}</legend><details><summary id={controlId}>{selected.length ? `已选择 ${selected.length} 项` : '请选择（可多选）'}</summary><div className="multi-select-options">{options.length > 0 ? options.map((item) => <label key={item.id}><input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggle(item.id)} />{item.name}</label>) : <span>暂无可选项</span>}</div></details>{selected.length > 0 && <div className="multi-select-chips">{selected.map((item) => <span key={item.id}>{item.name}<button type="button" aria-label={`移除${label}：${item.name}`} onClick={() => toggle(item.id)}>×</button></span>)}</div>}</fieldset>
+}
+
+function normalizeMeasurementValues(values: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(values)) return []
+  return values.map((entry) => {
+    if (typeof entry !== 'object' || entry === null) return {}
+    const next = { ...(entry as Record<string, unknown>) }
+    const unit = String(next.unit ?? 'mm').toLowerCase()
+    const numeric = Number(next.value)
+    if (Number.isFinite(numeric)) {
+      if (unit === 'cm') next.value = numeric * 10
+      if (unit === 'm') next.value = numeric * 1000
+    }
+    next.unit = 'mm'
+    return next
+  })
+}
+
+export function defaultPayload(recordType: RecordType, base: Record<string, unknown> = {}): Record<string, unknown> {
   const common: Record<string, unknown> = {
     record_type: recordType,
     title: base.title ?? '',
+    description: base.description ?? null,
     status: base.status ?? recordConfig[recordType].statuses[0],
     occurred_date: base.occurred_date ?? null,
     original_time_text: base.original_time_text ?? null,
@@ -207,7 +248,14 @@ function defaultPayload(recordType: RecordType, base: Record<string, unknown> = 
     }
   }
   if (recordType === 'issue') {
-    return { ...common, phenomenon: base.phenomenon ?? '', handling_plan: base.handling_plan ?? null }
+    return {
+      ...common,
+      phenomenon: base.phenomenon ?? '',
+      handling_plan: base.handling_plan ?? null,
+      severity: base.severity ?? '',
+      completed_at: base.completed_at ?? null,
+      actual_result: base.actual_result ?? null,
+    }
   }
   if (recordType === 'measurement') {
     const values = normalizeMeasurementValues(base.values)
@@ -218,8 +266,9 @@ function defaultPayload(recordType: RecordType, base: Record<string, unknown> = 
       values: values.length
         ? values
         : [
-            { axis: 'width', value: null, unit: 'cm' },
-            { axis: 'height', value: null, unit: 'cm' },
+            { axis: 'width', value: null, unit: 'mm' },
+            { axis: 'height', value: null, unit: 'mm' },
+            { axis: 'length', value: null, unit: 'mm' },
           ],
     }
   }
@@ -244,10 +293,14 @@ function defaultPayload(recordType: RecordType, base: Record<string, unknown> = 
   if (recordType === 'research') {
     return { ...common, question: base.question ?? '', options: normalizeOptions(base.options) }
   }
-  return { ...common, action: base.action ?? '', trigger_condition: base.trigger_condition ?? null }
+  return common
 }
 
-function SavedRecordEditFields({
+function toDateInput(value: unknown): string {
+  return value ? String(value).slice(0, 10) : ''
+}
+
+export function RecordEditFields({
   recordType, payload, spaces, entities, onChange,
 }: {
   recordType: RecordType
@@ -264,23 +317,22 @@ function SavedRecordEditFields({
     : recordType === 'measurement' ? String(payload.object_name ?? '')
     : recordType === 'decision' ? String(payload.topic ?? '')
     : recordType === 'procurement' ? String(payload.item_name ?? '')
-    : recordType === 'research' ? String(payload.question ?? '')
-    : String(payload.action ?? '')
+    : String(payload.question ?? '')
   const detailB = recordType === 'ledger' ? (payload.amount_minor ? String(Number(payload.amount_minor) / 100) : '')
     : recordType === 'measurement' ? String(normalizeMeasurementValues(payload.values)[0]?.value ?? '')
     : recordType === 'decision' || recordType === 'research' ? normalizeOptions(payload.options).join('，')
     : recordType === 'procurement' ? String(payload.quantity ?? '')
     : recordType === 'event' ? String(payload.result ?? '')
-    : recordType === 'issue' ? String(payload.handling_plan ?? '')
-    : String(payload.trigger_condition ?? '')
+    : String(payload.handling_plan ?? '')
   const detailC = recordType === 'measurement' ? String(normalizeMeasurementValues(payload.values)[1]?.value ?? '')
     : recordType === 'decision' ? String(payload.selected_option ?? '')
     : recordType === 'procurement' ? (payload.order_total_minor ? String(Number(payload.order_total_minor) / 100) : '')
     : ''
+  const detailD = recordType === 'measurement' ? String(normalizeMeasurementValues(payload.values)[2]?.value ?? '') : ''
 
   const setDetailA = (value: string) => onChange({
     event: 'event_kind', ledger: 'payment_kind', issue: 'phenomenon', measurement: 'object_name',
-    decision: 'topic', procurement: 'item_name', research: 'question', todo: 'action',
+    decision: 'topic', procurement: 'item_name', research: 'question',
   }[recordType], value)
   const setDetailB = (value: string) => {
     if (recordType === 'ledger') onChange('amount_minor', value.trim() ? Math.round(Number(value) * 100) : null)
@@ -292,7 +344,6 @@ function SavedRecordEditFields({
     else if (recordType === 'procurement') onChange('quantity', value.trim() ? Number(value) : null)
     else if (recordType === 'event') onChange('result', value)
     else if (recordType === 'issue') onChange('handling_plan', value)
-    else onChange('trigger_condition', value)
   }
   const setDetailC = (value: string) => {
     if (recordType === 'measurement') {
@@ -302,27 +353,40 @@ function SavedRecordEditFields({
     } else if (recordType === 'decision') onChange('selected_option', value)
     else if (recordType === 'procurement') onChange('order_total_minor', value.trim() ? Math.round(Number(value) * 100) : null)
   }
+  const setMeasurementValue = (index: number, value: string) => {
+    const values = normalizeMeasurementValues(payload.values)
+    values[index] = { ...(values[index] ?? {}), axis: ['width', 'height', 'length'][index], value: value.trim() ? Number(value) : null, unit: 'mm' }
+    onChange('values', values)
+  }
 
   return <div className="record-form-grid">
     <label className="field-stack record-form-grid__wide"><span>标题</span><input value={String(payload.title ?? '')} placeholder={titlePlaceholder[recordType]} onChange={(event) => onChange('title', event.target.value)} /></label>
-    <label className="field-stack"><span>状态</span><select value={status} onChange={(event) => onChange('status', event.target.value)}>{recordConfig[recordType].statuses.map((item) => <option key={item} value={item}>{recordStatusLabel(recordType, item)}</option>)}</select></label>
+    {recordType !== 'measurement' && <label className="field-stack"><span>状态</span><select value={status} onChange={(event) => onChange('status', event.target.value)}>{recordConfig[recordType].statuses.map((item) => <option key={item} value={item}>{recordStatusLabel(recordType, item)}</option>)}</select></label>}
     <label className="field-stack"><span>{cfg.detailALabel}</span><input value={detailA} placeholder={cfg.detailAPlaceholder} onChange={(event) => setDetailA(event.target.value)} /></label>
     {recordType === 'ledger' && <label className="field-stack"><span>收支方向</span><select value={String(payload.direction ?? 'expense')} onChange={(event) => onChange('direction', event.target.value)}><option value="expense">支出</option><option value="refund">退款</option><option value="income">收入</option></select></label>}
-    <label className="field-stack"><span>{cfg.detailBLabel}</span><input type={cfg.detailBType || 'text'} min={cfg.detailBType === 'number' ? '0' : undefined} step="any" value={detailB} placeholder={cfg.detailBPlaceholder} onChange={(event) => setDetailB(event.target.value)} /></label>
-    {cfg.detailCLabel && <label className="field-stack"><span>{cfg.detailCLabel}</span><input type={cfg.detailCType || 'text'} min={cfg.detailCType === 'number' ? '0' : undefined} step="any" value={detailC} placeholder={cfg.detailCPlaceholder} onChange={(event) => setDetailC(event.target.value)} /></label>}
-    <label className="field-stack"><span>空间</span><select value={firstArrayValue(payload.space_ids)} onChange={(event) => onChange('space_ids', event.target.value ? [event.target.value] : [])}><option value="">未指定</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    <label className="field-stack"><span>材料</span><select value={firstArrayValue(payload.material_ids)} onChange={(event) => onChange('material_ids', event.target.value ? [event.target.value] : [])}><option value="">未指定</option>{entities.materials.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    <label className="field-stack"><span>参与者</span><select value={firstArrayValue(payload.participant_ids)} onChange={(event) => onChange('participant_ids', event.target.value ? [event.target.value] : [])}><option value="">未指定</option>{entities.participants.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    {recordType === 'measurement'
+      ? <fieldset className="measurement-triplet record-form-grid__wide"><legend>尺寸（mm，未知可不填）</legend><label><span>宽度</span><input type="number" min="0" step="any" value={detailB} onChange={(event) => setMeasurementValue(0, event.target.value)} /></label><label><span>高度</span><input type="number" min="0" step="any" value={detailC} onChange={(event) => setMeasurementValue(1, event.target.value)} /></label><label><span>长度</span><input type="number" min="0" step="any" value={detailD} onChange={(event) => setMeasurementValue(2, event.target.value)} /></label></fieldset>
+      : recordType === 'decision' || recordType === 'research'
+      ? <OptionsTextInput label={cfg.detailBLabel} placeholder={cfg.detailBPlaceholder} value={payload.options} onCommit={(options) => onChange('options', options)} />
+      : <label className="field-stack"><span>{cfg.detailBLabel}</span><input type={cfg.detailBType || 'text'} min={cfg.detailBType === 'number' ? '0' : undefined} step="any" value={detailB} placeholder={cfg.detailBPlaceholder} onChange={(event) => setDetailB(event.target.value)} /></label>}
+    {recordType !== 'measurement' && cfg.detailCLabel && <label className="field-stack"><span>{cfg.detailCLabel}</span><input type={cfg.detailCType || 'text'} min={cfg.detailCType === 'number' ? '0' : undefined} step="any" value={detailC} placeholder={cfg.detailCPlaceholder} onChange={(event) => setDetailC(event.target.value)} /></label>}
+    <MultiSelectField label="空间" selectedIds={Array.isArray(payload.space_ids) ? payload.space_ids.map(String) : []} options={spaces} onChange={(ids) => onChange('space_ids', ids)} />
+    <MultiSelectField label="材料" selectedIds={Array.isArray(payload.material_ids) ? payload.material_ids.map(String) : []} options={entities.materials} onChange={(ids) => onChange('material_ids', ids)} />
+    <MultiSelectField label={recordType === 'issue' ? '处理人' : '参与者'} selectedIds={Array.isArray(payload.participant_ids) ? payload.participant_ids.map(String) : []} options={entities.participants} onChange={(ids) => onChange('participant_ids', ids)} />
     <label className="field-stack"><span>装修阶段</span><select value={String(payload.stage_id ?? '')} onChange={(event) => onChange('stage_id', event.target.value || null)}><option value="">未指定</option>{entities.stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    {cfg.showVendor && <label className="field-stack"><span>商家</span><select value={String(payload.vendor_id ?? '')} onChange={(event) => onChange('vendor_id', event.target.value || null)}><option value="">未指定</option>{entities.vendors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+    {cfg.showVendor && <label className="field-stack"><span>{recordType === 'ledger' ? '交易对象（商家）' : '商家'}</span><select required={recordType === 'ledger'} value={String(payload.vendor_id ?? '')} onChange={(event) => onChange('vendor_id', event.target.value || null)}><option value="">请选择</option>{entities.vendors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
     <label className="field-stack"><span>发生日期</span><input type="date" value={String(payload.occurred_date ?? '')} onChange={(event) => onChange('occurred_date', event.target.value || null)} /></label>
+    <label className="field-stack record-form-grid__wide"><span>补充说明</span><textarea rows={3} value={String(payload.description ?? '')} onChange={(event) => onChange('description', event.target.value || null)} /></label>
+    {recordType === 'issue' && <>
+      <label className="field-stack"><span>严重程度</span><select required value={String(payload.severity ?? '')} onChange={(event) => onChange('severity', event.target.value || null)}><option value="">请选择</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label>
+      {status === 'done' && <><label className="field-stack"><span>实际完成日期</span><input type="date" value={toDateInput(payload.completed_at)} onChange={(event) => onChange('completed_at', event.target.value || null)} /></label><label className="field-stack record-form-grid__wide"><span>实际处理结果</span><textarea required rows={2} value={String(payload.actual_result ?? '')} onChange={(event) => onChange('actual_result', event.target.value || null)} /></label></>}
+    </>}
   </div>
 }
 
 export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
   const [sources, setSources] = useState<SourceEntry[]>([])
   const [sourceId, setSourceId] = useState('')
-  const [records, setRecords] = useState<DomainRecord[]>([])
   const [allRecords, setAllRecords] = useState<DomainRecord[]>([])
   const [spaces, setSpaces] = useState<SpaceEntry[]>([])
   const [entities, setEntities] = useState<Record<EntityType, NamedEntity[]>>({
@@ -338,8 +402,6 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
   const [spaceName, setSpaceName] = useState('')
   const [spaceKind, setSpaceKind] = useState('room')
   const [spaceParent, setSpaceParent] = useState('')
-  const [editingId, setEditingId] = useState('')
-  const [editPayload, setEditPayload] = useState<Record<string, unknown>>({})
   const [message, setMessage] = useState('')
   const [bundle, setBundle] = useState<CandidateBundle | null>(null)
   const [suggestions, setSuggestions] = useState<CandidateSuggestion[]>([])
@@ -353,12 +415,30 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
   const [sourceTimeDraft, setSourceTimeDraft] = useState('')
   const [sourceBusy, setSourceBusy] = useState(false)
 
-  const applyBundle = (nextBundle: CandidateBundle | null) => {
+  const applyBundle = (nextBundle: CandidateBundle | null, preserveManual = false) => {
     setBundle(nextBundle)
-    const nextSuggestions = nextBundle?.suggestions ?? []
+    const manualSuggestions = preserveManual
+      ? suggestions.filter((item) => item.key.startsWith('manual:'))
+      : []
+    const nextSuggestions = [...(nextBundle?.suggestions ?? []).filter(
+      (item) => item.review_state !== 'deferred',
+    ).map((item) => item.record_type === 'todo' ? {
+      ...item,
+      record_type: 'issue',
+      type_label: '问题',
+      payload: defaultPayload('issue', {
+        ...item.payload,
+        phenomenon: item.payload.action ?? item.payload.title,
+        actual_result: item.payload.completion_evidence ?? null,
+        severity: item.payload.severity ?? '',
+        status: item.payload.status === 'done' ? 'done' : item.payload.status === 'in_progress' ? 'in_progress' : 'pending',
+      }),
+    } : item.record_type === 'issue' ? { ...item, type_label: '问题' }
+      : item.record_type === 'measurement' ? { ...item, payload: { ...item.payload, values: normalizeMeasurementValues(item.payload.values) } }
+      : item), ...manualSuggestions]
     setSuggestions(nextSuggestions)
     setSelectedKeys(new Set(nextSuggestions
-      .filter((item) => !item.confirmed_record_id)
+      .filter((item) => !item.confirmed_record_id && (!item.key.startsWith('manual:') || selectedKeys.has(item.key)))
       .map((item) => item.key)))
   }
 
@@ -385,13 +465,11 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
     setEntities({ materials: materialRows, vendors: vendorRows, participants: participantRows, stages: stageRows })
   }
 
-  const refreshRecords = async (selectedSource = sourceId) => {
-    const [sourceRecords, everyRecord, relationRows] = await Promise.all([
-      selectedSource ? listRecords(selectedSource) : Promise.resolve([]),
+  const refreshRecords = async (_selectedSource = sourceId) => {
+    const [everyRecord, relationRows] = await Promise.all([
       listRecords(undefined),
       listRelations(),
     ])
-    setRecords(sourceRecords)
     setAllRecords(everyRecord)
     setRelations(relationRows)
   }
@@ -502,14 +580,23 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
     })
   }
 
-  const removeSuggestion = (key: string) => {
-    // 本地移除未确认的候选记录；已确认项对应正式记录，需到已保存记录中删除。
-    setSuggestions((current) => current.filter((item) => item.key !== key))
-    setSelectedKeys((current) => {
-      const next = new Set(current)
-      next.delete(key)
-      return next
-    })
+  const removeSuggestion = async (key: string) => {
+    if (key.startsWith('manual:')) {
+      setSuggestions((current) => current.filter((item) => item.key !== key))
+      setSelectedKeys((current) => {
+        const next = new Set(current)
+        next.delete(key)
+        return next
+      })
+      return
+    }
+    if (!bundle) return
+    try {
+      // AI 候选的移除状态持久化，确认其他候选后不会再次出现。
+      applyBundle(await deferCandidate(bundle.id, key, bundle.version), true)
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : '移除候选失败')
+    }
   }
 
   const confirmSelected = async () => {
@@ -527,11 +614,11 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
     setConfirming(true)
     try {
       if (aiSelections.length) {
-        const result = await confirmCandidateBundle(bundle!.id, bundle!.version, aiSelections.map((item) => ({ key: item.key, payload: item.payload })))
-        applyBundle(result.bundle)
+        const result = await confirmCandidateBundle(bundle!.id, bundle!.version, aiSelections.map((item) => ({ key: item.key, payload: payloadForSave(item.record_type, item.payload) })))
+        applyBundle(result.bundle, manualSelections.length > 0)
       }
       if (manualSelections.length) {
-        await Promise.all(manualSelections.map((item) => createRecord(item.payload)))
+        await Promise.all(manualSelections.map((item) => createRecord(payloadForSave(item.record_type, item.payload))))
         setSuggestions((current) => current.filter((item) => !item.key.startsWith('manual:') || !selectedKeys.has(item.key)))
       }
       setMessage('所选建议已保存为正式记录。')
@@ -541,44 +628,6 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
       setMessage(error instanceof Error ? error.message : '确认失败，已保留当前编辑内容。')
     } finally {
       setConfirming(false)
-    }
-  }
-
-  const saveEdit = async (record: DomainRecord) => {
-    try {
-      const payload: Record<string, unknown> = {
-        ...editPayload,
-        record_type: record.record_type,
-      }
-      // 原始来源在详细编辑中不可变，避免误重置来源复核版本。
-      delete payload.source_refs
-      await updateRecord(record.id, payload)
-      setEditingId('')
-      setMessage('记录详细信息已保存。')
-      await refreshRecords()
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : '保存记录失败')
-    }
-  }
-
-  const beginRecordEdit = (record: DomainRecord) => {
-    const recordType = record.record_type as RecordType
-    setEditPayload(defaultPayload(recordType, record))
-    setEditingId(record.id)
-  }
-
-  const deleteSavedRecord = async (record: DomainRecord) => {
-    const confirmed = window.confirm(
-      `确认永久删除“${record.title}”吗？\n\n记录及其关联关系会被删除，原始来源和审计历史会保留。此操作无法恢复。`,
-    )
-    if (!confirmed) return
-    try {
-      await deleteRecord(record.id)
-      setEditingId('')
-      await Promise.all([refreshRecords(), loadSuggestions(sourceId)])
-      setMessage('记录已删除，对应 AI 候选已恢复为可确认状态。')
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : '删除记录失败')
     }
   }
 
@@ -641,17 +690,6 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
       setMessage(error instanceof Error ? error.message : '删除原始数据失败')
     } finally {
       setSourceBusy(false)
-    }
-  }
-
-  const confirmSourceReview = async (record: DomainRecord) => {
-    if (!sourceId) return
-    try {
-      await reviewRecordSource(record.id, sourceId)
-      setMessage('已确认这条正式记录与当前原始数据一致。')
-      await refreshRecords()
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : '确认复核失败')
     }
   }
 
@@ -762,13 +800,18 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
           void Promise.all([refreshRecords(event.target.value), loadSuggestions(event.target.value)])
         }}>
           <option value="">请选择</option>
-          {sources.map((source) => <option key={source.id} value={source.id}>{source.original_text || '仅附件来源'}</option>)}
+          {sources.map((source) => {
+            const statusLabel = source.analysis_status === 'confirmed' ? `已生成 ${source.generated_record_count} 条记录`
+              : source.analysis_status === 'partially_confirmed' ? `部分确认 · 已生成 ${source.generated_record_count} 条`
+              : source.analysis_status === 'pending' ? '待确认' : '未分析'
+            return <option key={source.id} value={source.id}>[{statusLabel}] {source.original_text || '仅附件来源'}</option>
+          })}
         </select>
       </label>
 
       {selectedSource && <section className="source-maintenance" aria-label="原始数据管理">
         <div className="source-maintenance__summary">
-          <span>来源版本 v{selectedSource.revision} · 录入时间：{formatBeijingDateTime(selectedSource.captured_at)}</span>
+          <span>来源版本 {selectedSource.revision} · 录入时间：{formatBeijingDateTime(selectedSource.captured_at)}</span>
           <div className="record-actions">
             <button type="button" disabled={sourceBusy} onClick={beginSourceEdit}>修改原始数据</button>
             <button className="danger-button" type="button" disabled={sourceBusy} onClick={() => void deleteSelectedSource()}>删除原始数据</button>
@@ -837,19 +880,18 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
             : recordType === 'measurement' ? String(payload.object_name ?? '')
             : recordType === 'decision' ? String(payload.topic ?? '')
             : recordType === 'procurement' ? String(payload.item_name ?? '')
-            : recordType === 'research' ? String(payload.question ?? '')
-            : String(payload.action ?? '')
+            : String(payload.question ?? '')
           const detailB = recordType === 'ledger' ? (payload.amount_minor ? String(Number(payload.amount_minor) / 100) : '')
             : recordType === 'measurement' ? String((normalizeMeasurementValues(payload.values)[0]?.value) ?? '')
             : recordType === 'decision' || recordType === 'research' ? (Array.isArray(payload.options) ? payload.options.join('，') : String(payload.options ?? ''))
             : recordType === 'procurement' ? String(payload.quantity ?? '')
             : recordType === 'event' ? String(payload.result ?? '')
-            : recordType === 'issue' ? String(payload.handling_plan ?? '')
-            : String(payload.trigger_condition ?? '')
+            : String(payload.handling_plan ?? '')
           const detailC = recordType === 'measurement' ? String((normalizeMeasurementValues(payload.values)[1]?.value) ?? '')
             : recordType === 'decision' ? String(payload.selected_option ?? '')
             : recordType === 'procurement' ? (payload.order_total_minor ? String(Number(payload.order_total_minor) / 100) : '')
             : ''
+          const detailD = recordType === 'measurement' ? String((normalizeMeasurementValues(payload.values)[2]?.value) ?? '') : ''
 
           const isManual = suggestion.key.startsWith('manual:')
 
@@ -868,7 +910,7 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
                 />
                 <strong>{suggestion.type_label}：{suggestion.summary}</strong>
               </label>
-              {!confirmed && <button className="suggestion-remove" type="button" onClick={() => removeSuggestion(suggestion.key)}>移除</button>}
+              {!confirmed && <button className="suggestion-remove" type="button" onClick={() => void removeSuggestion(suggestion.key)}>移除</button>}
             </div>
             <p>原文依据：{suggestion.evidence}</p>
             <p>{confirmed ? '已确认并生成正式记录' : `可信程度：${suggestion.certainty_label}`}</p>
@@ -884,11 +926,11 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
               </div>
               <div className="record-form-grid">
                 <label className="field-stack record-form-grid__wide"><span>标题</span><input value={title} placeholder={titlePlaceholder[recordType]} onChange={(event) => updateSuggestion(suggestion.key, 'title', event.target.value)} /></label>
-                <label className="field-stack"><span>状态</span>
+                {recordType !== 'measurement' && <label className="field-stack"><span>状态</span>
                   <select value={status} onChange={(event) => updateSuggestion(suggestion.key, 'status', event.target.value)}>
                     {recordConfig[recordType].statuses.map((item) => <option key={item} value={item}>{recordStatusLabel(recordType, item)}</option>)}
                   </select>
-                </label>
+                </label>}
                 <label className="field-stack"><span>{cfg.detailALabel}</span><input value={detailA} placeholder={cfg.detailAPlaceholder} onChange={(event) => {
                   const value = event.target.value
                   if (recordType === 'event') updateSuggestion(suggestion.key, 'event_kind', value)
@@ -898,7 +940,6 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
                   else if (recordType === 'decision') updateSuggestion(suggestion.key, 'topic', value)
                   else if (recordType === 'procurement') updateSuggestion(suggestion.key, 'item_name', value)
                   else if (recordType === 'research') updateSuggestion(suggestion.key, 'question', value)
-                  else updateSuggestion(suggestion.key, 'action', value)
                 }}                 /></label>
                 {recordType === 'ledger' && <label className="field-stack"><span>收支方向</span>
                   <select value={direction} onChange={(event) => updateSuggestion(suggestion.key, 'direction', event.target.value)}>
@@ -907,8 +948,11 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
                     <option value="income">收入</option>
                   </select>
                 </label>}
-                <label className="field-stack"><span>{cfg.detailBLabel}</span>
-                  <input
+                {recordType === 'measurement'
+                  ? <fieldset className="measurement-triplet record-form-grid__wide"><legend>尺寸（mm，未知可不填）</legend>{[['宽度', detailB], ['高度', detailC], ['长度', detailD]].map(([label, current], index) => <label key={label}><span>{label}</span><input type="number" min="0" step="any" value={current} onChange={(event) => { const values = normalizeMeasurementValues(payload.values); values[index] = { ...(values[index] ?? {}), axis: ['width', 'height', 'length'][index], value: event.target.value.trim() ? Number(event.target.value) : null, unit: 'mm' }; updateSuggestion(suggestion.key, 'values', values) }} /></label>)}</fieldset>
+                  : recordType === 'decision' || recordType === 'research'
+                  ? <OptionsTextInput label={cfg.detailBLabel} placeholder={cfg.detailBPlaceholder} value={payload.options} onCommit={(options) => updateSuggestion(suggestion.key, 'options', options)} />
+                  : <label className="field-stack"><span>{cfg.detailBLabel}</span><input
                     type={cfg.detailBType || 'text'}
                     min={cfg.detailBType === 'number' ? '0' : undefined}
                     step="any"
@@ -917,20 +961,12 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
                     onChange={(event) => {
                       const value = event.target.value
                       if (recordType === 'ledger') updateSuggestion(suggestion.key, 'amount_minor', value.trim() ? Math.round(Number(value) * 100) : null)
-                      else if (recordType === 'measurement') {
-                        const values = normalizeMeasurementValues(payload.values)
-                        if (values[0]) values[0].value = value.trim() ? Number(value) : null
-                        updateSuggestion(suggestion.key, 'values', values)
-                      }
-                      else if (recordType === 'decision' || recordType === 'research') updateSuggestion(suggestion.key, 'options', normalizeOptions(value))
                       else if (recordType === 'procurement') updateSuggestion(suggestion.key, 'quantity', value.trim() ? Number(value) : null)
                       else if (recordType === 'event') updateSuggestion(suggestion.key, 'result', value)
                       else if (recordType === 'issue') updateSuggestion(suggestion.key, 'handling_plan', value)
-                      else updateSuggestion(suggestion.key, 'trigger_condition', value)
                     }}
-                  />
-                </label>
-                {cfg.detailCLabel && <label className="field-stack"><span>{cfg.detailCLabel}</span>
+                  /></label>}
+                {recordType !== 'measurement' && cfg.detailCLabel && <label className="field-stack"><span>{cfg.detailCLabel}</span>
                   <input
                     type={cfg.detailCType || 'text'}
                     min={cfg.detailCType === 'number' ? '0' : undefined}
@@ -939,49 +975,33 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
                     placeholder={cfg.detailCPlaceholder}
                     onChange={(event) => {
                       const value = event.target.value
-                      if (recordType === 'measurement') {
-                        const values = normalizeMeasurementValues(payload.values)
-                        if (values[1]) values[1].value = value.trim() ? Number(value) : null
-                        updateSuggestion(suggestion.key, 'values', values)
-                      }
-                      else if (recordType === 'decision') updateSuggestion(suggestion.key, 'selected_option', value)
+                      if (recordType === 'decision') updateSuggestion(suggestion.key, 'selected_option', value)
                       else if (recordType === 'procurement') updateSuggestion(suggestion.key, 'order_total_minor', value.trim() ? Math.round(Number(value) * 100) : null)
                     }}
                   />
                 </label>}
-                <label className="field-stack"><span>空间</span>
-                  <select value={firstArrayValue(spaceIds)} onChange={(event) => updateSuggestion(suggestion.key, 'space_ids', event.target.value ? [event.target.value] : [])}>
-                    <option value="">未指定</option>
-                    {spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </select>
-                </label>
-                <label className="field-stack"><span>材料</span>
-                  <select value={firstArrayValue(materialIds)} onChange={(event) => updateSuggestion(suggestion.key, 'material_ids', event.target.value ? [event.target.value] : [])}>
-                    <option value="">未指定</option>
-                    {entities.materials.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </select>
-                </label>
-                <label className="field-stack"><span>参与者</span>
-                  <select value={firstArrayValue(participantIds)} onChange={(event) => updateSuggestion(suggestion.key, 'participant_ids', event.target.value ? [event.target.value] : [])}>
-                    <option value="">未指定</option>
-                    {entities.participants.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </select>
-                </label>
+                <MultiSelectField label="空间" selectedIds={spaceIds.map(String)} options={spaces} onChange={(ids) => updateSuggestion(suggestion.key, 'space_ids', ids)} />
+                <MultiSelectField label="材料" selectedIds={materialIds.map(String)} options={entities.materials} onChange={(ids) => updateSuggestion(suggestion.key, 'material_ids', ids)} />
+                <MultiSelectField label={recordType === 'issue' ? '处理人' : '参与者'} selectedIds={participantIds.map(String)} options={entities.participants} onChange={(ids) => updateSuggestion(suggestion.key, 'participant_ids', ids)} />
                 <label className="field-stack"><span>装修阶段</span>
                   <select value={stageId} onChange={(event) => updateSuggestion(suggestion.key, 'stage_id', event.target.value || null)}>
                     <option value="">未指定</option>
                     {entities.stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                   </select>
                 </label>
-                {cfg.showVendor && <label className="field-stack"><span>商家</span>
-                  <select value={vendorId} onChange={(event) => updateSuggestion(suggestion.key, 'vendor_id', event.target.value || null)}>
-                    <option value="">未指定</option>
+                {cfg.showVendor && <label className="field-stack"><span>{recordType === 'ledger' ? '交易对象（商家）' : '商家'}</span>
+                  <select required={recordType === 'ledger'} value={vendorId} onChange={(event) => updateSuggestion(suggestion.key, 'vendor_id', event.target.value || null)}>
+                    <option value="">请选择</option>
                     {entities.vendors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                   </select>
                 </label>}
                 <label className="field-stack"><span>发生日期</span>
                   <input type="date" value={occurredDate} onChange={(event) => updateSuggestion(suggestion.key, 'occurred_date', event.target.value || null)} />
                 </label>
+                {recordType === 'issue' && <>
+                  <label className="field-stack"><span>严重程度</span><select required value={String(payload.severity ?? '')} onChange={(event) => updateSuggestion(suggestion.key, 'severity', event.target.value || null)}><option value="">请选择</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label>
+                  {status === 'done' && <><label className="field-stack"><span>实际完成日期</span><input type="date" value={toDateInput(payload.completed_at)} onChange={(event) => updateSuggestion(suggestion.key, 'completed_at', event.target.value || null)} /></label><label className="field-stack record-form-grid__wide"><span>实际处理结果</span><textarea required rows={2} value={String(payload.actual_result ?? '')} onChange={(event) => updateSuggestion(suggestion.key, 'actual_result', event.target.value || null)} /></label></>}
+                </>}
               </div>
             </>}
             {suggestion.missing_fields.length > 0 && <p className="muted">还可补充：{suggestion.missing_fields.join('、')}</p>}
@@ -998,25 +1018,6 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
 
       {message && <p className="workspace-message" role="status">{message}</p>}
 
-      <div className="record-list">
-        <h3>已保存的记录</h3>
-        <p className="record-list__guide">这里的记录已经正式保存，会出现在时间线、账本、问题或空间等页面中。状态表示事情目前进展到哪一步。</p>
-        {records.length === 0 && <p className="muted">这条来源还没有生成记录。</p>}
-        {records.map((record) => <article className="record-card" key={record.id}>
-          {record.source_refs.some((sourceRef) => sourceRef.source_id === sourceId && sourceRef.needs_review) && <div className="source-review-warning"><span>原始数据已修改，这条正式记录待复核。</span><button type="button" onClick={() => void confirmSourceReview(record)}>已核对，无需修改</button></div>}
-          {editingId === record.id ? <div className="record-edit-form">
-            <SavedRecordEditFields recordType={record.record_type as RecordType} payload={editPayload} spaces={spaces} entities={entities} onChange={(field, value) => setEditPayload((current) => ({ ...current, [field]: value }))} />
-            <div className="record-actions"><button type="button" onClick={() => void saveEdit(record)}>保存修改</button><button type="button" onClick={() => setEditingId('')}>取消</button></div>
-          </div> : <>
-            <strong>{recordConfig[record.record_type as RecordType]?.label} · {record.title}</strong>
-            <p><strong>状态：</strong>{recordStatusLabel(record.record_type, record.status)}{record.archived_at ? ' · 已归档隐藏' : ''}</p>
-            {recordStatusDescription(record.record_type, record.status) && <p className="record-status-help">{recordStatusDescription(record.record_type, record.status)}</p>}
-            <div className="record-actions"><button type="button" onClick={() => beginRecordEdit(record)}>详细修改</button><button type="button" onClick={() => void setRecordArchived(record.id, !record.archived_at).then(() => refreshRecords())}>{record.archived_at ? '恢复显示' : '归档并隐藏'}</button><button className="danger-button" type="button" onClick={() => void deleteSavedRecord(record)}>删除记录</button></div>
-            <small className="record-action-help">详细修改不会改变记录类型和原始来源；删除无法恢复，但会保留来源与审计历史。</small>
-          </>}
-        </article>)}
-      </div>
-
       <details className="manage-panel">
         <summary>空间与共享档案</summary>
         <p className="panel-guide">空间用于标记事情发生的位置；共享档案可在多条记录中重复使用。只能删除尚未被正式记录使用的项目。</p>
@@ -1030,7 +1031,7 @@ export function DomainWorkspace({ refreshKey, onSourcesChanged }: Props) {
             <div className="manage-list" aria-label="已有空间">
               <h4>已有空间</h4>
               {spaces.length === 0 && <p className="muted">还没有空间。</p>}
-              {spaces.map((item) => { const isOnlyRoot = item.kind === 'house' && item.parent_id === null && rootHouseCount === 1; return <div className="manage-list__item" key={item.id}><span><strong>{item.name}</strong><small>{spaceKindLabels[item.kind] || item.kind}{isOnlyRoot ? ' · 系统根空间' : item.parent_id ? ` · 上级：${spaces.find((space) => space.id === item.parent_id)?.name || '未知'}` : ' · 无上级'}</small></span>{isOnlyRoot ? <small className="protected-item">系统根空间不可删除</small> : <button type="button" onClick={() => void deleteSpaceItem(item)}>删除</button>}</div> })}
+              {spaces.map((item) => { const isOnlyRoot = item.kind === 'house' && item.parent_id === null && rootHouseCount === 1; return <div className="manage-list__item" key={item.id}><span><strong>{item.name}</strong><small>{spaceKindLabels[item.kind] || '其他空间'}{isOnlyRoot ? ' · 系统根空间' : item.parent_id ? ` · 上级：${spaces.find((space) => space.id === item.parent_id)?.name || '未知'}` : ' · 无上级'}</small></span>{isOnlyRoot ? <small className="protected-item">系统根空间不可删除</small> : <button type="button" onClick={() => void deleteSpaceItem(item)}>删除</button>}</div> })}
             </div>
           </section>
           <section>

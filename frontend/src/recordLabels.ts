@@ -10,7 +10,7 @@ const generalStatusLabels: Record<string, string> = {
 
 const statusOverrides: Record<string, Record<string, string>> = {
   decision: { pending: '待确认' },
-  todo: { pending: '待处理' },
+  issue: { pending: '待处理' },
 }
 
 export function recordStatusLabel(recordType: string, status: string): string {
@@ -19,7 +19,7 @@ export function recordStatusLabel(recordType: string, status: string): string {
 
 export function recordStatusDescription(recordType: string, status: string): string | null {
   if (recordType === 'decision' && status === 'pending') return '这个决定还没有最终确定。'
-  if (recordType === 'todo' && status === 'pending') return '这项待办还没有开始处理。'
+  if (recordType === 'issue' && status === 'pending') return '这个问题还没有开始处理。'
   return null
 }
 

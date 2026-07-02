@@ -4,13 +4,14 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 5173",
+    "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "tsc -b && vite build",
     "lint": "tsc -b --pretty false",
     "test": "vitest run",
-    "preview": "vite preview --host 127.0.0.1 --port 4173"
+    "preview": "vite preview --host 0.0.0.0 --port 4173"
   },
   "dependencies": {
+    "echarts": "^6.1.0",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },

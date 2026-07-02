@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SourceRef(BaseModel):
@@ -66,10 +66,10 @@ class LedgerCreate(RecordCommonCreate):
     direction: Literal["expense", "refund", "income"]
     payment_kind: str
     amount_minor: int = Field(gt=0)
-    currency: str = Field(default="CNY", min_length=3, max_length=3)
+    currency: Literal["CNY"] = "CNY"
     payment_date: date | None = None
     payment_method: str | None = None
-    vendor_id: str | None = None
+    vendor_id: str = Field(min_length=1)
 
 
 class LedgerUpdate(RecordCommonUpdate):
@@ -78,7 +78,7 @@ class LedgerUpdate(RecordCommonUpdate):
     direction: Literal["expense", "refund", "income"] | None = None
     payment_kind: str | None = None
     amount_minor: int | None = Field(default=None, gt=0)
-    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    currency: Literal["CNY"] | None = None
     payment_date: date | None = None
     payment_method: str | None = None
     vendor_id: str | None = None
@@ -86,24 +86,26 @@ class LedgerUpdate(RecordCommonUpdate):
 
 class IssueCreate(RecordCommonCreate):
     record_type: Literal["issue"]
-    status: Literal["open", "in_progress", "waiting", "resolved", "closed"]
+    status: Literal["pending", "in_progress", "done"]
     discovered_at: datetime | None = None
     phenomenon: str
-    severity: str | None = None
+    severity: Literal["low", "medium", "high"]
     responsible_party: str | None = None
     handling_plan: str | None = None
+    completed_at: date | None = None
     actual_result: str | None = None
     resolution_kind: str | None = None
 
 
 class IssueUpdate(RecordCommonUpdate):
     record_type: Literal["issue"]
-    status: Literal["open", "in_progress", "waiting", "resolved", "closed"] | None = None
+    status: Literal["pending", "in_progress", "done"] | None = None
     discovered_at: datetime | None = None
     phenomenon: str | None = None
-    severity: str | None = None
+    severity: Literal["low", "medium", "high"] | None = None
     responsible_party: str | None = None
     handling_plan: str | None = None
+    completed_at: date | None = None
     actual_result: str | None = None
     resolution_kind: str | None = None
 
@@ -111,12 +113,27 @@ class IssueUpdate(RecordCommonUpdate):
 class MeasurementValueInput(BaseModel):
     axis: str | None = None
     value: Decimal = Field(gt=0)
-    unit: str
+    unit: Literal["mm"] = "mm"
+
+    @model_validator(mode="before")
+    @classmethod
+    def convert_to_millimetres(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        unit = str(data.get("unit") or "mm").lower()
+        value = Decimal(str(data.get("value")))
+        if unit == "cm":
+            value *= Decimal("10")
+        elif unit == "m":
+            value *= Decimal("1000")
+        elif unit != "mm":
+            return data
+        return {**data, "value": value, "unit": "mm"}
 
 
 class MeasurementCreate(RecordCommonCreate):
     record_type: Literal["measurement"]
-    status: Literal["active", "superseded", "cancelled"] = "active"
+    status: Literal["active"] = "active"
     object_name: str
     measurement_role: Literal[
         "material_spec", "site_measurement", "design_requirement", "calculated"
@@ -125,12 +142,12 @@ class MeasurementCreate(RecordCommonCreate):
     tolerance_text: str | None = None
     measured_at: datetime | None = None
     method: str | None = None
-    values: list[MeasurementValueInput] = Field(min_length=1)
+    values: list[MeasurementValueInput] = []
 
 
 class MeasurementUpdate(RecordCommonUpdate):
     record_type: Literal["measurement"]
-    status: Literal["active", "superseded", "cancelled"] | None = None
+    status: Literal["active"] | None = None
     object_name: str | None = None
     measurement_role: (
         Literal["material_spec", "site_measurement", "design_requirement", "calculated"] | None
@@ -139,12 +156,12 @@ class MeasurementUpdate(RecordCommonUpdate):
     tolerance_text: str | None = None
     measured_at: datetime | None = None
     method: str | None = None
-    values: list[MeasurementValueInput] | None = Field(default=None, min_length=1)
+    values: list[MeasurementValueInput] | None = None
 
 
 class DecisionCreate(RecordCommonCreate):
     record_type: Literal["decision"]
-    status: Literal["pending", "confirmed", "superseded", "cancelled"]
+    status: Literal["pending", "confirmed", "cancelled"]
     topic: str
     options: list[str] = []
     selected_option: str | None = None
@@ -154,7 +171,7 @@ class DecisionCreate(RecordCommonCreate):
 
 class DecisionUpdate(RecordCommonUpdate):
     record_type: Literal["decision"]
-    status: Literal["pending", "confirmed", "superseded", "cancelled"] | None = None
+    status: Literal["pending", "confirmed", "cancelled"] | None = None
     topic: str | None = None
     options: list[str] | None = None
     selected_option: str | None = None
@@ -182,7 +199,7 @@ class ProcurementCreate(RecordCommonCreate):
     vendor_id: str | None = None
     order_number: str | None = None
     order_total_minor: int | None = Field(default=None, ge=0)
-    currency: str = Field(default="CNY", min_length=3, max_length=3)
+    currency: Literal["CNY"] = "CNY"
     promised_date: date | None = None
     delivery_address: str | None = None
     return_terms: str | None = None
@@ -212,7 +229,7 @@ class ProcurementUpdate(RecordCommonUpdate):
     vendor_id: str | None = None
     order_number: str | None = None
     order_total_minor: int | None = Field(default=None, ge=0)
-    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    currency: Literal["CNY"] | None = None
     promised_date: date | None = None
     delivery_address: str | None = None
     return_terms: str | None = None
@@ -241,30 +258,6 @@ class ResearchUpdate(RecordCommonUpdate):
     limitations: str | None = None
 
 
-class TodoCreate(RecordCommonCreate):
-    record_type: Literal["todo"]
-    status: Literal["pending", "in_progress", "waiting", "done", "cancelled"]
-    action: str
-    planned_at: datetime | None = None
-    due_at: datetime | None = None
-    trigger_condition: str | None = None
-    priority: str | None = None
-    completed_at: datetime | None = None
-    completion_evidence: str | None = None
-
-
-class TodoUpdate(RecordCommonUpdate):
-    record_type: Literal["todo"]
-    status: Literal["pending", "in_progress", "waiting", "done", "cancelled"] | None = None
-    action: str | None = None
-    planned_at: datetime | None = None
-    due_at: datetime | None = None
-    trigger_condition: str | None = None
-    priority: str | None = None
-    completed_at: datetime | None = None
-    completion_evidence: str | None = None
-
-
 RecordCreate = Annotated[
     EventCreate
     | LedgerCreate
@@ -272,8 +265,7 @@ RecordCreate = Annotated[
     | MeasurementCreate
     | DecisionCreate
     | ProcurementCreate
-    | ResearchCreate
-    | TodoCreate,
+    | ResearchCreate,
     Field(discriminator="record_type"),
 ]
 RecordUpdate = Annotated[
@@ -283,7 +275,6 @@ RecordUpdate = Annotated[
     | MeasurementUpdate
     | DecisionUpdate
     | ProcurementUpdate
-    | ResearchUpdate
-    | TodoUpdate,
+    | ResearchUpdate,
     Field(discriminator="record_type"),
 ]

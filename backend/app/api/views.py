@@ -8,6 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.analytics import (
+    STATUS_LABELS,
+    TYPE_LABELS,
+    base_record_analytics,
+    distribution,
+    money_trend,
+)
 from app.auth import CurrentUser, require_user
 from app.db import create_session_factory
 from app.domain_models import (
@@ -149,6 +156,9 @@ def timeline(
                 for key in ordered_keys
             ],
             "total": len(items),
+            "analytics": base_record_analytics(
+                [serialized[record.id] for record in records]
+            ),
         }
     finally:
         db.close()
@@ -186,6 +196,12 @@ def ledger_summary(
         ]
         ledgers = [item for item in selected if item["record_type"] == "ledger"]
         procurements = [item for item in selected if item["record_type"] == "procurement"]
+        non_cny = [item for item in selected if item.get("currency", "CNY") != "CNY"]
+        if non_cny:
+            raise HTTPException(
+                status_code=409,
+                detail="检测到非人民币历史记录，请先核对数据后再查看账本。",
+            )
         procurement_ids = {item["id"] for item in procurements}
         links: dict[str, list[str]] = defaultdict(list)
         for relation in _relations(db):
@@ -211,33 +227,22 @@ def ledger_summary(
                 continue
             allocated[target["id"]].append(ledger)
 
-        totals: dict[str, dict[str, int | str]] = {}
-
-        def currency_total(currency: str) -> dict[str, int | str]:
-            return totals.setdefault(
-                currency,
-                {
-                    "currency": currency,
-                    "procurement_total_minor": 0,
-                    "expense_minor": 0,
-                    "refund_minor": 0,
-                    "income_minor": 0,
-                    "net_paid_minor": 0,
-                    "outstanding_minor": 0,
-                    "overpaid_minor": 0,
-                    "unallocated_expense_minor": 0,
-                    "unallocated_refund_minor": 0,
-                    "unallocated_income_minor": 0,
-                },
-            )
+        totals: dict[str, int] = {
+            "procurement_total_minor": 0,
+            "expense_minor": 0,
+            "refund_minor": 0,
+            "income_minor": 0,
+            "net_paid_minor": 0,
+            "outstanding_minor": 0,
+            "overpaid_minor": 0,
+            "unallocated_expense_minor": 0,
+            "unallocated_refund_minor": 0,
+            "unallocated_income_minor": 0,
+        }
 
         procurement_rows: list[dict[str, Any]] = []
         for procurement in procurements:
-            currency = procurement.get("currency", "CNY")
-            total = currency_total(currency)
             order_total = int(procurement.get("order_total_minor") or 0)
-            if procurement["status"] != "cancelled":
-                total["procurement_total_minor"] += order_total
             linked = allocated.get(procurement["id"], [])
             expense = sum(
                 int(item["amount_minor"])
@@ -257,8 +262,8 @@ def ledger_summary(
             net = expense - refund
             outstanding = max(order_total - net, 0) if procurement["status"] != "cancelled" else 0
             overpaid = max(net - order_total, 0) if procurement["status"] != "cancelled" else 0
-            total["outstanding_minor"] += outstanding
-            total["overpaid_minor"] += overpaid
+            totals["outstanding_minor"] += outstanding
+            totals["overpaid_minor"] += overpaid
             procurement_rows.append(
                 {
                     **procurement,
@@ -285,23 +290,47 @@ def ledger_summary(
         for ledger in ledgers:
             if ledger["status"] != "posted":
                 continue
-            total = currency_total(ledger.get("currency", "CNY"))
             field = _DIRECTION_FIELD.get(ledger["direction"])
             if field:
-                total[field] += int(ledger["amount_minor"])
-        for total in totals.values():
-            total["net_paid_minor"] = int(total["expense_minor"]) - int(total["refund_minor"])
+                totals[field] += int(ledger["amount_minor"])
+        # 顶部口径完全来自已入账资金流水：采购总额为全部支出，实际支出再扣退款和收入。
+        totals["procurement_total_minor"] = totals["expense_minor"]
+        totals["net_paid_minor"] = (
+            totals["expense_minor"] - totals["refund_minor"] - totals["income_minor"]
+        )
         for ledger in unallocated:
-            total = currency_total(ledger.get("currency", "CNY"))
             field = _DIRECTION_UNALLOCATED.get(ledger["direction"])
             if field:
-                total[field] += int(ledger["amount_minor"])
+                totals[field] += int(ledger["amount_minor"])
+
+        vendor_amounts: dict[str, int] = defaultdict(int)
+        for ledger in ledgers:
+            vendor = ledger.get("vendor")
+            if not vendor or ledger["status"] != "posted":
+                continue
+            amount = int(ledger.get("amount_minor") or 0)
+            vendor_amounts[vendor["name"]] += (
+                amount if ledger["direction"] == "expense" else -amount
+            )
 
         return {
-            "totals_by_currency": list(totals.values()),
+            "totals": totals,
             "procurements": procurement_rows,
             "ledger_entries": ledgers,
             "warnings": warnings,
+            "analytics": {
+                "money_trend": money_trend(selected),
+                "payment_composition": [
+                    {"key": "paid", "label": "净付款", "value": totals["net_paid_minor"]},
+                    {"key": "outstanding", "label": "待付", "value": totals["outstanding_minor"]},
+                ],
+                "vendor_distribution": [
+                    {"key": name, "label": name, "value": amount}
+                    for name, amount in sorted(
+                        vendor_amounts.items(), key=lambda item: (-item[1], item[0])
+                    )
+                ],
+            },
         }
     finally:
         db.close()
@@ -319,33 +348,16 @@ def issues_board(request: Request, user: User, space_id: str | None = None) -> d
             if record.record_type == "issue"
             and record_matches(serialized[record.id], space_id=space_id)
         ]
-        todos = {
-            record.id: serialized[record.id]
-            for record in records
-            if record.record_type == "todo"
-            and serialized[record.id]["status"] not in {"done", "cancelled"}
-        }
-        todo_by_issue: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        issue_ids = {item["id"] for item in issues}
-        for relation in _relations(db):
-            if relation.from_record_id in issue_ids and relation.to_record_id in todos:
-                todo_by_issue[relation.from_record_id].append(todos[relation.to_record_id])
-            if relation.to_record_id in issue_ids and relation.from_record_id in todos:
-                todo_by_issue[relation.to_record_id].append(todos[relation.from_record_id])
-
         status_meta = [
-            ("open", "发现"),
+            ("pending", "待处理"),
             ("in_progress", "处理中"),
-            ("waiting", "等待"),
-            ("resolved", "已解决"),
-            ("closed", "已关闭"),
+            ("done", "已完成"),
         ]
         cards_by_status: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for issue in issues:
             cards_by_status[issue["status"]].append(
                 {
                     **issue,
-                    "next_todos": todo_by_issue.get(issue["id"], []),
                     "source_count": len(issue["source_refs"]),
                     "attachment_count": len(issue["attachment_ids"]),
                 }
@@ -356,6 +368,20 @@ def issues_board(request: Request, user: User, space_id: str | None = None) -> d
                 for status, label in status_meta
             ],
             "total": len(issues),
+            "analytics": {
+                "status_distribution": distribution(
+                    (item["status"] for item in issues), STATUS_LABELS
+                ),
+                "space_distribution": distribution(
+                    space["name"]
+                    for item in issues
+                    for space in (item["spaces"] or [{"name": "未指定空间"}])
+                ),
+                "severity_distribution": distribution(
+                    (item.get("severity") for item in issues),
+                    {"low": "低", "medium": "中", "high": "高"},
+                ),
+            },
         }
     finally:
         db.close()
@@ -432,13 +458,42 @@ def space_archive(space_id: str, request: Request, user: User) -> dict[str, Any]
                 "unclosed_issue_count": sum(
                     1
                     for record in matched
-                    if record["record_type"] == "issue" and record["status"] != "closed"
+                    if record["record_type"] == "issue" and record["status"] != "done"
                 ),
                 "measurement_count": len(grouped.get("measurement", [])),
                 "material_count": len(material_map),
             },
             "records_by_type": grouped,
             "materials": list(material_map.values()),
+            "analytics": {
+                "type_distribution": distribution(
+                    (record["record_type"] for record in matched), TYPE_LABELS
+                ),
+                "issue_status_distribution": distribution(
+                    (
+                        record["status"]
+                        for record in matched
+                        if record["record_type"] == "issue"
+                    ),
+                    STATUS_LABELS,
+                ),
+                "expense_minor": sum(
+                    int(record.get("amount_minor") or 0)
+                    for record in matched
+                    if record["record_type"] == "ledger"
+                    and record.get("status") == "posted"
+                    and record.get("direction") == "expense"
+                    and record.get("currency", "CNY") == "CNY"
+                ),
+                "refund_minor": sum(
+                    int(record.get("amount_minor") or 0)
+                    for record in matched
+                    if record["record_type"] == "ledger"
+                    and record.get("status") == "posted"
+                    and record.get("direction") == "refund"
+                    and record.get("currency", "CNY") == "CNY"
+                ),
+            },
         }
     finally:
         db.close()
