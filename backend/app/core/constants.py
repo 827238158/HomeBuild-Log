@@ -8,7 +8,6 @@ from app.domain_models import (
     IssueDetail,
     LedgerDetail,
     MeasurementDetail,
-    ProcurementDetail,
     ResearchDetail,
 )
 
@@ -18,7 +17,6 @@ TYPE_LABELS: dict[str, str] = {
     "issue": "问题",
     "measurement": "尺寸",
     "decision": "决策",
-    "procurement": "采购",
     "research": "调研",
 }
 
@@ -35,8 +33,6 @@ RELATION_TYPES: set[str] = {
     "relates_to",
     "implements",
     "resolves",
-    "pays_for",
-    "tracks_delivery",
     "supersedes",
     "blocks",
     "produces",
@@ -48,7 +44,6 @@ DETAIL_MODELS: dict[str, type] = {
     "issue": IssueDetail,
     "measurement": MeasurementDetail,
     "decision": DecisionDetail,
-    "procurement": ProcurementDetail,
     "research": ResearchDetail,
 }
 
@@ -79,18 +74,16 @@ STATUS_DEFAULTS: dict[str, str] = {
     "issue": "pending",
     "measurement": "active",
     "decision": "pending",
-    "procurement": "planned",
     "research": "collecting",
 }
 
 # 记录类型必填字段集合（api/extractions.py 使用）
 FIELDS_BY_TYPE: dict[str, set[str]] = {
     "event": {"status", "event_kind"},
-    "ledger": {"status", "direction", "payment_kind", "amount_minor"},
+    "ledger": {"status", "ledger_kind"},
     "issue": {"status", "phenomenon", "severity"},
     "measurement": {"status", "object_name", "measurement_role", "values"},
     "decision": {"status", "topic"},
-    "procurement": {"status", "item_name"},
     "research": {"status", "question"},
 }
 
@@ -98,15 +91,21 @@ FIELDS_BY_TYPE: dict[str, set[str]] = {
 VALID_ENUMS: dict[str, dict[str, set[str]]] = {
     "status": {
         "event":       {"planned", "occurred", "completed", "cancelled"},
-        "ledger":      {"planned", "posted", "voided"},
+        "ledger":      {"planned", "posted", "paid", "voided"},
         "issue":       {"pending", "in_progress", "done"},
         "measurement": {"active", "superseded", "cancelled"},
         "decision":    {"pending", "confirmed", "cancelled"},
-        "procurement": {"planned", "ordered", "partially_paid", "paid", "delivery_pending",
-                        "delivered", "returned", "completed", "cancelled"},
         "research":    {"collecting", "comparing", "concluded", "archived"},
     },
     "direction": {
         "ledger": {"expense", "refund", "income"},
+    },
+    "ledger_kind": {
+        "ledger": {"payment", "refund", "income"},
+    },
+    "measurement_role": {
+        "measurement": {
+            "material_spec", "site_measurement", "design_requirement", "calculated"
+        },
     },
 }

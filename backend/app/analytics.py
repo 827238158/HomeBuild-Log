@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from datetime import date
 from typing import Any
 
+from app.ledger_rules import is_effective_ledger
 from app.projections import effective_date
 
 TYPE_LABELS = {
@@ -13,7 +14,6 @@ TYPE_LABELS = {
     "issue": "问题",
     "measurement": "尺寸",
     "decision": "决策",
-    "procurement": "采购",
     "research": "调研",
 }
 
@@ -33,12 +33,7 @@ STATUS_LABELS = {
     "superseded": "已替代",
     "pending": "待处理",
     "confirmed": "已确认",
-    "ordered": "已下单",
-    "partially_paid": "部分付款",
-    "paid": "已付款",
-    "delivery_pending": "待送货",
-    "delivered": "已送达",
-    "returned": "已退货",
+    "paid": "已出账",
     "collecting": "收集中",
     "comparing": "比较中",
     "concluded": "已有结论",
@@ -103,8 +98,8 @@ def type_specific_analytics(
     field_by_type = {
         "event": ("event_kind", {}),
         "ledger": (
-            "direction",
-            {"expense": "支出", "refund": "退款", "income": "收入"},
+            "ledger_kind",
+            {"payment": "付款", "refund": "退款", "income": "收入"},
         ),
         "issue": (
             "severity",
@@ -120,7 +115,6 @@ def type_specific_analytics(
             },
         ),
         "decision": ("status", STATUS_LABELS),
-        "procurement": ("status", STATUS_LABELS),
         "research": ("status", STATUS_LABELS),
     }
     field, labels = field_by_type[record_type]
@@ -142,7 +136,7 @@ def type_specific_analytics(
 def money_trend(records: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     buckets: dict[str, dict[str, int]] = {}
     for record in records:
-        if record.get("record_type") != "ledger" or record.get("status") != "posted":
+        if not is_effective_ledger(record):
             continue
         item_date = effective_date(record)
         if item_date is None:

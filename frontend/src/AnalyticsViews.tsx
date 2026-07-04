@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { EChart } from './EChart'
+import { Select } from './Select'
+import { LazyEChart as EChart } from './LazyEChart'
 import { chartCategoryColors, chartSummary, donutOption, horizontalBarOption, lineOption } from './chartConfig'
 import {
   getAiAnalyticsOverview,
@@ -10,26 +11,16 @@ import {
   listSpaces,
   type AiAnalyticsOverview,
   type AiAnalyticsRunsResponse,
-  type DistributionItem,
   type NamedEntity,
   type OverviewResponse,
   type ProjectionRecord,
   type RecordsAnalyticsResponse,
   type SpaceEntry,
 } from './domainApi'
-import { recordStatusLabel } from './recordLabels'
+import { recordStatusLabel, recordTypeLabels } from './recordLabels'
 import { formatBeijingDateTime, formatCalendarDate } from './time'
 
-const typeLabels: Record<string, string> = {
-  event: '事件', ledger: '账目', issue: '问题', measurement: '尺寸',
-  decision: '决策', procurement: '采购', research: '调研',
-}
-
-const types = Object.entries(typeLabels)
-const money = (minor: number) => new Intl.NumberFormat('zh-CN', {
-  style: 'currency', currency: 'CNY',
-}).format(minor / 100)
-
+const types = Object.entries(recordTypeLabels)
 function loadMessage(loading: boolean, error: string, empty: boolean, hint: string) {
   if (loading) return <p className="view-state" role="status">正在加载分析…</p>
   if (error) return <p className="view-state view-state--error" role="alert">{error}</p>
@@ -39,9 +30,9 @@ function loadMessage(loading: boolean, error: string, empty: boolean, hint: stri
 
 function RecordCard({ record, onOpen }: { record: ProjectionRecord; onOpen: (id: string) => void }) {
   return <button type="button" className="projection-card" onClick={() => onOpen(record.id)}>
-    <span className="record-type-tag">{typeLabels[record.record_type]}</span>
+    <span className="record-type-tag">{recordTypeLabels[record.record_type]}</span>
     <strong>{record.title}</strong>
-    <span>{recordStatusLabel(record.record_type, record.status)}</span>
+    <span>{recordStatusLabel(record.record_type, record.status, record.ledger_kind)}</span>
     <small>{formatCalendarDate(record.occurred_date)}</small>
   </button>
 }
@@ -96,9 +87,9 @@ export function RecordsAnalyticsView({ onOpen }: { onOpen: (id: string) => void 
   const clear = () => { setStatus(''); setSpaceId(''); setStageId(''); setDateFrom(''); setDateTo('') }
   return <section className="view-panel"><header><p className="eyebrow">八类正式记录</p><h2>记录分析</h2><p>从分布和趋势进入同一批真实记录。</p></header>
     <div className="type-tabs" role="tablist" aria-label="记录类型"><button type="button" className={!recordType ? 'is-active' : ''} onClick={() => { setRecordType(''); setStatus('') }}>全部</button>{types.map(([key, label]) => <button type="button" key={key} className={recordType === key ? 'is-active' : ''} onClick={() => { setRecordType(key); setStatus('') }}>{label}</button>)}</div>
-    <div className="filter-grid"><label className="field-stack"><span>空间</span><select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="field-stack"><span>装修阶段</span><select value={stageId} onChange={(event) => setStageId(event.target.value)}><option value="">全部阶段</option>{stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={clear}>清除筛选</button></div>
+    <div className="filter-grid"><label className="field-stack"><span>空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><label className="field-stack"><span>装修阶段</span><Select value={stageId} onChange={(event) => setStageId(event.target.value)}><option value="">全部阶段</option>{stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={clear}>清除筛选</button></div>
     {loadMessage(loading, error, data?.summary.total === 0, '录入并确认正式记录后，可按类型、空间和阶段查看趋势。')}
-    {data && data.summary.total > 0 && <><div className="summary-grid"><article className="summary-card summary-card--info"><span>符合条件的记录</span><strong>{data.summary.total}</strong></article><article className="summary-card"><span>日期待补充</span><strong>{data.summary.unknown_date_count}</strong></article>{typeof data.specific.overdue_count === 'number' && <article className="summary-card summary-card--warning"><span>逾期待办</span><strong>{data.specific.overdue_count}</strong></article>}</div><div className="chart-grid"><EChart title="时间趋势" description="按业务发生日期观察记录变化" kind="line" option={lineOption(data.summary.time_trend)} summary={chartSummary('时间趋势', data.summary.time_trend)} /><EChart title="状态分布" description="点击状态可筛选下方记录" kind="donut" option={donutOption(data.summary.status_distribution)} summary={chartSummary('状态分布', data.summary.status_distribution)} onDataClick={setStatus} selectedKey={status} />{data.specific.distribution && <EChart title="类型专属分布" description="当前记录类型的核心分类对比" kind="bar" option={horizontalBarOption(data.specific.distribution)} summary={chartSummary('类型专属分布', data.specific.distribution)} />}</div>{status && <button type="button" className="clear-filter" onClick={() => setStatus('')}>当前按状态筛选，点击清除</button>}<section className="projection-section"><h3>对应记录</h3><div className="card-grid">{data.records.map((record) => <RecordCard key={record.id} record={record} onOpen={onOpen} />)}</div></section></>}
+    {data && data.summary.total > 0 && <><div className="summary-grid"><article className="summary-card summary-card--info"><span>符合条件的记录</span><strong>{data.summary.total}</strong></article><article className="summary-card"><span>日期待补充</span><strong>{data.summary.unknown_date_count}</strong></article>{typeof data.specific.overdue_count === 'number' && <article className="summary-card summary-card--warning"><span>逾期待办</span><strong>{data.specific.overdue_count}</strong></article>}</div><div className="chart-grid"><EChart title="时间趋势" description="按业务发生日期观察记录变化" kind="line" option={lineOption(data.summary.time_trend)} summary={chartSummary('时间趋势', data.summary.time_trend)} /><EChart title="状态分布" description="点击状态可筛选下方记录" kind="donut" option={donutOption(data.summary.status_distribution)} summary={chartSummary('状态分布', data.summary.status_distribution)} onDataClick={setStatus} selectedKey={status} />{data.specific.distribution && <EChart title="类型专属分布" description="当前记录类型的核心分类对比" kind="bar" option={horizontalBarOption(data.specific.distribution)} summary={chartSummary('类型专属分布', data.specific.distribution)} />}</div>{status && <button type="button" className="clear-filter" onClick={() => setStatus('')}>当前按状态筛选，点击取消</button>}<section className="projection-section"><h3>对应记录</h3><div className="card-grid">{data.records.map((record) => <RecordCard key={record.id} record={record} onOpen={onOpen} />)}</div></section></>}
   </section>
 }
 
@@ -119,7 +110,7 @@ export function AiAnalyticsView() {
   }, [range])
   const trend = useMemo(() => overview?.trend.map((item) => ({ key: item.key, label: item.label, value: item.requests })) ?? [], [overview])
   return <section className="view-panel"><header><p className="eyebrow">安全运行数据</p><h2>智能分析</h2><p>只展示运行结果和性能，不展示提示词、原始响应或密钥。</p></header>
-    <label className="field-stack range-picker"><span>统计范围</span><select value={range} onChange={(event) => setRange(event.target.value)}>{Object.entries(rangeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+    <label className="field-stack range-picker"><span>统计范围</span><Select value={range} onChange={(event) => setRange(event.target.value)}>{Object.entries(rangeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>
     {loadMessage(loading, error, overview?.summary.request_count === 0, '使用“保存并分析”产生运行记录后，这里会展示成功、回退和耗时。')}
     {overview && overview.summary.request_count > 0 && <><div className="summary-grid summary-grid--metrics"><article className="summary-card summary-card--info"><span>分析请求</span><strong>{overview.summary.request_count}</strong></article><article className="summary-card summary-card--success"><span>成功率</span><strong>{Math.round(overview.summary.success_rate * 100)}%</strong></article><article className="summary-card summary-card--warning"><span>回退率</span><strong>{Math.round(overview.summary.fallback_rate * 100)}%</strong></article><article className="summary-card"><span>平均耗时</span><strong>{overview.summary.average_duration_ms}<small>毫秒</small></strong></article><article className="summary-card"><span>P95 耗时</span><strong>{overview.summary.p95_duration_ms}<small>毫秒</small></strong></article><article className="summary-card"><span>已使用 token</span><strong>{overview.summary.total_tokens}</strong></article></div><div className="chart-grid"><EChart title="请求趋势" description="统计范围内每天的智能分析请求数" kind="line" option={lineOption(trend)} summary={chartSummary('请求趋势', trend)} /><EChart title="最终引擎分布" description="请求最终由哪个分析引擎完成" kind="donut" option={donutOption(overview.engine_distribution)} summary={chartSummary('最终引擎分布', overview.engine_distribution)} />{overview.error_distribution.length > 0 && <EChart title="错误类型分布" description="按出现次数从低到高排列" kind="bar" option={horizontalBarOption(overview.error_distribution)} summary={chartSummary('错误类型分布', overview.error_distribution)} />}</div></>}
     {runs && runs.items.length > 0 && <section className="projection-section"><h3>安全运行明细</h3><div className="run-table" role="table" aria-label="智能分析运行明细">{runs.items.map((run) => <article role="row" className="run-row" key={run.request_id}><div><strong>{run.status === 'succeeded' ? '成功' : '失败'}{run.fallback ? ' · 已回退' : ''}</strong><small>{formatBeijingDateTime(run.started_at)}</small></div><span>最终引擎：{run.final_engine}</span><span>耗时：{run.duration_ms}毫秒</span><span>token：{run.total_tokens ?? '未报告'}</span>{run.error_summary && <span className="warning-text">错误摘要：{run.error_summary}</span>}</article>)}</div></section>}

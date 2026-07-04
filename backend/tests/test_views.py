@@ -123,49 +123,28 @@ def test_timeline_preserves_unknown_time_and_groups_related_records() -> None:
     assert client.get("/api/v1/timeline?date_from=2026-07-01").json()["total"] == 0
 
 
-def test_ledger_summary_keeps_order_and_cash_flow_semantics_separate() -> None:
+def test_ledger_summary_uses_direction_specific_completed_statuses() -> None:
     client = _client()
-    source_id = _source(client, "花砖1100元，已付500元。")
-    procurement = _record(
-        client,
-        source_id,
-        {
-            "record_type": "procurement",
-            "title": "采购花砖",
-            "status": "ordered",
-            "item_name": "花砖",
-            "order_total_minor": 110000,
-        },
-    )
-    ledger = _record(
-        client,
-        source_id,
-        {
-            "record_type": "ledger",
-            "title": "花砖预付款",
-            "status": "posted",
-            "direction": "expense",
-            "payment_kind": "deposit",
-            "amount_minor": 50000,
-        },
-    )
-    client.post(
-        "/api/v1/record-relations",
-        json={
-            "from_record_id": ledger["id"],
-            "to_record_id": procurement["id"],
-            "relation_type": "pays_for",
-        },
-    )
+    source_id = _source(client, "付款500元，退款100元，收入50元。")
+    for title, kind, status, direction, amount in [
+        ("付款", "payment", "paid", "expense", 50000),
+        ("退款", "refund", "posted", "refund", 10000),
+        ("收入", "income", "posted", "income", 5000),
+    ]:
+        _record(client, source_id, {
+            "record_type": "ledger", "ledger_kind": kind, "title": title,
+            "status": status, "direction": direction, "payment_kind": "other",
+            "amount_minor": amount,
+        })
 
     data = client.get("/api/v1/ledger/summary").json()
     totals = data["totals"]
-    assert totals["procurement_total_minor"] == 50000
     assert totals["expense_minor"] == 50000
-    assert totals["net_paid_minor"] == 50000
-    assert totals["outstanding_minor"] == 60000
-    assert data["procurements"][0]["calculation_record_ids"] == [ledger["id"]]
-    assert data["analytics"]["payment_composition"][1]["value"] == 60000
+    assert totals["refund_minor"] == 10000
+    assert totals["income_minor"] == 5000
+    assert totals["net_expense_minor"] == 35000
+    composition = {item["key"]: item["value"] for item in data["analytics"]["payment_composition"]}
+    assert composition == {"expense": 50000, "refund": 10000, "income": 5000}
 
 
 def test_records_only_accept_renminbi() -> None:
@@ -176,7 +155,7 @@ def test_records_only_accept_renminbi() -> None:
         json={
             "record_type": "ledger",
             "title": "材料款",
-            "status": "posted",
+            "status": "paid",
             "source_refs": [{"source_id": source_id}],
             "direction": "expense",
             "payment_kind": "full",
@@ -204,17 +183,6 @@ def test_overview_risk_window_and_record_analytics(monkeypatch) -> None:
             "severity": "medium",
         },
     )
-    upcoming = _record(
-        client,
-        source_id,
-        {
-            "record_type": "procurement",
-            "title": "七天后送货",
-            "status": "delivery_pending",
-            "item_name": "瓷砖",
-            "promised_date": "2026-07-08",
-        },
-    )
     _record(
         client,
         source_id,
@@ -229,9 +197,8 @@ def test_overview_risk_window_and_record_analytics(monkeypatch) -> None:
 
     overview = client.get("/api/v1/overview").json()
     assert overview["summary"]["overdue_count"] == 0
-    assert overview["summary"]["upcoming_count"] == 1
+    assert overview["summary"]["upcoming_count"] == 0
     assert overview["summary"]["open_issue_count"] == 2
-    assert overview["upcoming"][0]["id"] == upcoming["id"]
 
     records = client.get("/api/v1/records/analytics?record_type=issue").json()
     assert records["summary"]["total"] == 2

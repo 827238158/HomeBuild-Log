@@ -5,7 +5,7 @@ export const relationConfig = {
   },
   relates_to: {
     label: '相关',
-    example: '例如：“花砖尺寸”与“花砖采购”相关。',
+    example: '例如：“花砖尺寸”与“花砖付款”相关。',
   },
   implements: {
     label: '执行',
@@ -14,14 +14,6 @@ export const relationConfig = {
   resolves: {
     label: '解决',
     example: '例如：“门套遮挡方案”解决“地砖破裂问题”。',
-  },
-  pays_for: {
-    label: '用于支付',
-    example: '例如：“500 元预付款”用于支付“花砖采购”。',
-  },
-  tracks_delivery: {
-    label: '跟踪送货',
-    example: '例如：“到货后验收”跟踪“花砖采购”的送货进度。',
   },
   supersedes: {
     label: '替代',
@@ -33,7 +25,7 @@ export const relationConfig = {
   },
   produces: {
     label: '产生',
-    example: '例如：“花色决定”产生“花砖采购”。',
+    example: '例如：“花色决定”产生“选购事件”。',
   },
 } as const
 

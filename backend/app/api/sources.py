@@ -46,6 +46,9 @@ class SourceResponse(BaseModel):
     revision: int
     analysis_status: str = "unprocessed"
     generated_record_count: int = 0
+    pending_candidate_count: int = 0
+    confirmed_candidate_count: int = 0
+    ignored_candidate_count: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -237,20 +240,42 @@ def list_sources(
                 .limit(1)
             )
             analysis_status = "unprocessed"
+            pending_candidate_count = 0
+            confirmed_candidate_count = 0
+            ignored_candidate_count = 0
             if record_count:
                 analysis_status = "confirmed"
             if bundle is not None:
-                analysis_status = (
-                    "partially_confirmed"
-                    if bundle.status == "partially_confirmed"
-                    else "pending"
+                suggestions = bundle.bundle_json.get("suggestions", [])
+                pending_candidate_count = sum(
+                    item.get("review_state") not in {"confirmed", "deferred"}
+                    and not item.get("confirmed_record_id")
+                    for item in suggestions
                 )
-                if bundle.status == "confirmed" or (record_count and bundle.status != "pending"):
+                confirmed_candidate_count = sum(
+                    item.get("review_state") == "confirmed" or bool(item.get("confirmed_record_id"))
+                    for item in suggestions
+                )
+                ignored_candidate_count = sum(
+                    item.get("review_state") == "deferred" for item in suggestions
+                )
+                if pending_candidate_count:
+                    analysis_status = (
+                        "partially_confirmed"
+                        if confirmed_candidate_count or record_count
+                        else "pending"
+                    )
+                elif confirmed_candidate_count or record_count:
                     analysis_status = "confirmed"
+                else:
+                    analysis_status = "reviewed"
             payload = SourceResponse.model_validate(row).model_dump()
             payload.update(
                 analysis_status=analysis_status,
                 generated_record_count=int(record_count),
+                pending_candidate_count=int(pending_candidate_count),
+                confirmed_candidate_count=int(confirmed_candidate_count),
+                ignored_candidate_count=int(ignored_candidate_count),
             )
             result.append(SourceResponse(**payload))
         return result

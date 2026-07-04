@@ -15,6 +15,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.audit import log_audit as _write_audit
 from app.auth import CurrentUser, require_user
+from app.candidate_fields import candidate_validation_message, normalize_measurement_role
 from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_DB, RELATION_TYPES
 from app.db import create_session_factory
 from app.domain_models import (
@@ -25,7 +26,6 @@ from app.domain_models import (
     Material,
     MeasurementValue,
     Participant,
-    ProcurementDetail,
     Project,
     ProjectStage,
     Record,
@@ -38,6 +38,7 @@ from app.domain_models import (
     record_sources,
     record_spaces,
 )
+from app.ledger_rules import LEDGER_DIRECTION_BY_KIND, valid_statuses_for_ledger_kind
 from app.local_suggestions import suggest_from_text
 from app.models import Attachment, SourceEntry
 from app.projections import serialize_records
@@ -159,8 +160,6 @@ class RelationInput(BaseModel):
         "relates_to",
         "implements",
         "resolves",
-        "pays_for",
-        "tracks_delivery",
         "supersedes",
         "blocks",
         "produces",
@@ -433,12 +432,7 @@ def _entity_reference_exists(db: Session, entity_type: str, entity_id: str) -> b
         ledger_ref = db.execute(
             select(LedgerDetail.record_id).where(LedgerDetail.vendor_id == entity_id).limit(1)
         ).first()
-        procurement_ref = db.execute(
-            select(ProcurementDetail.record_id)
-            .where(ProcurementDetail.vendor_id == entity_id)
-            .limit(1)
-        ).first()
-        return ledger_ref is not None or procurement_ref is not None
+        return ledger_ref is not None
     return False
 
 
@@ -800,17 +794,13 @@ def confirm_local_suggestions(
                     "evidence_excerpt": canonical["evidence"],
                 }
             ]
+            normalize_measurement_role(payload)
             try:
                 parsed = RECORD_CREATE_ADAPTER.validate_python(payload)
             except ValidationError as exc:
-                messages = []
-                for err in exc.errors():
-                    loc = " → ".join(str(p) for p in err["loc"])
-                    messages.append(f"{loc}: {err['msg']}")
-                detail = "候选字段校验失败：" + "；".join(messages)
                 raise HTTPException(
                     status_code=422,
-                    detail=detail,
+                    detail=candidate_validation_message(exc),
                 ) from exc
             validated.append(
                 (selection, parsed, _source_origin_key("local", source, selection.key))
@@ -967,8 +957,16 @@ def update_record(
                 if previous_status == "done" and "completed_at" not in payload:
                     payload["completed_at"] = None
         validation_payload = {**before, **payload}
-        if record.record_type == "ledger" and not validation_payload.get("vendor_id"):
-            raise HTTPException(status_code=422, detail="账目必须选择交易对象（商家）。")
+        if record.record_type == "ledger":
+            kind = str(validation_payload.get("ledger_kind") or "")
+            if kind not in LEDGER_DIRECTION_BY_KIND:
+                raise HTTPException(status_code=422, detail="账目类型不合法。")
+            if validation_payload.get("direction") != LEDGER_DIRECTION_BY_KIND[kind]:
+                raise HTTPException(status_code=422, detail="账目类型与收支方向不一致。")
+            if validation_payload.get("status") not in valid_statuses_for_ledger_kind(kind):
+                raise HTTPException(status_code=422, detail="账目状态与账目类型不一致。")
+            if not validation_payload.get("vendor_id"):
+                raise HTTPException(status_code=422, detail="资金流水必须选择交易对象（商家）。")
         if record.record_type == "issue" and validation_payload.get("severity") not in {
             "low", "medium", "high"
         }:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 from app.core.config import SecretsConfig, _hash_password
 from app.core.paths import build_storage_paths, ensure_storage_directories
 from app.db import Base, create_database_engine
+from app.local_suggestions import suggest_from_text
 from app.main import create_app
 
 
@@ -61,8 +63,13 @@ RECORD_CASES = [
     ("event", "occurred", {"event_kind": "site_visit"}),
     (
         "ledger",
-        "posted",
-        {"direction": "expense", "payment_kind": "deposit", "amount_minor": 50000},
+        "paid",
+        {
+            "ledger_kind": "payment",
+            "direction": "expense",
+            "payment_kind": "deposit",
+            "amount_minor": 50000,
+        },
     ),
     ("issue", "pending", {"phenomenon": "主卧门口地砖小破裂", "severity": "medium"}),
     (
@@ -83,11 +90,6 @@ RECORD_CASES = [
         {"topic": "是否返工", "options": ["返工", "门套遮挡"], "selected_option": "门套遮挡"},
     ),
     (
-        "procurement",
-        "ordered",
-        {"item_name": "花砖", "quantity": "18", "quantity_unit": "片", "order_total_minor": 110000},
-    ),
-    (
         "research",
         "comparing",
         {"question": "选择哪种瓷砖", "options": ["浅灰", "中灰"]},
@@ -96,7 +98,9 @@ RECORD_CASES = [
 
 
 @pytest.mark.parametrize(("record_type", "record_status", "detail"), RECORD_CASES)
-def test_create_all_seven_record_types(record_type: str, record_status: str, detail: dict) -> None:
+def test_create_all_six_record_types_and_ledger_subtypes(
+    record_type: str, record_status: str, detail: dict
+) -> None:
     client = _client()
     source_id = _source(client)
     payload = {**_common(source_id, record_type, record_status), **detail}
@@ -120,7 +124,8 @@ def test_issue_completed_date_follows_done_status() -> None:
         "/api/v1/records",
         json={
             **_common(source_id, "issue", "pending"),
-            "phenomenon": "等待验收", "severity": "medium",
+            "phenomenon": "等待验收",
+            "severity": "medium",
             "completed_at": "2026-07-01",
         },
     )
@@ -266,7 +271,8 @@ def test_delete_rejects_child_spaces_and_referenced_shared_entities() -> None:
     ledger = client.post(
         "/api/v1/records",
         json={
-            **_common(source_id, "ledger", "posted"),
+            **_common(source_id, "ledger", "paid"),
+            "ledger_kind": "payment",
             "direction": "expense",
             "payment_kind": "deposit",
             "amount_minor": 10000,
@@ -274,15 +280,18 @@ def test_delete_rejects_child_spaces_and_referenced_shared_entities() -> None:
         },
     )
     assert ledger.status_code == 201, ledger.text
-    procurement = client.post(
+    income = client.post(
         "/api/v1/records",
         json={
-            **_common(source_id, "procurement", "ordered"),
-            "item_name": "水泥",
+            **_common(source_id, "ledger", "posted"),
+            "ledger_kind": "income",
+            "direction": "income",
+            "payment_kind": "reimbursement",
+            "amount_minor": 5000,
             "vendor_id": procurement_vendor["id"],
         },
     )
-    assert procurement.status_code == 201, procurement.text
+    assert income.status_code == 201, income.text
 
     child_conflict = client.delete(f"/api/v1/spaces/{house['id']}")
     assert child_conflict.status_code == 409
@@ -327,7 +336,7 @@ def test_update_archive_restore_relation_and_audit() -> None:
     assert (
         client.patch(
             f"/api/v1/records/{first['id']}",
-                json={"record_type": "issue", "title": "非法换型"},
+            json={"record_type": "issue", "title": "非法换型"},
         ).status_code
         == 409
     )
@@ -402,8 +411,13 @@ def test_issue_completion_date_follows_status_transitions() -> None:
         ),
         (
             "ledger",
-            "posted",
-            {"direction": "expense", "payment_kind": "deposit", "amount_minor": 50000},
+            "paid",
+            {
+                "ledger_kind": "payment",
+                "direction": "expense",
+                "payment_kind": "deposit",
+                "amount_minor": 50000,
+            },
             {"amount_minor": 60000},
             "amount_minor",
             60000,
@@ -437,14 +451,6 @@ def test_issue_completion_date_follows_status_transitions() -> None:
             "竖贴",
         ),
         (
-            "procurement",
-            "ordered",
-            {"item_name": "花砖"},
-            {"quantity": 20},
-            "quantity",
-            "20",
-        ),
-        (
             "research",
             "collecting",
             {"question": "选哪种砖"},
@@ -471,9 +477,9 @@ def test_update_detail_fields_for_all_record_types(
             **detail,
             **(
                 {
-                    "vendor_id": client.post(
-                        "/api/v1/vendors", json={"name": "交易对象"}
-                    ).json()["id"]
+                    "vendor_id": client.post("/api/v1/vendors", json={"name": "交易对象"}).json()[
+                        "id"
+                    ]
                 }
                 if record_type == "ledger"
                 else {}
@@ -532,9 +538,7 @@ def test_record_requires_source_and_rejects_invalid_measurement() -> None:
 def test_delete_record_keeps_source_and_releases_persisted_candidate() -> None:
     client = _client()
     source_id = _source(client, "今天去现场查看。")
-    bundle = client.post(
-        f"/api/v1/sources/{source_id}/extractions?engine=local"
-    ).json()
+    bundle = client.post(f"/api/v1/sources/{source_id}/extractions?engine=local").json()
     candidate = bundle["suggestions"][0]
     confirmed = client.post(
         f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
@@ -568,15 +572,11 @@ def test_delete_record_keeps_source_and_releases_persisted_candidate() -> None:
     assert client.get(f"/api/v1/records/{record['id']}").status_code == 404
     assert client.get(f"/api/v1/sources/{source_id}").status_code == 200
     assert client.get(f"/api/v1/record-relations?record_id={other['id']}").json() == []
-    latest = client.get(
-        f"/api/v1/sources/{source_id}/candidate-bundles/latest"
-    ).json()
+    latest = client.get(f"/api/v1/sources/{source_id}/candidate-bundles/latest").json()
     released = next(item for item in latest["suggestions"] if item["key"] == candidate["key"])
     assert released["confirmed_record_id"] is None
     assert released["review_state"] == "active"
-    audits = client.get(
-        f"/api/v1/audit?target_table=records&target_id={record['id']}"
-    ).json()
+    audits = client.get(f"/api/v1/audit?target_table=records&target_id={record['id']}").json()
     assert "delete" in {item["action"] for item in audits}
 
 
@@ -598,19 +598,14 @@ def test_seven_real_samples_can_be_manually_mapped_without_ai() -> None:
             ("event", "occurred", {"event_kind": "shopping"}),
             ("decision", "confirmed", {"topic": "花砖花色", "selected_option": "已选定"}),
             (
-                "procurement",
-                "ordered",
-                {
-                    "item_name": "花砖",
-                    "quantity": 18,
-                    "quantity_unit": "片",
-                    "order_total_minor": 110000,
-                },
-            ),
-            (
                 "ledger",
-                "posted",
-                {"direction": "expense", "payment_kind": "deposit", "amount_minor": 50000},
+                "paid",
+                {
+                    "ledger_kind": "payment",
+                    "direction": "expense",
+                    "payment_kind": "deposit",
+                    "amount_minor": 50000,
+                },
             ),
             ("issue", "pending", {"phenomenon": "等待送货并验收", "severity": "low"}),
         ],
@@ -669,11 +664,6 @@ def test_seven_real_samples_can_be_manually_mapped_without_ai() -> None:
                     ],
                 },
             ),
-            (
-                "procurement",
-                "planned",
-                {"item_name": "蒙娜丽莎10307艾米丽尔柔光砖", "return_terms": "多退少补"},
-            ),
         ],
         [
             ("event", "completed", {"event_kind": "construction", "result": "拆打完成"}),
@@ -706,9 +696,7 @@ def test_seven_real_samples_can_be_manually_mapped_without_ai() -> None:
     for index, records in enumerate(mappings):
         for record_type, record_status, detail in records:
             if record_type == "ledger":
-                vendor = client.post(
-                    "/api/v1/vendors", json={"name": f"交易对象{index}"}
-                ).json()
+                vendor = client.post("/api/v1/vendors", json={"name": f"交易对象{index}"}).json()
                 detail = {**detail, "vendor_id": vendor["id"]}
             response = client.post(
                 "/api/v1/records",
@@ -740,11 +728,48 @@ def test_local_suggestions_distinguish_order_total_and_actual_payment() -> None:
     for suggestion in bundle["suggestions"]:
         by_type.setdefault(suggestion["record_type"], []).append(suggestion)
 
-    assert by_type["ledger"][0]["payload"]["amount_minor"] == 50000
-    assert by_type["procurement"][0]["payload"]["order_total_minor"] == 110000
+    payment = next(
+        item for item in by_type["ledger"] if item["payload"]["ledger_kind"] == "payment"
+    )
+    assert payment["payload"]["amount_minor"] == 50000
+    assert payment["payload"]["status"] == "paid"
     assert by_type["measurement"][0]["payload"]["values"][1]["value"] == 120
     assert all(item["selected_by_default"] for item in by_type["ledger"])
-    assert any(item["relation_type"] == "pays_for" for item in bundle["relations"])
+    assert all(item["payload"]["ledger_kind"] != "purchase_order" for item in by_type["ledger"])
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("昨天完成了水电施工", "2026-07-01"),
+        ("上周五完成了水电施工", "2026-06-26"),
+        ("6月20日完成了水电施工", "2026-06-20"),
+    ],
+)
+def test_local_suggestions_resolve_dates_against_capture_date(text: str, expected: str) -> None:
+    bundle = suggest_from_text(
+        "source-date", text, datetime.fromisoformat("2026-07-02T10:00:00+08:00")
+    )
+    event = next(item for item in bundle["suggestions"] if item["record_type"] == "event")
+    assert event["payload"]["occurred_date"] == expected
+    assert event["payload"]["original_time_text"]
+
+
+def test_local_suggestions_leave_ambiguous_date_empty() -> None:
+    bundle = suggest_from_text(
+        "source-date", "月初完成了水电施工", datetime.fromisoformat("2026-07-02T10:00:00+08:00")
+    )
+    event = next(item for item in bundle["suggestions"] if item["record_type"] == "event")
+    assert event["payload"]["occurred_date"] is None
+
+
+def test_local_suggestions_leave_month_only_empty_and_request_manual_date() -> None:
+    bundle = suggest_from_text(
+        "source-month", "6月完成了水电施工", datetime.fromisoformat("2026-07-02T10:00:00+08:00")
+    )
+    event = next(item for item in bundle["suggestions"] if item["record_type"] == "event")
+    assert event["payload"]["occurred_date"] is None
+    assert "发生日期" in event["missing_fields"]
 
 
 def test_local_suggestion_batch_confirmation_is_atomic_and_idempotent() -> None:
@@ -783,20 +808,22 @@ def test_local_suggestion_batch_confirmation_is_atomic_and_idempotent() -> None:
 
 def test_local_suggestion_validation_failure_rolls_back_whole_batch() -> None:
     client = _client()
-    source_id = _source(client, "选定18片花砖，共计1100元，已交500元。")
+    source_id = _source(client, "已交500元，已退款100元。")
     bundle = client.get(f"/api/v1/sources/{source_id}/suggestions").json()
-    ledger = next(item for item in bundle["suggestions"] if item["record_type"] == "ledger")
-    procurement = next(
-        item for item in bundle["suggestions"] if item["record_type"] == "procurement"
+    ledger = next(
+        item for item in bundle["suggestions"] if item["payload"].get("ledger_kind") == "payment"
     )
-    invalid_procurement = {**procurement["payload"]}
-    invalid_procurement.pop("item_name")
+    refund = next(
+        item for item in bundle["suggestions"] if item["payload"].get("ledger_kind") == "refund"
+    )
+    invalid_refund = {**refund["payload"]}
+    invalid_refund.pop("amount_minor")
     response = client.post(
         f"/api/v1/sources/{source_id}/suggestions/confirm",
         json={
             "selections": [
                 {"key": ledger["key"], "payload": ledger["payload"]},
-                {"key": procurement["key"], "payload": invalid_procurement},
+                {"key": refund["key"], "payload": invalid_refund},
             ]
         },
     )

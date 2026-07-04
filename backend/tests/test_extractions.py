@@ -134,12 +134,52 @@ def test_candidate_confirmation_is_atomic_and_idempotent(client: TestClient) -> 
     assert client.get(f"/api/v1/sources/{source_id}").json()["original_text"] == text
 
 
+def test_confirmation_atomically_ignores_unselected_candidates(client: TestClient) -> None:
+    source_id = _source(
+        client,
+        "今天选定18片60*120cm花砖，共计1100元，已交500元，等待送货验收。",
+    )
+    bundle = client.post(
+        f"/api/v1/sources/{source_id}/extractions?engine=local"
+    ).json()
+    selected = next(item for item in bundle["suggestions"] if item["certainty"] == "explicit")
+    if selected["record_type"] == "ledger":
+        selected["payload"]["vendor_id"] = client.post(
+            "/api/v1/vendors", json={"name": "确认测试交易对象"}
+        ).json()["id"]
+    if selected["record_type"] == "issue":
+        selected["payload"]["severity"] = "low"
+    ignored_keys = [
+        item["key"] for item in bundle["suggestions"] if item["key"] != selected["key"]
+    ]
+
+    response = client.post(
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json={
+            "expected_version": bundle["version"],
+            "selections": [{"key": selected["key"], "payload": selected["payload"]}],
+            "ignored_keys": ignored_keys,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    by_key = {item["key"]: item for item in response.json()["bundle"]["suggestions"]}
+    assert by_key[selected["key"]]["review_state"] == "confirmed"
+    assert all(by_key[key]["review_state"] == "deferred" for key in ignored_keys)
+
+
 def test_deferred_candidate_stays_removed_and_cannot_be_confirmed(client: TestClient) -> None:
     source_id = _source(client, "今天去现场查看。")
     bundle = client.post(
         f"/api/v1/sources/{source_id}/extractions?engine=local"
     ).json()
     candidate = bundle["suggestions"][0]
+    before_defer = next(
+        item for item in client.get("/api/v1/sources").json() if item["id"] == source_id
+    )
+    assert before_defer["analysis_status"] == "pending"
+    assert before_defer["pending_candidate_count"] == len(bundle["suggestions"])
+    assert before_defer["generated_record_count"] == 0
 
     deferred = client.post(
         f"/api/v1/candidate-bundles/{bundle['id']}/suggestions/{candidate['key']}/defer",
@@ -149,6 +189,14 @@ def test_deferred_candidate_stays_removed_and_cannot_be_confirmed(client: TestCl
     data = deferred.json()
     assert data["version"] == bundle["version"] + 1
     assert data["suggestions"][0]["review_state"] == "deferred"
+    assert data["status"] == "reviewed"
+    source_row = next(
+        item for item in client.get("/api/v1/sources").json() if item["id"] == source_id
+    )
+    assert source_row["analysis_status"] == "reviewed"
+    assert source_row["pending_candidate_count"] == 0
+    assert source_row["confirmed_candidate_count"] == 0
+    assert source_row["ignored_candidate_count"] == 1
     latest = client.get(
         f"/api/v1/sources/{source_id}/candidate-bundles/latest"
     ).json()
@@ -209,6 +257,7 @@ def test_deepseek_failure_falls_back_to_mimo_with_one_budget(monkeypatch) -> Non
         self: OpenAICompatibleAdapter,
         text: str,
         timeout_seconds: float,
+        **_context: str,
     ) -> AIAdapterResult:
         calls.append((self.provider.name, timeout_seconds))
         if self.provider.name == "deepseek":
@@ -255,6 +304,9 @@ def test_deepseek_failure_falls_back_to_mimo_with_one_budget(monkeypatch) -> Non
         response = client.post(f"/api/v1/sources/{source_id}/extractions?engine=auto")
         assert response.status_code == 201, response.text
         assert response.json()["engine"] == "mimo-v2.5-pro"
+        candidate = response.json()["suggestions"][0]
+        assert candidate["payload"]["occurred_date"] is not None
+        assert candidate["payload"]["original_time_text"] == "今天"
         assert calls[0][0] == "deepseek" and calls[1][0] == "mimo"
         assert 0 < calls[0][1] <= 15.1
         assert 0 < calls[1][1] <= 30
@@ -284,7 +336,8 @@ def test_openai_adapter_uses_provider_auth_and_parses_json(
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers[expected_header[0]] == expected_header[1]
         request_body = json.loads(request.content)
-        assert request_body["messages"][-1]["content"] == "只发送这段来源"
+        assert "原始文字：只发送这段来源" in request_body["messages"][-1]["content"]
+        assert "时区：Asia/Shanghai" in request_body["messages"][-1]["content"]
         assert "secret" not in request.content.decode()
         return httpx.Response(
             200,

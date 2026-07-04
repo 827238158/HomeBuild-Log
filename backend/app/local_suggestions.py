@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from app.core.constants import TYPE_LABELS
@@ -12,7 +13,9 @@ DIMENSION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 QUANTITY_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(片|块|个|件|套|米)")
-DATE_TEXT_PATTERN = re.compile(r"(?:\d{1,2}月(?:\d{1,2}日)?|\d{1,2}\.\d{1,2}日?)")
+DATE_TEXT_PATTERN = re.compile(
+    r"(?:\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}月\d{1,2}日|\d{1,2}\.\d{1,2}日?|今天|昨天|前天|上周[一二三四五六日天])"
+)
 
 
 def _clauses(text: str) -> list[str]:
@@ -87,7 +90,52 @@ def _suggestion_key(record_type: str, evidence: str, occurrence: int) -> str:
     return f"{record_type}-{digest}"
 
 
-def suggest_from_text(source_id: str, original_text: str | None) -> dict[str, Any]:
+def resolve_date_text(text: str, reference: date) -> tuple[date | None, str | None, bool]:
+    match = DATE_TEXT_PATTERN.search(text)
+    if not match:
+        return None, None, False
+    raw = match.group(0)
+    if raw in {"今天", "昨天", "前天"}:
+        return reference - timedelta(days={"今天": 0, "昨天": 1, "前天": 2}[raw]), raw, False
+    if raw.startswith("上周"):
+        weekday = "一二三四五六日天".index(raw[-1])
+        if raw[-1] == "天":
+            weekday = 6
+        start_this_week = reference - timedelta(days=reference.weekday())
+        return start_this_week - timedelta(days=7) + timedelta(days=weekday), raw, False
+    normalized = raw.replace("年", "-").replace("月", "-").replace("日", "").replace(".", "-")
+    parts = normalized.split("-")
+    try:
+        if len(parts[0]) == 4:
+            return date(int(parts[0]), int(parts[1]), int(parts[2])), raw, False
+        candidate = date(reference.year, int(parts[0]), int(parts[1]))
+        # 无年份月日优先解释为近期已发生事实，明显落在未来时回退一年。
+        if candidate > reference + timedelta(days=31):
+            candidate = candidate.replace(year=reference.year - 1)
+        return candidate, raw, True
+    except (ValueError, IndexError):
+        return None, raw, False
+
+
+def unique_resolved_date(
+    text: str, reference: date
+) -> tuple[date | None, str | None, bool]:
+    """仅在整段原文能唯一解析为同一日期时提供安全回退。"""
+    resolved = [
+        result
+        for match in DATE_TEXT_PATTERN.finditer(text)
+        if (result := resolve_date_text(match.group(0), reference))[0] is not None
+    ]
+    if len({result[0] for result in resolved}) != 1:
+        return None, None, False
+    return resolved[0]
+
+
+def suggest_from_text(
+    source_id: str,
+    original_text: str | None,
+    captured_at: datetime | date | None = None,
+) -> dict[str, Any]:
     text = (original_text or "").strip()
     if not text:
         return {
@@ -97,6 +145,8 @@ def suggest_from_text(source_id: str, original_text: str | None) -> dict[str, An
             "relations": [],
         }
 
+    reference_date = captured_at.date() if isinstance(captured_at, datetime) else captured_at
+    reference_date = reference_date or date.today()
     suggestions: list[dict[str, Any]] = []
     occurrences: dict[str, int] = {}
 
@@ -108,6 +158,22 @@ def suggest_from_text(source_id: str, original_text: str | None) -> dict[str, An
         payload: dict[str, Any],
         missing_fields: list[str] | None = None,
     ) -> str:
+        resolved_date, original_time_text, inferred_year = resolve_date_text(
+            evidence, reference_date
+        )
+        used_source_fallback = False
+        if resolved_date is None:
+            resolved_date, original_time_text, inferred_year = unique_resolved_date(
+                text, reference_date
+            )
+            used_source_fallback = resolved_date is not None
+        if resolved_date is not None:
+            payload["occurred_date"] = resolved_date.isoformat()
+            payload["original_time_text"] = original_time_text
+            if inferred_year and not used_source_fallback and certainty == "explicit":
+                certainty = "likely"
+        elif "发生日期" not in (missing_fields or []):
+            missing_fields = [*(missing_fields or []), "发生日期"]
         occurrence = occurrences.get(record_type, 0)
         occurrences[record_type] = occurrence + 1
         key = _suggestion_key(record_type, evidence, occurrence)
@@ -139,7 +205,6 @@ def suggest_from_text(source_id: str, original_text: str | None) -> dict[str, An
     income_matches = list(re.finditer(
         r"(?:到账|报销|回收款|转入|收到)\s*(\d+(?:\.\d+)?)\s*元", text
     ))
-    ledger_keys: list[str] = []
     for match, direction, kind, verb in [
         *((item, "expense", "其他款项", "已支付") for item in payment_matches),
         *((item, "refund", "退款", "已退款") for item in refund_matches),
@@ -147,8 +212,10 @@ def suggest_from_text(source_id: str, original_text: str | None) -> dict[str, An
     ]:
         amount = match.group(1)
         evidence = _evidence_clause(text, match.group(0))
-        payload = _base_payload(source_id, evidence, "ledger", f"{verb}{amount}元", "posted")
+        status = "paid" if direction == "expense" else "posted"
+        payload = _base_payload(source_id, evidence, "ledger", f"{verb}{amount}元", status)
         payload.update(
+            ledger_kind={"expense": "payment", "refund": "refund", "income": "income"}[direction],
             direction=direction,
             payment_kind=kind,
             amount_minor=_money_minor(amount),
@@ -157,55 +224,7 @@ def suggest_from_text(source_id: str, original_text: str | None) -> dict[str, An
             payment_method=None,
             vendor_id=None,
         )
-        ledger_keys.append(add("ledger", f"{verb} {amount} 元", evidence, "explicit", payload))
-
-    total_match = re.search(r"(?:共计|合计|总价|总额)\s*(\d+(?:\.\d+)?)\s*元", text)
-    quantity_match = QUANTITY_PATTERN.search(text)
-    procurement_trigger = re.search(r"选购|购买|采购|下单|订单|多退少补|老板承诺送货", text)
-    procurement_key: str | None = None
-    if procurement_trigger or total_match:
-        evidence = _evidence_clause(
-            text, procurement_trigger.group(0) if procurement_trigger else total_match.group(0)
-        )
-        item_name = _item_name(text)
-        quantity = float(quantity_match.group(1)) if quantity_match else None
-        quantity_unit = quantity_match.group(2) if quantity_match else None
-        total_minor = _money_minor(total_match.group(1)) if total_match else None
-        explicit = bool(total_match or (quantity_match and item_name != "装修材料"))
-        payload = _base_payload(
-            source_id,
-            evidence,
-            "procurement",
-            f"采购{item_name}",
-            "ordered" if re.search(r"选定|下单|已购", text) else "planned",
-        )
-        payload.update(
-            item_name=item_name,
-            specification=None,
-            quantity=quantity,
-            quantity_unit=quantity_unit,
-            vendor_id=None,
-            order_number=None,
-            order_total_minor=total_minor,
-            currency="CNY",
-            promised_date=None,
-            delivery_address=None,
-            return_terms="多退少补" if "多退少补" in text else None,
-            acceptance_result=None,
-        )
-        parts = [item_name]
-        if quantity_match:
-            parts.append(f"{quantity_match.group(1)}{quantity_unit}")
-        if total_match:
-            parts.append(f"总价 {total_match.group(1)} 元")
-        procurement_key = add(
-            "procurement",
-            "，".join(parts),
-            evidence,
-            "explicit" if explicit else "uncertain",
-            payload,
-            [] if explicit else ["商品或订单状态"],
-        )
+        add("ledger", f"{verb} {amount} 元", evidence, "explicit", payload)
 
     # 多维规格和单值近似尺寸分别保留语义角色。
     for match in DIMENSION_PATTERN.finditer(text):
@@ -409,23 +428,6 @@ def suggest_from_text(source_id: str, original_text: str | None) -> dict[str, An
         event_keys.append(add("event", evidence, evidence, "explicit", payload))
 
     relations: list[dict[str, str]] = []
-    if procurement_key:
-        relations.extend(
-            {"from_key": key, "to_key": procurement_key, "relation_type": "pays_for"}
-            for key in ledger_keys
-        )
-        relations.extend(
-            {"from_key": key, "to_key": procurement_key, "relation_type": "tracks_delivery"}
-            for key in todo_keys
-            if re.search(
-                r"送货|到货|验收",
-                next(item["summary"] for item in suggestions if item["key"] == key),
-            )
-        )
-        relations.extend(
-            {"from_key": key, "to_key": procurement_key, "relation_type": "produces"}
-            for key in decision_keys[:1]
-        )
     if issue_key:
         relations.extend(
             {"from_key": key, "to_key": issue_key, "relation_type": "resolves"}

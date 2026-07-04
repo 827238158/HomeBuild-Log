@@ -12,10 +12,10 @@ import { createExtraction, listSources } from './domainApi'
 import { clearToken, getToken, saveToken } from './token'
 import { BACKEND_URL, UI, UPLOAD } from './config'
 import './styles.css'
-import './workspace-overrides.css'
 import { DomainWorkspace } from './DomainWorkspace'
 import { CoreViews } from './CoreViews'
 import { formatBeijingDateTime } from './time'
+import { UNAUTHORIZED_EVENT } from './http'
 
 const HIDDEN_RECENT_SOURCES_KEY = 'homebuild-log-hidden-recent-sources'
 
@@ -50,6 +50,7 @@ export function App() {
   const [attachmentError, setAttachmentError] = useState('')
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null)
   const [sourceRefreshKey, setSourceRefreshKey] = useState(0)
+  const [preferredSourceId, setPreferredSourceId] = useState('')
   const [hiddenRecentSourceIds, setHiddenRecentSourceIds] = useState<string[]>(readHiddenRecentSources)
 
   const visibleRecentSources = sources
@@ -131,6 +132,11 @@ export function App() {
     setPendingUpload(null)
   }
 
+  useEffect(() => {
+    window.addEventListener(UNAUTHORIZED_EVENT, handleLogout)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, handleLogout)
+  })
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && state.kind === 'login') {
       handleLogin()
@@ -140,6 +146,8 @@ export function App() {
   const saveSource = async (text: string, file: File | null): Promise<SourceResponse | null> => {
     const entry = await createSource(text.trim())
     setSources((prev) => [entry, ...prev])
+    // 仅在后端成功返回真实 ID 后切换来源，失败时保留原选择。
+    setPreferredSourceId(entry.id)
     setSourceRefreshKey((value) => value + 1)
     setSourceText('')
     if (file) {
@@ -164,7 +172,7 @@ export function App() {
     try {
       await saveSource(sourceText, attachment)
       setSaveStatus('saved')
-      setTimeout(() => setSaveStatus(''), 2000)
+      setTimeout(() => setSaveStatus(''), UI.toastDuration)
     } catch (error: unknown) {
       if (error instanceof Error && error.message === 'attachment-error') {
         setSaveStatus('attachment-error')
@@ -182,7 +190,7 @@ export function App() {
       if (!entry) return
       await createExtraction(entry.id, 'auto')
       setSaveStatus('analyzed')
-      setTimeout(() => setSaveStatus(''), 2000)
+      setTimeout(() => setSaveStatus(''), UI.toastDuration)
     } catch (error: unknown) {
       if (error instanceof Error && error.message === 'attachment-error') {
         setSaveStatus('attachment-error')
@@ -221,7 +229,7 @@ export function App() {
       setAttachment(null)
       setAttachmentError('')
       setSaveStatus('saved')
-      setTimeout(() => setSaveStatus(''), 2000)
+      setTimeout(() => setSaveStatus(''), UI.toastDuration)
     } catch (error: unknown) {
       setAttachmentError(error instanceof Error ? error.message : '附件上传失败')
       setSaveStatus('attachment-error')
@@ -248,7 +256,7 @@ export function App() {
             </div>
           </div>
           {visibleRecentSources.length > 0 && <div className="source-list"><h2 className="source-list-title">最近记录</h2>{visibleRecentSources.map((s) => <div key={s.id} className="source-item"><button className="source-item-close" type="button" aria-label={`关闭最近记录：${s.original_text || '仅附件记录'}`} onClick={() => hideRecentSource(s.id)}>×</button><p className="source-item-text">{s.original_text}</p><time className="source-item-time">{formatBeijingDateTime(s.captured_at)}</time></div>)}</div>}
-          <DomainWorkspace refreshKey={sourceRefreshKey} onSourcesChanged={() => void listSources().then((rows) => setSources(Array.isArray(rows) ? rows : []))} />
+          <DomainWorkspace refreshKey={sourceRefreshKey} preferredSourceId={preferredSourceId} onSourcesChanged={() => void listSources().then((rows) => setSources(Array.isArray(rows) ? rows : []))} />
         </section>
       </CoreViews>
     </main>

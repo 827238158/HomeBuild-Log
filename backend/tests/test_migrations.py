@@ -31,7 +31,7 @@ def test_migrations_upgrade_temporary_database_to_head(
     finally:
         engine.dispose()
 
-    assert revision == "0014_unify_issues"
+    assert revision == "0015_merge_procurement"
 
     engine = create_engine(url)
     try:

@@ -43,33 +43,13 @@ def overview(request: Request, user: User) -> dict[str, Any]:
         today = _today()
         horizon = today + timedelta(days=7)
 
-        def risk_date(record: dict[str, Any]) -> date | None:
-            raw = record.get("promised_date")
-            return date.fromisoformat(str(raw)) if raw else None
-
         open_issues = [
             record
             for record in rows
             if record["record_type"] == "issue" and record["status"] != "done"
         ]
-        due_records = [
-            record
-            for record in rows
-            if (
-                record["record_type"] == "procurement"
-                and record["status"] not in {"delivered", "returned", "completed", "cancelled"}
-            )
-        ]
-        overdue = [
-            record
-            for record in due_records
-            if risk_date(record) and risk_date(record) < today
-        ]
-        upcoming = [
-            record
-            for record in due_records
-            if risk_date(record) and today <= risk_date(record) <= horizon
-        ]
+        overdue: list[dict[str, Any]] = []
+        upcoming: list[dict[str, Any]] = []
         recent = sorted(
             rows,
             key=lambda item: str(item.get("occurred_date") or item.get("created_at") or ""),

@@ -7,6 +7,7 @@ import uuid
 from collections import defaultdict
 from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
@@ -18,6 +19,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.ai_adapter import AIAdapterFailure, AIExtractionDraft, OpenAICompatibleAdapter
 from app.auth import CurrentUser, require_user
+from app.candidate_fields import candidate_validation_message, normalize_measurement_role
 from app.core.constants import (
     CERTAINTY_LABELS,
     FIELDS_BY_TYPE,
@@ -34,7 +36,7 @@ from app.domain_models import (
     Record,
     RecordRelation,
 )
-from app.local_suggestions import suggest_from_text
+from app.local_suggestions import resolve_date_text, suggest_from_text, unique_resolved_date
 from app.models import SourceEntry
 
 from .domain import RECORD_CREATE_ADAPTER, _create_record_in_session, _record_json, log_audit
@@ -50,7 +52,8 @@ class CandidateSelection(BaseModel):
 
 class CandidateConfirmRequest(BaseModel):
     expected_version: int = Field(ge=1)
-    selections: list[CandidateSelection] = Field(min_length=1)
+    selections: list[CandidateSelection] = Field(default_factory=list)
+    ignored_keys: list[str] = Field(default_factory=list)
 
 
 class CandidateDeferRequest(BaseModel):
@@ -81,6 +84,26 @@ def _bundle_json(bundle: CandidateBundle) -> dict[str, Any]:
         "updated_at": bundle.updated_at,
         **content,
     }
+
+
+def _refresh_bundle_status(bundle: CandidateBundle, content: dict[str, Any]) -> None:
+    """按候选实际处理状态刷新候选包状态，避免已忽略候选继续显示为待处理。"""
+    suggestions = content.get("suggestions", [])
+    confirmed_count = sum(
+        item.get("review_state") == "confirmed" or bool(item.get("confirmed_record_id"))
+        for item in suggestions
+    )
+    active_count = sum(
+        item.get("review_state") not in {"confirmed", "deferred"}
+        and not item.get("confirmed_record_id")
+        for item in suggestions
+    )
+    if active_count:
+        bundle.status = "partially_confirmed" if confirmed_count else "pending"
+    elif confirmed_count:
+        bundle.status = "confirmed"
+    else:
+        bundle.status = "reviewed"
 
 
 def _run_json(run: ExtractionRun, *, include_raw: bool = False) -> dict[str, Any]:
@@ -147,7 +170,7 @@ def _existing_record_id(
 
 
 def _local_bundle_content(db: Session, source: SourceEntry) -> dict[str, Any]:
-    local = suggest_from_text(source.id, source.original_text)
+    local = suggest_from_text(source.id, source.original_text, source.captured_at)
     suggestions: list[dict[str, Any]] = []
     for item in local["suggestions"]:
         certainty = "inferred" if item["certainty"] == "likely" else item["certainty"]
@@ -182,6 +205,8 @@ def _ai_bundle_content(
     ref_to_key: dict[str, str] = {}
     occurrences: dict[tuple[str, str], int] = defaultdict(int)
     warnings = list(draft.warnings)
+    reference_date = source.captured_at.astimezone(ZoneInfo("Asia/Shanghai")).date()
+    source_date = unique_resolved_date(source.original_text or "", reference_date)
     for candidate in draft.suggestions:
         occurrence_id = (candidate.record_type, " ".join(candidate.evidence.split()).lower())
         occurrence = occurrences[occurrence_id]
@@ -202,6 +227,18 @@ def _ai_bundle_content(
             except ValueError:
                 payload.pop("occurred_date", None)
                 warnings.append(f"候选 {candidate.ref} 的发生日期格式无效，已留空待补充。")
+        if not payload.get("occurred_date"):
+            resolved_date, original_time_text, _inferred_year = resolve_date_text(
+                candidate.evidence, reference_date
+            )
+            if resolved_date is None:
+                resolved_date, original_time_text, _inferred_year = source_date
+            if resolved_date is not None:
+                payload["occurred_date"] = resolved_date.isoformat()
+                payload["original_time_text"] = original_time_text
+        missing_fields = list(candidate.missing_fields)
+        if not payload.get("occurred_date") and "发生日期" not in missing_fields:
+            missing_fields.append("发生日期")
         payload["record_type"] = candidate.record_type
         confirmed_record_id = _existing_record_id(
             db, source.id, key, engine, source.revision
@@ -217,7 +254,7 @@ def _ai_bundle_content(
                 "certainty_label": CERTAINTY_LABELS[candidate.certainty],
                 "selected_by_default": candidate.certainty == "explicit",
                 "payload": payload,
-                "missing_fields": candidate.missing_fields,
+                "missing_fields": missing_fields,
                 "review_state": "confirmed" if confirmed_record_id else "active",
                 "deferred_at": None,
                 "confirmed_record_id": confirmed_record_id,
@@ -377,8 +414,14 @@ def create_extraction(
                     client=request.app.state.ai_http_client,
                 )
                 try:
+                    reference_date = source.captured_at.astimezone(
+                        ZoneInfo("Asia/Shanghai")
+                    ).date().isoformat()
                     result = adapter.extract_from_text(
-                        source.original_text or "", attempt_timeout
+                        source.original_text or "",
+                        attempt_timeout,
+                        reference_date=reference_date,
+                        timezone="Asia/Shanghai",
                     )
                     successful_run = _new_run(
                         request_id=request_id,
@@ -544,6 +587,7 @@ def defer_candidate(
             raise HTTPException(status_code=409, detail="已确认候选不能移除，请到记录详情中处理。")
         candidate["review_state"] = "deferred"
         candidate["deferred_at"] = _now().isoformat()
+        _refresh_bundle_status(bundle, content)
         bundle.bundle_json = content
         bundle.version += 1
         bundle.updated_at = _now()
@@ -567,6 +611,7 @@ def _fill_missing_required(payload: dict[str, Any], candidate: dict[str, Any]) -
     record_type = payload.get("record_type")
     summary = candidate.get("summary", "")
     evidence = candidate.get("evidence", "")
+    normalize_measurement_role(payload)
 
     # 公共必填：title
     if not payload.get("title"):
@@ -592,6 +637,17 @@ def _fill_missing_required(payload: dict[str, Any], candidate: dict[str, Any]) -
     # status 按 record_type 提供合法默认值
     if "status" not in payload:
         payload["status"] = STATUS_DEFAULTS.get(record_type, "pending")
+    if record_type == "ledger" and not payload.get("ledger_kind"):
+        payload["ledger_kind"] = {
+            "refund": "refund", "income": "income",
+        }.get(str(payload.get("direction")), "payment")
+    if record_type == "ledger":
+        kind = str(payload.get("ledger_kind") or "payment")
+        payload["direction"] = {
+            "payment": "expense", "refund": "refund", "income": "income",
+        }.get(kind, "expense")
+        if payload.get("status") not in {"planned", "voided"}:
+            payload["status"] = "paid" if kind == "payment" else "posted"
 
     # title 兜底：仍然是所有类型的必填
     if not payload.get("title"):
@@ -661,12 +717,9 @@ def _prepare_bundle_selections(
         try:
             parsed = RECORD_CREATE_ADAPTER.validate_python(payload)
         except ValidationError as exc:
-            messages = []
-            for err in exc.errors():
-                loc = " → ".join(str(p) for p in err["loc"])
-                messages.append(f"{loc}: {err['msg']}")
-            detail = "候选字段校验失败：" + "；".join(messages)
-            raise HTTPException(status_code=422, detail=detail) from exc
+            raise HTTPException(
+                status_code=422, detail=candidate_validation_message(exc)
+            ) from exc
         prefix = "local" if bundle.engine == "local-rule-v1" else "candidate"
         prepared.append(
             (
@@ -761,15 +814,7 @@ def _apply_confirmations(
                 }
             )
 
-        candidate_rows = bundle.bundle_json.get("suggestions", [])
-        confirmed_count = sum(
-            item.get("review_state") == "confirmed" for item in candidate_rows
-        )
-        bundle.status = (
-            "confirmed"
-            if candidate_rows and confirmed_count == len(candidate_rows)
-            else "partially_confirmed" if confirmed_count else "pending"
-        )
+        _refresh_bundle_status(bundle, bundle.bundle_json)
         bundle.version += 1
         bundle.updated_at = _now()
         bundle.bundle_json = copy.deepcopy(bundle.bundle_json)
@@ -805,6 +850,25 @@ def confirm_candidate_bundle(
     db = _db(request)
     try:
         bundle = _load_current_bundle(db, bundle_id, body.expected_version)
+        selected_keys = {selection.key for selection in body.selections}
+        ignored_keys = set(body.ignored_keys)
+        if not selected_keys and not ignored_keys:
+            raise HTTPException(status_code=400, detail="请至少确认或忽略一条候选。")
+        if len(ignored_keys) != len(body.ignored_keys):
+            raise HTTPException(status_code=400, detail="不能重复忽略同一条候选。")
+        if selected_keys & ignored_keys:
+            raise HTTPException(status_code=400, detail="同一条候选不能同时确认和忽略。")
+        suggestion_map = {
+            item["key"]: item for item in bundle.bundle_json.get("suggestions", [])
+        }
+        if any(key not in suggestion_map for key in ignored_keys):
+            raise HTTPException(status_code=400, detail="候选已变化，请重新加载。")
+        for key in ignored_keys:
+            candidate = suggestion_map[key]
+            if candidate.get("confirmed_record_id") or candidate.get("review_state") == "confirmed":
+                raise HTTPException(status_code=409, detail="已确认候选不能忽略。")
+            candidate["review_state"] = "deferred"
+            candidate["deferred_at"] = _now().isoformat()
         result = _apply_confirmations(db, [(bundle, body.selections)])
         result["bundle"] = _bundle_json(bundle)
         db.commit()

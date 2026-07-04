@@ -16,6 +16,7 @@
 ## Retrieval 流程
 - 任何任务开始前先输出 `Need:` 列表，只读取必要的文档。
 - 涉及写入时先读取 `tasks/ACTIVE.md` 确认单写者状态。
+- 非数据库迁移任务不得批量读取 `backend/migrations/versions/`；先读 `backend/migrations/README.md`，通常只需查看当前 head 和待新增迁移。
 - 信息不足时再进行下一轮按需检索。
 - 完成后判断是否需要更新 `docs/` 或 `checklists/`。
 

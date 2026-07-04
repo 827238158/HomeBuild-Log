@@ -25,6 +25,7 @@ from app.domain_models import (
     Space,
     Vendor,
 )
+from app.ledger_rules import is_effective_ledger
 from app.models import SourceEntry
 from app.projections import (
     effective_date,
@@ -181,7 +182,7 @@ def ledger_summary(
         selected = [
             serialized[record.id]
             for record in records
-            if record.record_type in {"ledger", "procurement"}
+            if record.record_type == "ledger"
             and record_matches(
                 serialized[record.id],
                 space_id=space_id,
@@ -194,119 +195,37 @@ def ledger_summary(
                 or serialized[record.id].get("vendor_id") == vendor_id
             )
         ]
-        ledgers = [item for item in selected if item["record_type"] == "ledger"]
-        procurements = [item for item in selected if item["record_type"] == "procurement"]
         non_cny = [item for item in selected if item.get("currency", "CNY") != "CNY"]
         if non_cny:
             raise HTTPException(
                 status_code=409,
                 detail="检测到非人民币历史记录，请先核对数据后再查看账本。",
             )
-        procurement_ids = {item["id"] for item in procurements}
-        links: dict[str, list[str]] = defaultdict(list)
-        for relation in _relations(db):
-            if relation.relation_type == "pays_for" and relation.to_record_id in procurement_ids:
-                links[relation.from_record_id].append(relation.to_record_id)
-
-        allocated: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        warnings: list[str] = []
-        unallocated: list[dict[str, Any]] = []
-        for ledger in ledgers:
-            targets = list(dict.fromkeys(links.get(ledger["id"], [])))
-            if ledger["status"] != "posted":
-                continue
-            if len(targets) != 1:
-                unallocated.append(ledger)
-                if len(targets) > 1:
-                    warnings.append(f"流水“{ledger['title']}”关联多个采购，未参与待付计算。")
-                continue
-            target = next(item for item in procurements if item["id"] == targets[0])
-            if target.get("currency", "CNY") != ledger.get("currency", "CNY"):
-                unallocated.append(ledger)
-                warnings.append(f"流水“{ledger['title']}”与采购币种不同，未参与待付计算。")
-                continue
-            allocated[target["id"]].append(ledger)
-
         totals: dict[str, int] = {
-            "procurement_total_minor": 0,
             "expense_minor": 0,
             "refund_minor": 0,
             "income_minor": 0,
-            "net_paid_minor": 0,
-            "outstanding_minor": 0,
-            "overpaid_minor": 0,
-            "unallocated_expense_minor": 0,
-            "unallocated_refund_minor": 0,
-            "unallocated_income_minor": 0,
+            "net_expense_minor": 0,
         }
-
-        procurement_rows: list[dict[str, Any]] = []
-        for procurement in procurements:
-            order_total = int(procurement.get("order_total_minor") or 0)
-            linked = allocated.get(procurement["id"], [])
-            expense = sum(
-                int(item["amount_minor"])
-                for item in linked
-                if item["direction"] == "expense"
-            )
-            refund = sum(
-                int(item["amount_minor"])
-                for item in linked
-                if item["direction"] == "refund"
-            )
-            income = sum(
-                int(item["amount_minor"])
-                for item in linked
-                if item["direction"] == "income"
-            )
-            net = expense - refund
-            outstanding = max(order_total - net, 0) if procurement["status"] != "cancelled" else 0
-            overpaid = max(net - order_total, 0) if procurement["status"] != "cancelled" else 0
-            totals["outstanding_minor"] += outstanding
-            totals["overpaid_minor"] += overpaid
-            procurement_rows.append(
-                {
-                    **procurement,
-                    "paid_minor": expense,
-                    "refund_minor": refund,
-                    "income_minor": income,
-                    "net_paid_minor": net,
-                    "outstanding_minor": outstanding,
-                    "overpaid_minor": overpaid,
-                    "calculation_record_ids": [item["id"] for item in linked],
-                }
-            )
 
         _DIRECTION_FIELD: dict[str, str] = {
             "expense": "expense_minor",
             "refund": "refund_minor",
             "income": "income_minor",
         }
-        _DIRECTION_UNALLOCATED: dict[str, str] = {
-            "expense": "unallocated_expense_minor",
-            "refund": "unallocated_refund_minor",
-            "income": "unallocated_income_minor",
-        }
-        for ledger in ledgers:
-            if ledger["status"] != "posted":
-                continue
+        effective_ledgers = [ledger for ledger in selected if is_effective_ledger(ledger)]
+        for ledger in effective_ledgers:
             field = _DIRECTION_FIELD.get(ledger["direction"])
             if field:
                 totals[field] += int(ledger["amount_minor"])
-        # 顶部口径完全来自已入账资金流水：采购总额为全部支出，实际支出再扣退款和收入。
-        totals["procurement_total_minor"] = totals["expense_minor"]
-        totals["net_paid_minor"] = (
+        totals["net_expense_minor"] = (
             totals["expense_minor"] - totals["refund_minor"] - totals["income_minor"]
         )
-        for ledger in unallocated:
-            field = _DIRECTION_UNALLOCATED.get(ledger["direction"])
-            if field:
-                totals[field] += int(ledger["amount_minor"])
 
         vendor_amounts: dict[str, int] = defaultdict(int)
-        for ledger in ledgers:
+        for ledger in effective_ledgers:
             vendor = ledger.get("vendor")
-            if not vendor or ledger["status"] != "posted":
+            if not vendor:
                 continue
             amount = int(ledger.get("amount_minor") or 0)
             vendor_amounts[vendor["name"]] += (
@@ -315,14 +234,21 @@ def ledger_summary(
 
         return {
             "totals": totals,
-            "procurements": procurement_rows,
-            "ledger_entries": ledgers,
-            "warnings": warnings,
+            "ledger_entries": selected,
             "analytics": {
                 "money_trend": money_trend(selected),
                 "payment_composition": [
-                    {"key": "paid", "label": "净付款", "value": totals["net_paid_minor"]},
-                    {"key": "outstanding", "label": "待付", "value": totals["outstanding_minor"]},
+                    {"key": "expense", "label": "付款", "value": totals["expense_minor"]},
+                    {
+                        "key": "refund",
+                        "label": "退款",
+                        "value": totals["refund_minor"],
+                    },
+                    {
+                        "key": "income",
+                        "label": "收入",
+                        "value": totals["income_minor"],
+                    },
                 ],
                 "vendor_distribution": [
                     {"key": name, "label": name, "value": amount}
@@ -481,7 +407,7 @@ def space_archive(space_id: str, request: Request, user: User) -> dict[str, Any]
                     int(record.get("amount_minor") or 0)
                     for record in matched
                     if record["record_type"] == "ledger"
-                    and record.get("status") == "posted"
+                    and is_effective_ledger(record)
                     and record.get("direction") == "expense"
                     and record.get("currency", "CNY") == "CNY"
                 ),
@@ -489,8 +415,16 @@ def space_archive(space_id: str, request: Request, user: User) -> dict[str, Any]
                     int(record.get("amount_minor") or 0)
                     for record in matched
                     if record["record_type"] == "ledger"
-                    and record.get("status") == "posted"
+                    and is_effective_ledger(record)
                     and record.get("direction") == "refund"
+                    and record.get("currency", "CNY") == "CNY"
+                ),
+                "income_minor": sum(
+                    int(record.get("amount_minor") or 0)
+                    for record in matched
+                    if record["record_type"] == "ledger"
+                    and is_effective_ledger(record)
+                    and record.get("direction") == "income"
                     and record.get("currency", "CNY") == "CNY"
                 ),
             },

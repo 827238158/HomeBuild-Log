@@ -11,6 +11,7 @@ frontend/dist/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+pytest-cache-files-*/
 .ruff_cache/
 backend/tests/.tmp/
 backend/tests/.runtime/

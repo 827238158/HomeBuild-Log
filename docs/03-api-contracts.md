@@ -10,7 +10,7 @@
 - 传输：当前本地开发使用HTTP JSON；计划通过Tailscale Serve提供私有HTTPS。附件使用`multipart/form-data`上传。
 - 标识：服务端生成稳定不透明ID；阶段4离线草稿计划另带`client_draft_id`，当前接口尚未使用该字段。
 - 时间戳：ISO 8601并包含时区；系统默认展示Asia/Shanghai。
-- 仅日期：`YYYY-MM-DD`，不得为未知月份或日期补默认值。
+- 仅日期：`YYYY-MM-DD`；明确相对日期按来源录入日期和`Asia/Shanghai`解析，无年份月日可标记推断后补合理年份，真正模糊的日期不得补默认值。
 - 金额：`amount_minor`使用最小货币单位整数，另带`currency`，首版默认`CNY`。
 - 尺寸：数值、单位、方向、近似标志和语义角色分别传递。
 - 当前未提供通用`Idempotency-Key`支持；本地建议与候选确认通过稳定候选键、`origin_key`和候选包版本避免重复创建。离线同步的通用幂等键属于阶段4计划。
@@ -55,7 +55,7 @@
 - `source_refs`：创建/更新时包含`source_id`与可选`evidence_excerpt`；响应额外包含`source_revision`与`needs_review`。
 - `status`、`created_at`、`updated_at`、`archived_at`。
 
-八类记录的专属字段以`docs/06-domain-model.md`为准。
+六类记录的专属字段以`docs/06-domain-model.md`为准。
 
 ## 当前已实现资源接口
 
@@ -75,7 +75,7 @@
 ### 来源与附件
 
 - `POST /sources`：保存文本来源或附件录入会话。
-- `GET /sources`：按收录时间倒序返回当前项目来源列表。
+- `GET /sources`：按收录时间倒序返回当前项目来源列表；每项包含正式记录数以及待处理、已确认、已忽略候选数。`analysis_status=reviewed` 表示已分析但当前没有待处理候选和已生成记录。
 - `GET /sources/{id}`：读取原始来源及附件；提取历史通过`GET /extraction-runs`按来源信息核对。
 - `PATCH /sources/{id}`：显式修改原始文字或时间表达，递增版本、写审计并使旧候选失效。
 - `GET /sources/{id}/deletion-impact`：返回附件、候选、提取、独占/共享正式记录和关系影响数量。
@@ -96,7 +96,7 @@
 - `POST /sources/{id}/extractions?engine=auto|ai|local`：创建文本提取；`auto`按配置的`provider_order`尝试云端供应商，默认MiMo→DeepSeek，随后回退本地规则；云端尝试共享配置的总超时预算。`ai`不允许本地回退，`local`只运行本地规则。
 - `GET /sources/{id}/candidate-bundles/latest`与`GET /candidate-bundles/{id}`：读取最新或指定持久化候选包。
 - `POST /candidate-bundles/{id}/confirm`：原子确认所选候选。
-- `POST /candidate-bundles/{id}/suggestions/{key}/defer`：持久化移除未确认候选；请求携带`expected_version`，已确认候选不能移除。
+- `POST /candidate-bundles/{id}/suggestions/{key}/defer`：持久化移除未确认候选；请求携带`expected_version`，已确认候选不能移除；移除后重算候选包状态，全部候选均被忽略时状态为`reviewed`。
 - `GET /extraction-runs`返回不含prompt/原始响应的运行元数据；`GET /extraction-runs/{id}?include_raw=true`才显式返回本地审计原文。
 
 候选确认请求包含`expected_version`和至少一个`selection`；服务端同时校验候选包版本与来源版本。成功结果返回更新后的候选包、创建记录与关系；任何一项失败时整体回滚。当前响应不承诺单独返回审计事件ID。
@@ -105,7 +105,7 @@
 
 ### 领域记录与共享实体
 
-- `POST /records`：按`record_type`判别联合模型创建正式记录。
+- `POST /records`：按`record_type`判别联合模型创建正式记录；账目只接受`payment`、`refund`和`income`，并校验类型、方向和状态一致。
 - `GET /records`：支持`record_type`、`source_id`、`include_archived`、`limit`和`offset`查询正式记录。
 - `GET/PATCH /records/{id}`：读取或修改记录；类型和原始来源不可在详细编辑中改变。
 - `DELETE /records/{id}`：二次确认后永久删除正式记录及其关系，保留原始来源、附件实体与审计，并释放对应候选确认引用；成功返回`204`。
@@ -121,7 +121,7 @@
 
 上述阶段 2A 接口已实现。所有共享实体删除均写审计且不可恢复，不会自动解除历史引用；不存在或跨项目资源返回`404`。`POST/PATCH /records`以`record_type`作为判别字段；PATCH必须携带原类型且不能换型，只更新显式提交字段。每条正式记录的`source_refs`至少包含一个有效来源。
 
-施工问题的`expected_resolution_at`和`resolved_at`、待办的`due_at`和`completed_at`均使用`YYYY-MM-DD`业务日期，不包含时分秒。问题状态首次进入`resolved`或`closed`且未显式提供日期时，按北京时间自动记录当天日期；从已解决状态重新进入`open`、`in_progress`或`waiting`时自动清空。待办的`completed_at`仅允许在`done`状态保留；进入`done`时缺省为北京时间当天，重新打开或取消时自动清空。用户可在对应完成状态下人工修正日期。
+问题的`completed_at`使用`YYYY-MM-DD`业务日期，不包含时分秒。问题状态首次进入`done`且未显式提供日期时，按北京时间自动记录当天日期；从`done`重新进入`pending`或`in_progress`时自动清空。用户可在`done`状态下人工修正日期。
 
 - `GET /records/{id}`额外返回空间、材料、参与者、阶段和商家名称投影，供统一详情与核心视图保持一致。
 - `GET /audit`支持`target_table`、`target_id`、`action`和`limit`过滤。
@@ -129,8 +129,8 @@
 ### 查询、视图与数据管理
 
 - `GET /timeline`：支持`q`、`record_type`、`space_id`、`stage_id`、`date_from`和`date_to`；未知业务日期进入`unknown`组，事件节点可展开直接关联记录。
-- `GET /ledger/summary`：支持商家、空间、阶段和日期范围过滤；以单一人民币`totals`返回采购总额、实际支出、退款、净付款、待付、超付及未分配流水。只有单一`pays_for`关系的已入账流水参与采购待付计算；检测到非人民币历史记录时返回`409`并要求人工核对。
-- `GET /issues/board`：按五个问题状态返回看板列，可按空间过滤；卡片包含关联未完成待办和来源/附件计数。
+- `GET /ledger/summary`：支持商家、空间、阶段和日期范围过滤；返回付款、退款、收入和净支出。只有付款的`paid`以及退款/收入的`posted`参与统计。
+- `GET /issues/board`：按三个问题状态（pending / in_progress / done）返回看板列，可按空间过滤；卡片包含来源和附件计数。
 - `GET /spaces/{id}/archive`：聚合所选空间及所有后代空间，按记录类型返回去重结果、材料和摘要计数。
 - `GET /search`：使用关键词或至少一个结构化条件检索；支持类型、空间、阶段、状态、日期范围、分页，结果按来源、正式记录、材料、商家和空间分组，默认排除归档记录。
 - `POST /exports`、`POST /restores/validate`：计划在阶段5创建完整导出与验证恢复包，当前尚未实现。

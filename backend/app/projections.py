@@ -198,7 +198,6 @@ def effective_date(record: dict[str, Any]) -> date | None:
         record.get("confirmed_at"),
         record.get("planned_at"),
         record.get("due_at"),
-        record.get("promised_date"),
     ]
     for value in candidates:
         if not value:

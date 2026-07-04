@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { Select } from './Select'
 
 import { AiAnalyticsView, OverviewView, RecordsAnalyticsView } from './AnalyticsViews'
 import { defaultPayload, payloadForSave, RecordEditFields, type RecordType } from './DomainWorkspace'
-import { EChart } from './EChart'
+import { LazyEChart as EChart } from './LazyEChart'
 import { chartSummary, donutOption, horizontalBarOption, lineOption } from './chartConfig'
 import {
   getIssueBoard,
@@ -32,7 +34,9 @@ import {
   type TimelineResponse,
   type DistributionItem,
 } from './domainApi'
-import { recordStatusLabel } from './recordLabels'
+import { formatMoney } from './currency'
+import { recordStatusLabel, recordTypeLabels } from './recordLabels'
+import { statusesForRecordType } from './recordConfig'
 import { relationLabel } from './relationLabels'
 import { beijingToday, formatBeijingDateTime, formatCalendarDate } from './time'
 
@@ -57,19 +61,13 @@ const viewGroups: Array<{ label: string; items: ViewName[] }> = [
   { label: '工具', items: ['search'] },
 ]
 
-const typeLabels: Record<string, string> = {
-  event: '事件', ledger: '账目', issue: '问题', measurement: '尺寸',
-  decision: '决策', procurement: '采购', research: '调研',
-}
-
-const money = (minor: number | undefined) =>
-  new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format((minor ?? 0) / 100)
 
 const spaceKindLabels: Record<string, string> = { house: '房屋', room: '房间', component: '构件', surface: '表面' }
 const auditActionLabels: Record<string, string> = { create: '创建记录', update: '修改内容', delete: '删除记录', archive: '隐藏记录', restore: '重新显示', review: '复核来源', confirm: '确认候选' }
 
 function AnalyticsChart({
-  title, rows, onClick, unit = '项', kind, description, selectedKey,
+  title, rows, onClick, unit = '项', kind, description, selectedKey, onHover, onLeave, disableTooltip = false,
+  verticalScrollAfter,
 }: {
   title: string
   rows: DistributionItem[]
@@ -78,11 +76,17 @@ function AnalyticsChart({
   kind: 'line' | 'bar' | 'donut'
   description: string
   selectedKey?: string
+  onHover?: (event: { key: string; clientX: number; clientY: number; anchorRect: FloatingAnchorRect }) => void
+  onLeave?: () => void
+  disableTooltip?: boolean
+  verticalScrollAfter?: number
 }) {
   const option = kind === 'line' ? lineOption(rows, unit)
-    : kind === 'donut' ? donutOption(rows, unit)
-    : horizontalBarOption(rows, unit)
-  return <EChart title={title} description={description} kind={kind} option={option} summary={chartSummary(title, rows, unit)} onDataClick={onClick} selectedKey={selectedKey} />
+    : kind === 'donut' ? donutOption(rows, unit, !disableTooltip)
+    : horizontalBarOption(rows, unit, false, !disableTooltip)
+  // 类目超过可读阈值后增加真实画布高度，由共享图表容器负责限高滚动。
+  const scrollable = verticalScrollAfter !== undefined && rows.length > verticalScrollAfter
+  return <EChart title={title} description={description} kind={kind} option={option} summary={chartSummary(title, rows, unit)} onDataClick={onClick} onDataHover={onHover} onDataLeave={onLeave} selectedKey={selectedKey} scrollableContentHeight={scrollable ? Math.max(290, rows.length * 42) : undefined} scrollableMaxHeight={scrollable ? 360 : undefined} />
 }
 
 function LoadState({ loading, error, empty }: { loading: boolean; error: string; empty?: boolean }) {
@@ -95,9 +99,9 @@ function LoadState({ loading, error, empty }: { loading: boolean; error: string;
 function RecordButton({ record, onOpen }: { record: ProjectionRecord; onOpen: (id: string) => void }) {
   return (
     <button className="projection-card" type="button" onClick={() => onOpen(record.id)}>
-      <span className="record-type-tag">{typeLabels[record.record_type] || '未知类型'}</span>
+      <span className="record-type-tag">{recordTypeLabels[record.record_type] || '未知类型'}</span>
       <strong>{record.title}</strong>
-      <span>{recordStatusLabel(record.record_type, record.status)}</span>
+      <span>{recordStatusLabel(record.record_type, record.status, record.ledger_kind)}</span>
       {record.spaces.length > 0 && <small>{record.spaces.map((item) => item.name).join(' · ')}</small>}
     </button>
   )
@@ -110,12 +114,13 @@ function ReferenceFilters({
   onSpace: (value: string) => void; onStage: (value: string) => void
 }) {
   return <>
-    <label className="field-stack"><span>空间</span><select value={spaceId} onChange={(event) => onSpace(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    <label className="field-stack"><span>装修阶段</span><select value={stageId} onChange={(event) => onStage(event.target.value)}><option value="">全部阶段</option>{stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <label className="field-stack"><span>空间</span><Select value={spaceId} onChange={(event) => onSpace(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>
+    <label className="field-stack"><span>装修阶段</span><Select value={stageId} onChange={(event) => onStage(event.target.value)}><option value="">全部阶段</option>{stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>
   </>
 }
 
 function TimelineView({ onOpen }: { onOpen: (id: string) => void }) {
+  const timelineBatchSize = 10
   const [data, setData] = useState<TimelineResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -128,6 +133,9 @@ function TimelineView({ onOpen }: { onOpen: (id: string) => void }) {
   const [reload, setReload] = useState(0)
   const [spaces, setSpaces] = useState<SpaceEntry[]>([])
   const [stages, setStages] = useState<NamedEntity[]>([])
+  const [visibleCount, setVisibleCount] = useState(timelineBatchSize)
+  const [showBackToTop, setShowBackToTop] = useState(false)
+  const timelineListRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let active = true
@@ -137,28 +145,207 @@ function TimelineView({ onOpen }: { onOpen: (id: string) => void }) {
       listSpaces(), listEntities('stages'),
     ]).then(([result, spaceRows, stageRows]) => {
       if (!active) return
-      setData(result); setSpaces(spaceRows); setStages(stageRows); setError('')
+      setData(result); setSpaces(spaceRows); setStages(stageRows); setError(''); setVisibleCount(timelineBatchSize)
     }).catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '时间线加载失败'))
       .finally(() => active && setLoading(false))
     return () => { active = false }
   }, [reload])
 
+  useEffect(() => {
+    setVisibleCount(timelineBatchSize)
+  }, [q, recordType, spaceId, stageId, dateFrom, dateTo])
+
+  const applyRecordTypeImmediately = (nextRecordType: string) => {
+    // 图表筛选和取消操作需要立即重新请求，不再等待“应用筛选”按钮。
+    setRecordType(nextRecordType)
+    setVisibleCount(timelineBatchSize)
+    setReload((value) => value + 1)
+  }
+
+  const totalTimelineItems = useMemo(
+    () => data?.groups.reduce((total, group) => total + group.items.length, 0) ?? 0,
+    [data],
+  )
+  const visibleGroups = useMemo(() => {
+    let remaining = visibleCount
+    return (data?.groups ?? []).map((group) => {
+      const items = group.items.slice(0, Math.max(0, remaining))
+      remaining -= items.length
+      return { ...group, items }
+    }).filter((group) => group.items.length > 0)
+  }, [data, visibleCount])
+  const expanded = visibleCount > timelineBatchSize
+
+  useEffect(() => {
+    if (!expanded) {
+      setShowBackToTop(false)
+      return
+    }
+    const update = () => {
+      const node = timelineListRef.current
+      if (!node) return setShowBackToTop(false)
+      const listTop = node.getBoundingClientRect().top + window.scrollY
+      setShowBackToTop(window.scrollY > listTop + 24)
+    }
+    update()
+    window.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+    return () => {
+      window.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+    }
+  }, [expanded])
+
   return <section className="view-panel"><header><p className="eyebrow">阶段 2B</p><h2>装修时间线</h2><p>按真实发生日期查看事件和关联事实，未知时间不会被伪装。</p></header>
-    <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} /></label><label className="field-stack"><span>记录类型</span><select value={recordType} onChange={(event) => setRecordType(event.target.value)}><option value="">全部类型</option>{Object.entries(typeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><ReferenceFilters spaces={spaces} stages={stages} spaceId={spaceId} stageId={stageId} onSpace={setSpaceId} onStage={setStageId} /><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => setReload((value) => value + 1)}>应用筛选</button></div>
+    <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} /></label><label className="field-stack"><span>记录类型</span><Select value={recordType} onChange={(event) => setRecordType(event.target.value)}><option value="">全部类型</option>{Object.entries(recordTypeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label><ReferenceFilters spaces={spaces} stages={stages} spaceId={spaceId} stageId={stageId} onSpace={setSpaceId} onStage={setStageId} /><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => setReload((value) => value + 1)}>应用筛选</button></div>
     <LoadState loading={loading} error={error} empty={data?.total === 0} />
-    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="记录时间趋势" description="按业务发生日期观察记录变化" kind="line" rows={data.analytics.time_trend} /><AnalyticsChart title="记录类型分布" description="点击类型可筛选下方时间线" kind="donut" rows={data.analytics.type_distribution} onClick={setRecordType} selectedKey={recordType} /></div>}
-    {recordType && <button type="button" className="clear-filter" onClick={() => setRecordType('')}>当前按记录类型筛选，点击清除</button>}
-    {data?.groups.map((group) => <section className="timeline-group" key={group.date_key}><h3>{group.label}</h3><div className="timeline-day-items">{group.items.map((item) => <article className="timeline-item" key={item.record.id}><RecordButton record={item.record} onOpen={onOpen} />{item.related_records.length > 0 && <div className="related-strip"><span>关联事实</span>{item.related_records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div>}</article>)}</div></section>)}
+    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="记录时间趋势" description="按业务发生日期观察记录变化" kind="line" rows={data.analytics.time_trend} /><AnalyticsChart title="记录类型分布" description="点击类型可筛选下方时间线" kind="donut" rows={data.analytics.type_distribution} onClick={applyRecordTypeImmediately} selectedKey={recordType} /></div>}
+    {recordType && <button type="button" className="clear-filter" onClick={() => applyRecordTypeImmediately('')}>当前按记录类型筛选，点击取消</button>}
+    <div ref={timelineListRef} className="timeline-list">{visibleGroups.map((group) => <section className="timeline-group" key={group.date_key}><h3>{group.label}</h3><div className="timeline-day-items">{group.items.map((item) => <article className="timeline-item" key={item.record.id}><RecordButton record={item.record} onOpen={onOpen} />{item.related_records.length > 0 && <div className="related-strip"><span>关联事实</span>{item.related_records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div>}</article>)}</div></section>)}</div>
+    {visibleCount < totalTimelineItems && <button type="button" className="timeline-load-more" onClick={() => setVisibleCount((count) => Math.min(count + timelineBatchSize, totalTimelineItems))}>查看更多</button>}
+    {showBackToTop && <button type="button" className="timeline-back-to-top" aria-label="回到顶部" onClick={() => timelineListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>↑</button>}
   </section>
 }
 
-function LedgerView({ onOpen }: { onOpen: (id: string) => void }) {
+type LedgerDetailGroup = {
+  id: string
+  title: string
+  amountMinor: number
+  percentage?: number | null
+  records: ProjectionRecord[]
+  previewLimit: number
+}
+
+type LedgerPreviewState = {
+  group: LedgerDetailGroup
+  anchorRect: FloatingAnchorRect
+}
+
+type FloatingAnchorRect = {
+  left: number
+  top: number
+  right: number
+  bottom: number
+  width: number
+  height: number
+}
+
+function calculatePreviewPosition(
+  anchor: FloatingAnchorRect,
+  floatingWidth: number,
+  floatingHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+) {
+  const offset = 8
+  const boundary = 8
+  const candidates = [
+    { placement: 'bottom-start', left: anchor.left, top: anchor.bottom + offset },
+    { placement: 'right-start', left: anchor.right + offset, top: anchor.top },
+    { placement: 'top-start', left: anchor.left, top: anchor.top - floatingHeight - offset },
+    { placement: 'left-start', left: anchor.left - floatingWidth - offset, top: anchor.top },
+  ]
+  const fitting = candidates.find(({ left, top }) => (
+    left >= boundary && top >= boundary
+    && left + floatingWidth <= viewportWidth - boundary
+    && top + floatingHeight <= viewportHeight - boundary
+  )) ?? candidates[0]
+  return {
+    placement: fitting.placement,
+    left: Math.max(boundary, Math.min(fitting.left, viewportWidth - floatingWidth - boundary)),
+    top: Math.max(boundary, Math.min(fitting.top, viewportHeight - floatingHeight - boundary)),
+  }
+}
+
+function useCompactLedgerInteraction() {
+  const [compact, setCompact] = useState(false)
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia('(hover: none), (pointer: coarse), (max-width: 720px)')
+    const update = () => setCompact(query.matches)
+    update()
+    query.addEventListener?.('change', update)
+    return () => query.removeEventListener?.('change', update)
+  }, [])
+  return compact
+}
+
+function ledgerRecordSummary(record: ProjectionRecord) {
+  const direction = record.direction === 'expense' ? '支出'
+    : record.direction === 'refund' ? '退款'
+      : record.direction === 'income' ? '收入' : '流水'
+  return `${direction} ${formatMoney(record.amount_minor ?? 0)}`
+}
+
+function isEffectiveLedger(record: ProjectionRecord) {
+  return (record.ledger_kind === 'payment' && record.direction === 'expense' && record.status === 'paid')
+    || (record.ledger_kind === 'refund' && record.direction === 'refund' && record.status === 'posted')
+    || (record.ledger_kind === 'income' && record.direction === 'income' && record.status === 'posted')
+}
+
+function LedgerDetailPreview({
+  state, onEnter, onLeave, onViewAll,
+}: {
+  state: LedgerPreviewState
+  onEnter: () => void
+  onLeave: () => void
+  onViewAll: () => void
+}) {
+  const { group } = state
+  const previewRef = useRef<HTMLElement>(null)
+  const [position, setPosition] = useState(() => ({ left: state.anchorRect.left, top: state.anchorRect.bottom + 8, placement: 'bottom-start' }))
+  useLayoutEffect(() => {
+    const node = previewRef.current
+    if (!node) return
+    const rect = node.getBoundingClientRect()
+    const width = rect.width || Math.min(340, window.innerWidth - 16)
+    const height = rect.height || Math.min(360, window.innerHeight - 16)
+    setPosition(calculatePreviewPosition(state.anchorRect, width, height, window.innerWidth, window.innerHeight))
+  }, [state.anchorRect, group.id])
+  const style = { '--preview-left': `${position.left}px`, '--preview-top': `${position.top}px` } as CSSProperties
+  // Portal 到 body，确保 fixed 定位与 getBoundingClientRect 都使用视口坐标系。
+  return createPortal(<aside ref={previewRef} className="ledger-detail-preview" data-placement={position.placement} style={style} onMouseEnter={onEnter} onMouseLeave={onLeave} aria-label={`${group.title}明细预览`}>
+    <header><div><strong>{group.title}</strong><span>{formatMoney(group.amountMinor)}</span></div>{group.percentage !== undefined && <small>占比：{group.percentage === null ? '无法计算' : `${group.percentage.toFixed(1)}%`}</small>}</header>
+    <p>共 {group.records.length} 条记录</p>
+    <ul>{group.records.slice(0, group.previewLimit).map((record) => <li key={record.id}><strong>{record.title}</strong><span>{ledgerRecordSummary(record)}</span></li>)}</ul>
+    {group.records.length === 0 && <p className="muted">暂无对应记录</p>}
+    <button type="button" onClick={onViewAll}>查看全部明细</button>
+  </aside>, document.body)
+}
+
+function LedgerDetailPanel({
+  group, obscured, onClose, onOpenRecord,
+}: {
+  group: LedgerDetailGroup
+  obscured: boolean
+  onClose: () => void
+  onOpenRecord: (id: string) => void
+}) {
+  // 挂载到 body，避免看板祖先的 transform/overflow 改变 fixed 定位参照。
+  return createPortal(<>
+    {!obscured && <button type="button" className="ledger-detail-backdrop" aria-label="点击遮罩关闭明细" onClick={onClose} />}
+    <aside className={`detail-panel ledger-detail-panel${obscured ? ' is-obscured' : ''}`} role="dialog" aria-modal={!obscured} aria-hidden={obscured} aria-labelledby="ledger-detail-title">
+      <header className="detail-panel__header ledger-detail-panel__header"><div><p className="eyebrow">完整明细</p><h2 id="ledger-detail-title">{group.title}</h2></div><button type="button" onClick={onClose} aria-label="关闭明细" autoFocus={!obscured}>关闭</button></header>
+      <div className="ledger-detail-panel__summary"><strong>{formatMoney(group.amountMinor)}</strong><span>{group.records.length} 条记录</span>{group.percentage !== undefined && <span>占比 {group.percentage === null ? '无法计算' : `${group.percentage.toFixed(1)}%`}</span>}</div>
+      <div className="ledger-detail-panel__records">
+        {group.records.length === 0 && <p className="muted">暂无对应记录。</p>}
+        {group.records.map((record) => <button type="button" className="ledger-detail-record" key={record.id} onClick={() => onOpenRecord(record.id)}><strong>{record.title}</strong><span>{ledgerRecordSummary(record)}</span><small>{record.occurred_date || recordStatusLabel(record.record_type, record.status, record.ledger_kind)}</small></button>)}
+      </div>
+    </aside>
+  </>, document.body)
+}
+
+function LedgerView({ onOpen, detailOpen }: { onOpen: (id: string) => void; detailOpen: boolean }) {
   const [data, setData] = useState<LedgerResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [reload, setReload] = useState(0)
+  const [preview, setPreview] = useState<LedgerPreviewState | null>(null)
+  const [selectedGroup, setSelectedGroup] = useState<LedgerDetailGroup | null>(null)
+  const closeTimer = useRef<number | null>(null)
+  const compactInteraction = useCompactLedgerInteraction()
   useEffect(() => {
     let active = true
     setLoading(true)
@@ -168,14 +355,111 @@ function LedgerView({ onOpen }: { onOpen: (id: string) => void }) {
       .finally(() => active && setLoading(false))
     return () => { active = false }
   }, [reload])
-  return <section className="view-panel"><header><p className="eyebrow">资金流与订单分开</p><h2>装修账本</h2><p>订单金额、实际付款、退款、收入和可计算待付各自保留依据。</p></header>
+  const hasSelectedGroup = selectedGroup !== null
+  useEffect(() => {
+    if (!hasSelectedGroup) return
+    const previousOverflow = document.body.style.overflow
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+      returnFocus?.focus()
+    }
+  }, [hasSelectedGroup])
+  useEffect(() => {
+    if (!selectedGroup) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !detailOpen) setSelectedGroup(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [selectedGroup, detailOpen])
+
+  const groups = useMemo(() => {
+    if (!data) return new Map<string, LedgerDetailGroup>()
+    const posted = data.ledger_entries.filter(isEffectiveLedger)
+    const payments = posted.filter((record) => record.direction === 'expense')
+    const refunds = posted.filter((record) => record.direction === 'refund')
+    const incomes = posted.filter((record) => record.direction === 'income')
+    const result = new Map<string, LedgerDetailGroup>()
+    const add = (group: LedgerDetailGroup) => result.set(group.id, group)
+    add({ id: 'card:expense', title: '付款总额', amountMinor: data.totals.expense_minor, records: payments, previewLimit: 5 })
+    add({ id: 'card:refund', title: '退款总额', amountMinor: data.totals.refund_minor, records: refunds, previewLimit: 5 })
+    add({ id: 'card:income', title: '收入总额', amountMinor: data.totals.income_minor, records: incomes, previewLimit: 5 })
+    add({ id: 'card:net-expense', title: '净支出', amountMinor: data.totals.net_expense_minor, records: posted, previewLimit: 5 })
+    const compositionTotal = data.analytics.payment_composition.reduce((sum, item) => sum + item.value, 0)
+    data.analytics.payment_composition.forEach((item) => add({
+      id: `composition:${item.key}`, title: item.label, amountMinor: item.value,
+      percentage: compositionTotal === 0 ? null : item.value / compositionTotal * 100,
+      records: item.key === 'refund' ? refunds : item.key === 'income' ? incomes : payments, previewLimit: 3,
+    }))
+    data.analytics.vendor_distribution.forEach((item) => add({
+      id: `vendor:${item.key}`, title: item.label, amountMinor: item.value,
+      percentage: data.totals.expense_minor === 0 ? null : item.value / data.totals.expense_minor * 100,
+      records: posted.filter((record) => record.vendor?.name === item.key), previewLimit: 3,
+    }))
+    return result
+  }, [data])
+  const monthlyNetExpense = useMemo(() => (data?.analytics.money_trend ?? []).map((item) => ({
+    key: item.key,
+    label: item.label,
+    // 后端金额单位为分，折线图统一展示人民币元。
+    value: (item.expense_minor - item.refund_minor - item.income_minor) / 100,
+  })), [data])
+
+  const cancelClose = () => {
+    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
+    closeTimer.current = null
+  }
+  const scheduleClose = () => {
+    cancelClose()
+    closeTimer.current = window.setTimeout(() => setPreview(null), 160)
+  }
+  const openGroup = (group: LedgerDetailGroup) => {
+    cancelClose(); setPreview(null); setSelectedGroup(group)
+  }
+  const showPreview = (group: LedgerDetailGroup, anchorRect: FloatingAnchorRect) => {
+    if (compactInteraction) return
+    cancelClose()
+    setPreview({ group, anchorRect })
+  }
+  const cardHandlers = (group: LedgerDetailGroup) => ({
+    onMouseEnter: (event: React.MouseEvent<HTMLButtonElement>) => {
+      const rect = event.currentTarget.getBoundingClientRect()
+      showPreview(group, rect)
+    },
+    onMouseLeave: scheduleClose,
+    onFocus: (event: React.FocusEvent<HTMLButtonElement>) => {
+      const rect = event.currentTarget.getBoundingClientRect()
+      showPreview(group, rect)
+    },
+    onBlur: scheduleClose,
+    onClick: () => openGroup(group),
+  })
+  const chartHover = (prefix: 'composition' | 'vendor') => (event: { key: string; clientX: number; clientY: number; anchorRect: FloatingAnchorRect }) => {
+    const group = groups.get(`${prefix}:${event.key}`)
+    if (group) showPreview(group, event.anchorRect)
+  }
+  const chartClick = (prefix: 'composition' | 'vendor') => (key: string) => {
+    const group = groups.get(`${prefix}:${key}`)
+    if (group) openGroup(group)
+  }
+
+  return <section className="view-panel"><header><p className="eyebrow">真实资金流水</p><h2>装修账本</h2><p>付款、退款与收入分别记录，净支出按统一口径计算。</p></header>
     <div className="filter-grid filter-grid--compact"><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => setReload((value) => value + 1)}>应用筛选</button></div>
-    <LoadState loading={loading} error={error} empty={data ? data.procurements.length === 0 && data.ledger_entries.length === 0 : false} />
-    {data && <><div className="summary-grid summary-grid--money"><article className="summary-card summary-card--info"><span>采购总额</span><strong>{money(data.totals.procurement_total_minor)}</strong><small>全部已入账支出</small></article><article className="summary-card"><span>实际支出</span><strong>{money(data.totals.net_paid_minor)}</strong><small>支出减退款与收入</small></article><article className="summary-card summary-card--success"><span>退款与收入</span><strong>{money(data.totals.refund_minor + data.totals.income_minor)}</strong></article><article className="summary-card summary-card--warning"><span>待付金额</span><strong>{money(data.totals.outstanding_minor)}</strong></article></div>{(data.totals.unallocated_expense_minor > 0 || data.totals.unallocated_refund_minor > 0 || data.totals.unallocated_income_minor > 0) && <p className="warning-text">存在未关联采购的流水，请在详情中补充关系。</p>}</>}
-    {data && (data.analytics.payment_composition.length > 0 || data.analytics.vendor_distribution.length > 0) && <div className="chart-grid"><AnalyticsChart title="采购付款构成" description="订单付款、待付与溢付的金额构成" kind="donut" unit="元" rows={data.analytics.payment_composition.map((item) => ({ ...item, value: item.value / 100 }))} /><AnalyticsChart title="主要商家金额" description="按账目中的交易对象汇总净流水；支出为正，退款与收入为负" kind="bar" unit="元" rows={data.analytics.vendor_distribution.map((item) => ({ ...item, value: item.value / 100 }))} /></div>}
-    {data?.warnings.map((warning) => <p className="warning-text" key={warning}>{warning}</p>)}
-    {data && data.procurements.length > 0 && <section className="projection-section"><h3>采购付款情况</h3><div className="card-grid">{data.procurements.map((record) => <button className="projection-card ledger-card" key={record.id} type="button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong><span>订单：{money(record.order_total_minor ?? 0)}</span><span>净付款：{money(record.net_paid_minor)}</span><span>待付：{money(record.outstanding_minor)}</span></button>)}</div></section>}
-    {data && data.ledger_entries.length > 0 && <section className="projection-section"><h3>资金流水</h3><div className="card-grid">{data.ledger_entries.map((record) => <button className="projection-card" key={record.id} type="button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong><span>{{ expense: '支出', refund: '退款', income: '收入' }[record.direction as string] || '未知方向'} · {money(record.amount_minor)}</span><small>{recordStatusLabel(record.record_type, record.status)}</small></button>)}</div></section>}
+    <LoadState loading={loading} error={error} empty={data ? data.ledger_entries.length === 0 : false} />
+    {data && <><div className="summary-grid summary-grid--money">{[
+      ['card:expense', 'summary-card--info', '已出账付款'],
+      ['card:refund', 'summary-card--success', '已入账退款'],
+      ['card:income', 'summary-card--success', '已入账收入'],
+      ['card:net-expense', '', '付款减退款与收入'],
+    ].map(([id, variant, note]) => { const group = groups.get(id)!; return <button className={`summary-card summary-card--interactive ${variant}`} type="button" key={id} {...cardHandlers(group)}><span>{group.title}</span><strong>{formatMoney(group.amountMinor)}</strong>{note && <small>{note}</small>}</button> })}</div></>}
+    {data && (data.analytics.payment_composition.length > 0 || data.analytics.vendor_distribution.length > 0) && <div className="chart-grid"><AnalyticsChart title="资金构成" description="悬停预览，点击查看完整明细" kind="donut" unit="元" rows={data.analytics.payment_composition.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('composition')} onLeave={scheduleClose} onClick={chartClick('composition')} disableTooltip /><AnalyticsChart title="主要商家金额" description="悬停预览，点击查看完整明细；支出为正，退款与收入为负" kind="bar" unit="元" rows={data.analytics.vendor_distribution.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('vendor')} onLeave={scheduleClose} onClick={chartClick('vendor')} disableTooltip verticalScrollAfter={8} /></div>}
+    {monthlyNetExpense.length > 0 && <div className="chart-grid chart-grid--single"><AnalyticsChart title="每月净支出趋势" description="按月统计付款减退款与收入后的净支出" kind="line" unit="元" rows={monthlyNetExpense} /></div>}
+    {preview && <LedgerDetailPreview state={preview} onEnter={cancelClose} onLeave={scheduleClose} onViewAll={() => openGroup(preview.group)} />}
+    {selectedGroup && <LedgerDetailPanel group={selectedGroup} obscured={detailOpen} onClose={() => setSelectedGroup(null)} onOpenRecord={onOpen} />}
   </section>
 }
 
@@ -210,12 +494,12 @@ function IssuesView({ onOpen }: { onOpen: (id: string) => void }) {
       setError(reason instanceof Error ? reason.message : '状态更新失败')
     }
   }
-  return <section className="view-panel"><header><p className="eyebrow">统一跟踪处理事项</p><h2>问题看板</h2><p>待办、普通问题和施工问题统一在这里处理；完成时登记结果和日期。</p></header>
-    <div className="filter-grid filter-grid--compact"><label className="field-stack"><span>空间</span><select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button className="filter-button" type="button" onClick={() => setReload((value) => value + 1)}>应用筛选</button></div>
+  return <section className="view-panel"><div className="issue-page-header"><header><p className="eyebrow">统一跟踪处理事项</p><h2>问题看板</h2><p>待办、普通问题和施工问题统一在这里处理；完成时登记结果和日期。</p></header>
+    <div className="filter-grid issue-filter-bar"><label className="field-stack"><span>空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><button className="filter-button" type="button" onClick={() => setReload((value) => value + 1)}>应用筛选</button></div></div>
     <LoadState loading={loading} error={error} empty={data?.total === 0} />
     {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="问题状态分布" description="点击状态可聚焦对应处理列" kind="donut" rows={data.analytics.status_distribution} onClick={setStatusFilter} selectedKey={statusFilter} /><AnalyticsChart title="问题严重程度" description="按问题数量比较风险等级" kind="bar" rows={data.analytics.severity_distribution} /></div>}
-    {statusFilter && <button type="button" className="clear-filter" onClick={() => setStatusFilter('')}>当前按问题状态筛选，点击清除</button>}
-    <div className="issue-board">{data?.columns.filter((column) => !statusFilter || column.status === statusFilter).map((column) => <section className="issue-column" key={column.status}><h3>{column.label}<span>{column.items.length}</span></h3>{column.items.length === 0 && <p className="muted">暂无</p>}{column.items.map((record) => <article className="issue-card" key={record.id}><button type="button" className="title-button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong></button><p>{record.phenomenon}</p>{record.spaces.length > 0 && <small>{record.spaces.map((item) => item.name).join(' · ')}</small>}<label className="field-stack"><span>处理状态</span><select value={record.status} onChange={(event) => void changeStatus(record, event.target.value)}>{data.columns.map((item) => <option key={item.status} value={item.status}>{item.label}</option>)}</select></label></article>)}</section>)}</div>
+    {statusFilter && <button type="button" className="clear-filter" onClick={() => setStatusFilter('')}>当前按问题状态筛选，点击返回</button>}
+    <div className="issue-board">{data?.columns.filter((column) => !statusFilter || column.status === statusFilter).map((column) => <section className="issue-column" key={column.status}><h3>{column.label}<span>{column.items.length}</span></h3><div className="issue-column__body">{column.items.length === 0 && <p className="muted">暂无</p>}{column.items.map((record) => <article className="issue-card" key={record.id}><button type="button" className="title-button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong></button><p>{record.phenomenon}</p>{record.spaces.length > 0 && <small>{record.spaces.map((item) => item.name).join(' · ')}</small>}<label className="field-stack"><span>处理状态</span><Select value={record.status} onChange={(event) => void changeStatus(record, event.target.value)}>{data.columns.map((item) => <option key={item.status} value={item.status}>{item.label}</option>)}</Select></label></article>)}</div></section>)}</div>
   </section>
 }
 
@@ -246,9 +530,9 @@ function SpacesView({ onOpen }: { onOpen: (id: string) => void }) {
     return () => { active = false }
   }, [spaceId])
   return <section className="view-panel"><header><p className="eyebrow">房屋 → 房间 → 局部</p><h2>空间档案</h2><p>父空间自动聚合后代空间的同一批正式记录。</p></header>
-    <label className="field-stack space-picker"><span>选择空间</span><select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">请选择空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name} · {spaceKindLabels[item.kind] || '其他空间'}</option>)}</select></label>
+    <label className="field-stack space-picker"><span>选择空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">请选择空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name} · {spaceKindLabels[item.kind] || '其他空间'}</option>)}</Select></label>
     <LoadState loading={loading} error={error} empty={!loading && spaces.length === 0} />
-    {data && <><p className="breadcrumbs">{data.breadcrumbs.map((item) => item.name).join(' / ')}</p><div className="space-overview"><div><span className="record-type-tag">当前空间</span><h3>{data.space.name}</h3><p>汇总当前空间及下级空间的正式记录</p></div><dl><div><dt>记录</dt><dd>{data.summary.record_count}</dd></div><div><dt>未关闭问题</dt><dd>{data.summary.unclosed_issue_count}</dd></div><div><dt>尺寸</dt><dd>{data.summary.measurement_count}</dd></div><div><dt>材料</dt><dd>{data.summary.material_count}</dd></div><div><dt>实际支出</dt><dd>{money(data.analytics.expense_minor - data.analytics.refund_minor)}</dd></div></dl></div>{data.analytics.type_distribution.length > 0 && <div className="chart-grid"><AnalyticsChart title="空间记录类型" description="点击类型可筛选下方记录" kind="donut" rows={data.analytics.type_distribution} onClick={setTypeFilter} selectedKey={typeFilter} /><AnalyticsChart title="空间问题状态" description="查看该空间问题的处理进度" kind="bar" rows={data.analytics.issue_status_distribution} /></div>}{typeFilter && <button type="button" className="clear-filter" onClick={() => setTypeFilter('')}>当前按记录类型筛选，点击清除</button>}{Object.entries(data.records_by_type).filter(([type]) => !typeFilter || type === typeFilter).map(([type, records]) => <section className="projection-section" key={type}><h3>{typeLabels[type] || '未知类型'}</h3><div className="card-grid">{records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div></section>)}</>}
+    {data && <><p className="breadcrumbs">{data.breadcrumbs.map((item) => item.name).join(' / ')}</p><div className="space-overview"><div><span className="record-type-tag">当前空间</span><h3>{data.space.name}</h3><p>汇总当前空间及下级空间的正式记录</p></div><dl><div><dt>记录</dt><dd>{data.summary.record_count}</dd></div><div><dt>未关闭问题</dt><dd>{data.summary.unclosed_issue_count}</dd></div><div><dt>尺寸</dt><dd>{data.summary.measurement_count}</dd></div><div><dt>材料</dt><dd>{data.summary.material_count}</dd></div><div><dt>净支出</dt><dd>{formatMoney(data.analytics.expense_minor - data.analytics.refund_minor - data.analytics.income_minor)}</dd></div></dl></div>{data.analytics.type_distribution.length > 0 && <div className="chart-grid"><AnalyticsChart title="空间记录类型" description="点击类型可筛选下方记录" kind="donut" rows={data.analytics.type_distribution} onClick={setTypeFilter} selectedKey={typeFilter} /><AnalyticsChart title="空间问题状态" description="查看该空间问题的处理进度" kind="bar" rows={data.analytics.issue_status_distribution} /></div>}{typeFilter && <button type="button" className="clear-filter" onClick={() => setTypeFilter('')}>当前按记录类型筛选，点击取消</button>}{Object.entries(data.records_by_type).filter(([type]) => !typeFilter || type === typeFilter).map(([type, records]) => <section className="projection-section" key={type}><h3>{recordTypeLabels[type] || '未知类型'}</h3><div className="card-grid">{records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div></section>)}</>}
   </section>
 }
 
@@ -274,7 +558,7 @@ function SearchView({ onOpen }: { onOpen: (id: string) => void }) {
   }
   const total = useMemo(() => data ? Object.values(data.counts).reduce((sum, count) => sum + count, 0) : null, [data])
   return <section className="view-panel"><header><p className="eyebrow">基础搜索</p><h2>查找装修事实</h2><p>搜索原始来源、正式记录、材料、商家和空间；结果保持来源追溯。</p></header>
-    <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void runSearch() }} placeholder="例如：花砖、主卧、门套" /></label><label className="field-stack"><span>记录类型</span><select value={recordType} onChange={(event) => setRecordType(event.target.value)}><option value="">全部类型</option>{Object.entries(typeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label className="field-stack"><span>状态</span><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option>{['planned', 'occurred', 'completed', 'cancelled', 'posted', 'open', 'in_progress', 'waiting', 'resolved', 'closed', 'pending', 'confirmed', 'ordered', 'delivery_pending', 'delivered', 'collecting', 'comparing', 'concluded', 'done'].map((value) => <option key={value} value={value}>{recordStatusLabel(recordType, value)}</option>)}</select></label><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => void runSearch()}>搜索</button></div>
+    <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void runSearch() }} placeholder="例如：花砖、主卧、门套" /></label><label className="field-stack"><span>记录类型</span><Select value={recordType} onChange={(event) => { setRecordType(event.target.value); setStatus('') }}><option value="">全部类型</option>{Object.entries(recordTypeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label><label className="field-stack"><span>状态</span><Select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option>{statusesForRecordType(recordType).map((value) => <option key={value} value={value}>{recordStatusLabel(recordType, value)}</option>)}</Select></label><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => void runSearch()}>搜索</button></div>
     <LoadState loading={loading} error={error} empty={total === 0} />
     {data && <><p className="result-count">共找到 {total} 项</p>{data.groups.records.length > 0 && <section className="projection-section"><h3>正式记录 · {data.counts.records}</h3><div className="card-grid">{data.groups.records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div></section>}{data.groups.sources.length > 0 && <section className="projection-section"><h3>原始来源 · {data.counts.sources}</h3>{data.groups.sources.map((source) => <article className="source-result" key={source.id}><p>{source.original_text || '仅附件来源'}</p><time>{formatBeijingDateTime(source.captured_at)}</time></article>)}</section>}{(['materials', 'vendors', 'spaces'] as const).map((group) => data.groups[group].length > 0 && <section className="projection-section" key={group}><h3>{{ materials: '材料', vendors: '商家', spaces: '空间' }[group]} · {data.counts[group]}</h3><div className="tag-list">{data.groups[group].map((item) => <span key={item.id}>{item.name}</span>)}</div></section>)}</>}
   </section>
@@ -385,11 +669,11 @@ function RecordDetail({ recordId, onClose, onChanged }: { recordId: string; onCl
     {!record && !error && <p role="status">正在加载详情…</p>}
     {record && editing ? <section className="detail-edit-section"><RecordEditFields recordType={record.record_type as RecordType} payload={editPayload} spaces={spaces} entities={editEntities} onChange={changeEditField} /><div className="record-actions"><button type="button" disabled={busy} onClick={() => void saveEdit()}>{busy ? '保存中…' : '保存修改'}</button><button type="button" disabled={busy} onClick={cancelEdit}>取消</button></div></section> : record && <>
       <div className="detail-record-actions"><button type="button" disabled={busy} onClick={beginEdit}>修改记录</button><button className="danger-button" type="button" disabled={busy} onClick={() => void removeRecord()}>删除记录</button></div>
-      <span className="record-type-tag">{typeLabels[record.record_type]}</span>
+      <span className="record-type-tag">{recordTypeLabels[record.record_type]}</span>
       <h3>{record.title}</h3>
       <p>{record.description || '暂无补充说明'}</p>
       <dl className="detail-list">
-        <div><dt>状态</dt><dd>{recordStatusLabel(record.record_type, record.status)}</dd></div>
+        <div><dt>状态</dt><dd>{recordStatusLabel(record.record_type, record.status, record.ledger_kind)}</dd></div>
         <div><dt>事情发生日期</dt><dd>{formatCalendarDate(record.occurred_date)}</dd></div>
         <div><dt>正式记录创建时间</dt><dd>{formatBeijingDateTime(record.created_at)}</dd></div>
         <div><dt>空间</dt><dd>{record.spaces?.map((item) => item.name).join('、') || '未指定'}</dd></div>
@@ -427,7 +711,7 @@ export function CoreViews({ children, onLogout }: { children: ReactNode; onLogou
     {navOpen && <button type="button" className="nav-backdrop" aria-label="关闭导航" onClick={() => setNavOpen(false)} />}
     <div className="workspace-main">
       <header className="workspace-topbar"><button type="button" className="menu-button" aria-label="打开导航" aria-expanded={navOpen} onClick={() => setNavOpen((value) => !value)}>☰</button><div><small>HomeBuild Log</small><strong>{currentLabel}</strong></div><span><span className="service-dot" />服务正常</span></header>
-      <main className="workspace-content" key={`${view}-${viewRevision}`}>{view === 'overview' && <OverviewView onOpen={setDetailId} />}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={setDetailId} />}{view === 'ledger' && <LedgerView onOpen={setDetailId} />}{view === 'issues' && <IssuesView onOpen={setDetailId} />}{view === 'spaces' && <SpacesView onOpen={setDetailId} />}{view === 'records' && <RecordsAnalyticsView onOpen={setDetailId} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={setDetailId} />}</main>
+      <main className="workspace-content" key={`${view}-${viewRevision}`}>{view === 'overview' && <OverviewView onOpen={setDetailId} />}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={setDetailId} />}{view === 'ledger' && <LedgerView onOpen={setDetailId} detailOpen={Boolean(detailId)} />}{view === 'issues' && <IssuesView onOpen={setDetailId} />}{view === 'spaces' && <SpacesView onOpen={setDetailId} />}{view === 'records' && <RecordsAnalyticsView onOpen={setDetailId} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={setDetailId} />}</main>
     </div>
     {detailId && <RecordDetail recordId={detailId} onClose={() => setDetailId('')} onChanged={() => setViewRevision((value) => value + 1)} />}
   </div>

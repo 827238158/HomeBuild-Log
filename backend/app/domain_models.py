@@ -219,9 +219,10 @@ class LedgerDetail(Base):
     record_id: Mapped[str] = mapped_column(
         String(32), ForeignKey("records.id", ondelete="CASCADE"), primary_key=True
     )
-    direction: Mapped[str] = mapped_column(String(16), nullable=False)
-    payment_kind: Mapped[str] = mapped_column(String(32), nullable=False)
-    amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    ledger_kind: Mapped[str] = mapped_column(String(24), nullable=False, default="payment")
+    direction: Mapped[str | None] = mapped_column(String(16))
+    payment_kind: Mapped[str | None] = mapped_column(String(32))
+    amount_minor: Mapped[int | None] = mapped_column(Integer)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="CNY")
     payment_date: Mapped[date | None] = mapped_column(Date)
     payment_method: Mapped[str | None] = mapped_column(String(100))
@@ -281,25 +282,6 @@ class DecisionDetail(Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
-class ProcurementDetail(Base):
-    __tablename__ = "procurement_details"
-    record_id: Mapped[str] = mapped_column(
-        String(32), ForeignKey("records.id", ondelete="CASCADE"), primary_key=True
-    )
-    item_name: Mapped[str] = mapped_column(String(300), nullable=False)
-    specification: Mapped[str | None] = mapped_column(String(500))
-    quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
-    quantity_unit: Mapped[str | None] = mapped_column(String(32))
-    vendor_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("vendors.id"))
-    order_number: Mapped[str | None] = mapped_column(String(200))
-    order_total_minor: Mapped[int | None] = mapped_column(Integer)
-    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="CNY")
-    promised_date: Mapped[date | None] = mapped_column(Date)
-    delivery_address: Mapped[str | None] = mapped_column(Text)
-    return_terms: Mapped[str | None] = mapped_column(Text)
-    acceptance_result: Mapped[str | None] = mapped_column(Text)
-
-
 class ResearchDetail(Base):
     __tablename__ = "research_details"
     record_id: Mapped[str] = mapped_column(
@@ -311,20 +293,6 @@ class ResearchDetail(Base):
     sources_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     conclusion: Mapped[str | None] = mapped_column(Text)
     limitations: Mapped[str | None] = mapped_column(Text)
-
-
-class TodoDetail(Base):
-    __tablename__ = "todo_details"
-    record_id: Mapped[str] = mapped_column(
-        String(32), ForeignKey("records.id", ondelete="CASCADE"), primary_key=True
-    )
-    action: Mapped[str] = mapped_column(Text, nullable=False)
-    planned_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
-    due_at: Mapped[date | None] = mapped_column(Date)
-    trigger_condition: Mapped[str | None] = mapped_column(Text)
-    priority: Mapped[str | None] = mapped_column(String(32))
-    completed_at: Mapped[date | None] = mapped_column(Date)
-    completion_evidence: Mapped[str | None] = mapped_column(Text)
 
 
 class RecordRelation(Base):

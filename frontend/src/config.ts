@@ -18,9 +18,3 @@ export const UPLOAD = {
 export const UI = {
   toastDuration: 2000,
 } as const
-
-export const DEV_SERVER = {
-  host: '127.0.0.1' as const,
-  port: 5173,
-  previewPort: 4173,
-} as const

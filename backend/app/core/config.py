@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 CONFIG_FILE_NAME = "secrets.json"
 
@@ -53,6 +55,27 @@ DEFAULT_AI_CONFIG: dict[str, Any] = {
         },
     },
 }
+
+
+def _safe_float(value: object, default: float, minimum: float, maximum: float) -> float:
+    """容错读取有限浮点数，错误配置不会阻断服务启动。"""
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(parsed):
+        return default
+    return max(minimum, min(maximum, parsed))
+
+
+def _safe_http_url(value: object, default: str) -> str:
+    candidate = str(value).strip().rstrip("/") if value is not None else ""
+    parsed = urlparse(candidate)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username:
+        return default.rstrip("/")
+    return candidate
 
 
 def _hash_password(password: str) -> str:
@@ -133,11 +156,14 @@ class SecretsConfig:
         raw_order = raw_ai.get("provider_order", DEFAULT_AI_CONFIG["provider_order"])
         if not isinstance(raw_order, list):
             raw_order = DEFAULT_AI_CONFIG["provider_order"]
+        known = DEFAULT_AI_CONFIG["providers"]
         provider_order = tuple(
-            str(item).lower()
-            for item in raw_order
-            if isinstance(item, str) and item.strip()
-        )
+            dict.fromkeys(
+                item.strip().lower()
+                for item in raw_order
+                if isinstance(item, str) and item.strip().lower() in known
+            )
+        ) or tuple(DEFAULT_AI_CONFIG["provider_order"])
         raw_providers = raw_ai.get("providers")
         if not isinstance(raw_providers, dict):
             raw_providers = {}
@@ -156,15 +182,20 @@ class SecretsConfig:
             )
             providers[name] = AIProviderConfig(
                 name=name,
-                base_url=str(configured.get("base_url", defaults["base_url"])).rstrip("/"),
-                model=str(configured.get("model", defaults["model"])),
-                auth_style=str(configured.get("auth_style", defaults["auth_style"])),
+                base_url=_safe_http_url(configured.get("base_url"), defaults["base_url"]),
+                model=(str(configured.get("model", "")).strip() or defaults["model"]),
+                auth_style=(
+                    str(configured.get("auth_style", "")).strip().lower()
+                    if str(configured.get("auth_style", "")).strip().lower()
+                    in {"bearer", "api-key"}
+                    else defaults["auth_style"]
+                ),
                 api_key=api_key.strip(),
             )
 
-        requested_enabled = bool(raw_ai.get("enabled", DEFAULT_AI_CONFIG["enabled"]))
-        timeout_seconds = max(1.0, min(120.0, float(raw_ai.get("timeout_seconds", 30))))
-        temperature = max(-2.0, min(2.0, float(raw_ai.get("temperature", 0.3))))
+        requested_enabled = raw_ai.get("enabled") is True
+        timeout_seconds = _safe_float(raw_ai.get("timeout_seconds"), 30.0, 1.0, 120.0)
+        temperature = _safe_float(raw_ai.get("temperature"), 0.3, -2.0, 2.0)
         return AIConfig(
             enabled=requested_enabled and any(provider.api_key for provider in providers.values()),
             provider_order=provider_order,

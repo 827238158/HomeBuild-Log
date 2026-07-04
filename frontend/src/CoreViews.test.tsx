@@ -26,7 +26,19 @@ vi.mock('./domainApi', () => ({
   reviewRecordSource: vi.fn(),
 }))
 vi.mock('./EChart', () => ({
-  EChart: ({ summary, title, kind }: { summary: string; title: string; kind: string }) => <figure data-chart-kind={kind}><h3>{title}</h3>{summary}</figure>,
+  EChart: ({ summary, title, kind, onDataHover, onDataLeave, onDataClick, scrollableContentHeight, scrollableMaxHeight }: {
+    summary: string
+    title: string
+    kind: string
+    onDataHover?: (event: { key: string; clientX: number; clientY: number; anchorRect: { left: number; top: number; right: number; bottom: number; width: number; height: number } }) => void
+    onDataLeave?: () => void
+    onDataClick?: (key: string) => void
+    scrollableContentHeight?: number
+    scrollableMaxHeight?: number
+  }) => {
+    const key = title === '主要商家金额' ? '砖世界' : title === '记录类型分布' ? 'issue' : 'paid'
+    return <figure data-chart-kind={kind} data-scroll-content-height={scrollableContentHeight} data-scroll-max-height={scrollableMaxHeight}><h3>{title}</h3>{summary}<button type="button" aria-label={`${title}测试数据项`} onMouseEnter={() => onDataHover?.({ key, clientX: 100, clientY: 100, anchorRect: { left: 96, top: 96, right: 104, bottom: 104, width: 8, height: 8 } })} onMouseLeave={onDataLeave} onClick={() => onDataClick?.(key)}>数据项</button></figure>
+  },
 }))
 
 const analytics = {
@@ -59,6 +71,7 @@ const record: ProjectionRecord = {
 }
 
 beforeEach(() => {
+  vi.unstubAllGlobals()
   vi.mocked(api.listSpaces).mockResolvedValue([])
   vi.mocked(api.listEntities).mockResolvedValue([])
   vi.mocked(api.getOverview).mockResolvedValue({
@@ -87,15 +100,16 @@ beforeEach(() => {
   })
   vi.mocked(api.getLedgerSummary).mockResolvedValue({
     totals: {
-      procurement_total_minor: 110000, expense_minor: 50000,
-      refund_minor: 0, income_minor: 0, net_paid_minor: 50000, outstanding_minor: 60000,
-      overpaid_minor: 0, unallocated_expense_minor: 0, unallocated_refund_minor: 0,
-      unallocated_income_minor: 0,
+      expense_minor: 50000, refund_minor: 10000, income_minor: 0, net_expense_minor: 40000,
     },
-    procurements: [], ledger_entries: [], warnings: [],
+    ledger_entries: [],
     analytics: {
       money_trend: [],
-      payment_composition: [{ key: 'paid', label: '净付款', value: 2000000 }],
+      payment_composition: [
+        { key: 'expense', label: '付款', value: 50000 },
+        { key: 'refund', label: '退款', value: 10000 },
+        { key: 'income', label: '收入', value: 0 },
+      ],
       vendor_distribution: [],
     },
   })
@@ -205,26 +219,301 @@ describe('CoreViews', () => {
     expect(screen.queryByText(/produces/)).toBeNull()
   })
 
-  it('账本明确展示采购、支出和待付', async () => {
+  it('账本明确展示付款、退款、收入和净支出', async () => {
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '账本' }))
 
-    expect(await screen.findByText('¥1,100.00')).toBeTruthy()
-    expect(screen.getByText('¥500.00')).toBeTruthy()
-    expect(screen.getByText('¥600.00')).toBeTruthy()
-    expect(screen.getByText(/净付款20000元/)).toBeTruthy()
-    expect(screen.queryByText(/净付款2000000项/)).toBeNull()
+    expect(await screen.findByText('¥500.00')).toBeTruthy()
+    expect(screen.getByText('¥400.00')).toBeTruthy()
+    expect(screen.getByText('¥100.00')).toBeTruthy()
+    expect(screen.getAllByText(/付款总额/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/净支出/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText(/待付/)).toBeNull()
+  })
+
+  it('账本用每月净支出趋势替换逐笔资金流水卡片', async () => {
+    vi.mocked(api.getLedgerSummary).mockResolvedValueOnce({
+      totals: { expense_minor: 90000, refund_minor: 10000, income_minor: 5000, net_expense_minor: 75000 },
+      ledger_entries: [{ ...record, id: 'ledger-trend', record_type: 'ledger', title: '不应显示的流水卡片', ledger_kind: 'payment', direction: 'expense', status: 'paid', amount_minor: 90000 }],
+      analytics: {
+        money_trend: [
+          { key: '2026-05', label: '2026年5月', expense_minor: 50000, refund_minor: 10000, income_minor: 0 },
+          { key: '2026-06', label: '2026年6月', expense_minor: 40000, refund_minor: 0, income_minor: 5000 },
+        ],
+        payment_composition: [], vendor_distribution: [],
+      },
+    })
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '账本' }))
+
+    expect(await screen.findByRole('heading', { name: '每月净支出趋势' })).toBeTruthy()
+    expect(screen.getByText(/2026年5月400元/)).toBeTruthy()
+    expect(screen.getByText(/2026年6月350元/)).toBeTruthy()
+    expect(screen.queryByText('不应显示的流水卡片')).toBeNull()
+    expect(screen.queryByRole('heading', { name: '资金流水' })).toBeNull()
+  })
+
+  it('主要商家超过八项后启用共享图表纵向滚动参数', async () => {
+    vi.mocked(api.getLedgerSummary).mockResolvedValueOnce({
+      totals: { expense_minor: 90000, refund_minor: 0, income_minor: 0, net_expense_minor: 90000 },
+      ledger_entries: [],
+      analytics: {
+        money_trend: [], payment_composition: [],
+        vendor_distribution: Array.from({ length: 9 }, (_, index) => ({ key: `商家${index + 1}`, label: `商家${index + 1}`, value: 10000 })),
+      },
+    })
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '账本' }))
+
+    const chart = (await screen.findByRole('heading', { name: '主要商家金额' })).closest('figure')!
+    expect(chart.getAttribute('data-scroll-content-height')).toBe('378')
+    expect(chart.getAttribute('data-scroll-max-height')).toBe('360')
+  })
+
+  it('账本完整明细栏可渲染并打开长列表中的记录', async () => {
+    const ledgerEntries = Array.from({ length: 24 }, (_, index) => ({
+      ...record,
+      id: `ledger-long-${index + 1}`,
+      record_type: 'ledger',
+      ledger_kind: 'payment',
+      direction: 'expense' as const,
+      status: 'paid',
+      title: index === 23
+        ? '超长标题的第二十四条装修付款记录用于验证卡片换行和排版'
+        : `装修付款记录 ${index + 1}`,
+      amount_minor: 10000,
+    }))
+    vi.mocked(api.getLedgerSummary).mockResolvedValueOnce({
+      totals: { expense_minor: 240000, refund_minor: 0, income_minor: 0, net_expense_minor: 240000 },
+      ledger_entries: ledgerEntries,
+      analytics: {
+        money_trend: [],
+        payment_composition: [{ key: 'expense', label: '付款', value: 240000 }],
+        vendor_distribution: [],
+      },
+    })
+
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '账本' }))
+    fireEvent.click(await screen.findByRole('button', { name: /付款总额/ }))
+
+    const dialog = await screen.findByRole('dialog', { name: '付款总额' })
+    const records = dialog.querySelectorAll('.ledger-detail-record')
+    expect(records).toHaveLength(24)
+    const lastRecord = within(dialog).getByRole('button', { name: /超长标题的第二十四条/ })
+    expect(lastRecord.textContent).toContain('验证卡片换行和排版')
+    fireEvent.click(lastRecord)
+    await waitFor(() => expect(api.getRecord).toHaveBeenCalledWith('ledger-long-24'))
+  })
+
+  it('时间线按十条分批展示并可继续加载和回到顶部', async () => {
+    const records = Array.from({ length: 12 }, (_, index) => ({
+      ...record,
+      id: `event-${index + 1}`,
+      title: `时间线记录 ${index + 1}`,
+    }))
+    vi.mocked(api.getTimeline).mockResolvedValueOnce({
+      total: 12,
+      groups: [{
+        date_key: '2026-06', label: '2026年6月',
+        items: records.map((item) => ({ record: item, related_records: [] })),
+      }],
+      analytics: { ...analytics, total: 12 },
+    })
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+
+    expect(await screen.findByText('时间线记录 10')).toBeTruthy()
+    expect(screen.queryByText('时间线记录 11')).toBeNull()
+    const timelineList = document.querySelector('.timeline-list') as HTMLDivElement
+    const scrollIntoView = vi.fn()
+    timelineList.scrollIntoView = scrollIntoView
+    const scrollYSpy = vi.spyOn(window, 'scrollY', 'get').mockReturnValue(200)
+    const rectSpy = vi.spyOn(timelineList, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: -100, left: 0, top: -100, right: 800, bottom: 600,
+      width: 800, height: 700, toJSON: () => ({}),
+    })
+    fireEvent.click(screen.getByRole('button', { name: '查看更多' }))
+    expect(await screen.findByText('时间线记录 12')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '查看更多' })).toBeNull()
+    fireEvent.scroll(window)
+    const backToTop = await screen.findByRole('button', { name: '回到顶部' })
+    fireEvent.click(backToTop)
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    scrollYSpy.mockRestore()
+    rectSpy.mockRestore()
+  })
+
+  it('点击记录类型分布后立即筛选时间线，取消后恢复全部记录', async () => {
+    const issueRecord = {
+      ...record,
+      id: 'issue-timeline-1',
+      record_type: 'issue',
+      title: '筛选后的施工问题',
+      status: 'open',
+    }
+    const allTimeline = {
+      total: 1,
+      groups: [{ date_key: '2026-06', label: '2026年6月', items: [{ record, related_records: [] }] }],
+      analytics: { ...analytics, type_distribution: [{ key: 'issue', label: '施工问题', value: 1 }] },
+    }
+    const filteredTimeline = {
+      total: 1,
+      groups: [{ date_key: '2026-06', label: '2026年6月', items: [{ record: issueRecord, related_records: [] }] }],
+      analytics: { ...analytics, type_distribution: [{ key: 'issue', label: '施工问题', value: 1 }] },
+    }
+    vi.mocked(api.getTimeline)
+      .mockResolvedValueOnce(allTimeline)
+      .mockResolvedValueOnce(filteredTimeline)
+      .mockResolvedValueOnce(allTimeline)
+
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+
+    expect(await screen.findByText('现场查看')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '记录类型分布测试数据项' }))
+
+    expect(await screen.findByText('筛选后的施工问题')).toBeTruthy()
+    expect(screen.queryByText('现场查看')).toBeNull()
+    await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ record_type: 'issue' })))
+
+    fireEvent.click(screen.getByRole('button', { name: '当前按记录类型筛选，点击取消' }))
+    expect(await screen.findByText('现场查看')).toBeTruthy()
+    expect(screen.queryByText('筛选后的施工问题')).toBeNull()
+    await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ record_type: '' })))
+  })
+
+  it('账本统计卡片悬停预览并可进入完整明细', async () => {
+    const domRect = (left: number, top: number, width: number, height: number) => ({
+      left, top, right: left + width, bottom: top + height, width, height, x: left, y: top,
+      toJSON: () => ({}),
+    } as DOMRect)
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('ledger-detail-preview')) return domRect(0, 0, 300, 200)
+      if (this.textContent?.includes('付款总额')) return domRect(100, 100, 200, 80)
+      if (this.textContent?.includes('退款总额')) return domRect(650, 700, 200, 60)
+      return domRect(0, 0, 0, 0)
+    })
+    const ledger = {
+      ...record, id: 'ledger-1', record_type: 'ledger', ledger_kind: 'payment', title: '瓷砖付款', status: 'paid',
+      direction: 'expense' as const, amount_minor: 50000, vendor: { id: 'vendor-1', name: '砖世界' },
+    }
+    vi.mocked(api.getLedgerSummary).mockResolvedValueOnce({
+      totals: {
+        expense_minor: 50000, refund_minor: 0, income_minor: 0, net_expense_minor: 50000,
+      },
+      ledger_entries: [ledger],
+      analytics: {
+        money_trend: [],
+        payment_composition: [{ key: 'expense', label: '付款', value: 50000 }, { key: 'refund', label: '退款', value: 0 }, { key: 'income', label: '收入', value: 0 }],
+        vendor_distribution: [{ key: '砖世界', label: '砖世界', value: 50000 }],
+      },
+    })
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '账本' }))
+
+    const paymentCard = await screen.findByRole('button', { name: /付款总额/ })
+    fireEvent.mouseEnter(paymentCard)
+    const preview = await screen.findByLabelText('付款总额明细预览')
+    expect(within(preview).getByText('共 1 条记录')).toBeTruthy()
+    expect(within(preview).getByText('瓷砖付款')).toBeTruthy()
+    expect(preview.parentElement).toBe(document.body)
+    expect(preview.getAttribute('data-placement')).toBe('bottom-start')
+    expect(preview.getAttribute('style')).toContain('--preview-left: 100px')
+    expect(preview.getAttribute('style')).toContain('--preview-top: 188px')
+
+    fireEvent.mouseEnter(screen.getByText('退款总额').closest('button')!)
+    const flippedPreview = await screen.findByLabelText('退款总额明细预览')
+    expect(flippedPreview.getAttribute('data-placement')).toBe('top-start')
+    expect(flippedPreview.getAttribute('style')).toContain('--preview-top: 492px')
+
+    fireEvent.mouseEnter(paymentCard)
+    const returnedPreview = await screen.findByLabelText('付款总额明细预览')
+    fireEvent.click(within(returnedPreview).getByRole('button', { name: '查看全部明细' }))
+    const dialog = await screen.findByRole('dialog', { name: '付款总额' })
+    expect(dialog.parentElement).toBe(document.body)
+    expect(screen.getByRole('button', { name: '点击遮罩关闭明细' }).parentElement).toBe(document.body)
+    expect(within(dialog).getByText('1 条记录')).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: /瓷砖首款/ }))
+    await waitFor(() => expect(api.getRecord).toHaveBeenCalledWith('ledger-1'))
+    fireEvent.click(await screen.findByRole('button', { name: '关闭详情' }))
+    expect(await screen.findByRole('dialog', { name: '付款总额' })).toBeTruthy()
+    rectSpy.mockRestore()
+  })
+
+  it('账本图表悬停展示对应摘要且点击打开完整明细', async () => {
+    const ledger = {
+      ...record, id: 'ledger-1', record_type: 'ledger', ledger_kind: 'payment', title: '商家付款', status: 'paid',
+      direction: 'expense' as const, amount_minor: 50000, vendor: { id: 'vendor-1', name: '砖世界' },
+    }
+    vi.mocked(api.getLedgerSummary).mockResolvedValueOnce({
+      totals: {
+        expense_minor: 50000, refund_minor: 0, income_minor: 0, net_expense_minor: 50000,
+      },
+      ledger_entries: [ledger],
+      analytics: {
+        money_trend: [], payment_composition: [{ key: 'expense', label: '付款', value: 50000 }, { key: 'refund', label: '退款', value: 0 }, { key: 'income', label: '收入', value: 0 }],
+        vendor_distribution: [{ key: '砖世界', label: '砖世界', value: 50000 }],
+      },
+    })
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '账本' }))
+
+    const vendorBar = await screen.findByRole('button', { name: '主要商家金额测试数据项' })
+    fireEvent.mouseEnter(vendorBar)
+    const preview = await screen.findByLabelText('砖世界明细预览')
+    expect(within(preview).getByText('占比：100.0%')).toBeTruthy()
+    expect(within(preview).getByText('商家付款')).toBeTruthy()
+    fireEvent.click(vendorBar)
+    expect(await screen.findByRole('dialog', { name: '砖世界' })).toBeTruthy()
+  })
+
+  it('移动端点击统计卡片直接打开底部明细而不显示 hover 预览', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
+      matches: true, media: '(hover: none)', addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    }))
+    const ledger = {
+      ...record, id: 'ledger-mobile', record_type: 'ledger', ledger_kind: 'payment', title: '移动端付款', status: 'paid',
+      direction: 'expense' as const, amount_minor: 50000, vendor: { id: 'vendor-1', name: '砖世界' },
+    }
+    vi.mocked(api.getLedgerSummary).mockResolvedValueOnce({
+      totals: {
+        expense_minor: 50000, refund_minor: 0, income_minor: 0, net_expense_minor: 50000,
+      },
+      ledger_entries: [ledger],
+      analytics: {
+        money_trend: [], payment_composition: [{ key: 'expense', label: '付款', value: 50000 }, { key: 'refund', label: '退款', value: 0 }, { key: 'income', label: '收入', value: 0 }],
+        vendor_distribution: [{ key: '砖世界', label: '砖世界', value: 50000 }],
+      },
+    })
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '账本' }))
+    const card = await screen.findByRole('button', { name: /净支出/ })
+    fireEvent.mouseEnter(card)
+    expect(screen.queryByLabelText('净支出明细预览')).toBeNull()
+    fireEvent.click(card)
+    expect((await screen.findByRole('dialog', { name: '净支出' })).className).toContain('ledger-detail-panel')
+    fireEvent.click(screen.getByRole('button', { name: '关闭明细' }))
+    fireEvent.click(screen.getByRole('button', { name: '资金构成测试数据项' }))
+    expect(await screen.findByRole('dialog', { name: '付款' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '关闭明细' }))
+    fireEvent.click(screen.getByRole('button', { name: '主要商家金额测试数据项' }))
+    expect(await screen.findByRole('dialog', { name: '砖世界' })).toBeTruthy()
   })
 
   it('问题状态更新只提交问题记录类型和新状态', async () => {
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '问题' }))
     const statusSelect = await screen.findByLabelText('处理状态')
+    expect(document.querySelector('.issue-page-header .issue-filter-bar')).toBeTruthy()
     fireEvent.change(statusSelect, { target: { value: 'waiting' } })
 
     await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith(
       'issue-1', { record_type: 'issue', status: 'waiting' },
     ))
+    const columns = document.querySelectorAll('.issue-column')
+    expect(columns).toHaveLength(5)
+    columns.forEach((column) => expect(column.querySelector('.issue-column__body')).toBeTruthy())
   })
 
   it('基础搜索返回正式记录和原始来源', async () => {
@@ -282,13 +571,15 @@ describe('CoreViews', () => {
     fireEvent.change(within(detail).getByLabelText('发生日期'), { target: { value: '2026-07-01' } })
     const spaces = within(detail).getByRole('group', { name: '空间' })
     fireEvent.click(within(spaces).getByText('请选择（可多选）'))
-    fireEvent.click(within(spaces).getByLabelText('主卧'))
-    fireEvent.click(within(spaces).getByLabelText('次卧'))
-    fireEvent.click(within(spaces).getByRole('button', { name: '移除空间：次卧' }))
+    fireEvent.click(screen.getByLabelText('主卧'))
+    fireEvent.click(screen.getByLabelText('次卧'))
+    expect(within(spaces).getByRole('button', { name: '主卧、次卧' })).toBeTruthy()
+    // 已选项只保留在输入框摘要中，通过下拉选项取消选择。
+    fireEvent.click(screen.getByLabelText('次卧'))
     const participants = within(detail).getByRole('group', { name: '参与者' })
     fireEvent.click(within(participants).getByText('请选择（可多选）'))
-    fireEvent.click(within(participants).getByLabelText('张师傅'))
-    fireEvent.click(within(participants).getByLabelText('李师傅'))
+    fireEvent.click(screen.getByLabelText('张师傅'))
+    fireEvent.click(screen.getByLabelText('李师傅'))
     fireEvent.click(within(detail).getByRole('button', { name: '保存修改' }))
 
     await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('event-1', expect.objectContaining({

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import AIProviderConfig
 
-PROMPT_VERSION = "text-extraction-v1"
+PROMPT_VERSION = "text-extraction-v2"
 
 _PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "extraction.txt"
 SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
@@ -26,7 +26,6 @@ class AICandidate(BaseModel):
         "issue",
         "measurement",
         "decision",
-        "procurement",
         "research",
     ]
     summary: str = Field(min_length=1, max_length=500)
@@ -44,8 +43,6 @@ class AIRelation(BaseModel):
         "relates_to",
         "implements",
         "resolves",
-        "pays_for",
-        "tracks_delivery",
         "supersedes",
         "blocks",
         "produces",
@@ -90,7 +87,14 @@ class AIAdapterFailure(Exception):
 
 class AIAdapter(ABC):
     @abstractmethod
-    def extract_from_text(self, text: str, timeout_seconds: float) -> AIAdapterResult:
+    def extract_from_text(
+        self,
+        text: str,
+        timeout_seconds: float,
+        *,
+        reference_date: str | None = None,
+        timezone: str = "Asia/Shanghai",
+    ) -> AIAdapterResult:
         """从单条原始文字生成统一候选草稿。"""
 
 
@@ -114,10 +118,22 @@ class OpenAICompatibleAdapter(AIAdapter):
             headers["Authorization"] = f"Bearer {self.provider.api_key}"
         return headers
 
-    def extract_from_text(self, text: str, timeout_seconds: float) -> AIAdapterResult:
+    def extract_from_text(
+        self,
+        text: str,
+        timeout_seconds: float,
+        *,
+        reference_date: str | None = None,
+        timezone: str = "Asia/Shanghai",
+    ) -> AIAdapterResult:
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": text},
+            {
+                "role": "user",
+                "content": (
+                    f"参考日期：{reference_date or '未知'}\n时区：{timezone}\n原始文字：{text}"
+                ),
+            },
         ]
         prompt_text = json.dumps(
             {"prompt_version": PROMPT_VERSION, "messages": messages},

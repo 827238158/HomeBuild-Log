@@ -2,7 +2,13 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('./DomainWorkspace', () => ({ DomainWorkspace: () => null }))
+const domainWorkspaceProps = vi.hoisted(() => vi.fn())
+vi.mock('./DomainWorkspace', () => ({
+  DomainWorkspace: (props: { refreshKey: number; preferredSourceId?: string }) => {
+    domainWorkspaceProps(props)
+    return null
+  },
+}))
 vi.mock('./CoreViews', () => ({ CoreViews: ({ children }: { children: ReactNode }) => children }))
 
 import { App } from './App'
@@ -11,6 +17,7 @@ import { App } from './App'
 beforeEach(() => {
   sessionStorage.clear()
   localStorage.clear()
+  domainWorkspaceProps.mockClear()
 })
 
 afterEach(() => {
@@ -238,6 +245,7 @@ describe('App', () => {
     fireEvent.click(screen.getByText('保存记录'))
 
     expect(await screen.findByText('已保存')).toBeTruthy()
+    expect(domainWorkspaceProps.mock.calls.at(-1)?.[0]).toMatchObject({ preferredSourceId: 'source-1' })
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/attachments?source_id=source-1',
       expect.objectContaining({ method: 'POST', body: expect.any(FormData) }),

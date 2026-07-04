@@ -6,6 +6,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.ledger_rules import LEDGER_DIRECTION_BY_KIND, valid_statuses_for_ledger_kind
+
 
 class SourceRef(BaseModel):
     source_id: str
@@ -62,19 +64,45 @@ class EventUpdate(RecordCommonUpdate):
 
 class LedgerCreate(RecordCommonCreate):
     record_type: Literal["ledger"]
-    status: Literal["planned", "posted", "voided"]
-    direction: Literal["expense", "refund", "income"]
-    payment_kind: str
-    amount_minor: int = Field(gt=0)
+    ledger_kind: Literal["payment", "refund", "income"] = "payment"
+    status: Literal[
+        "planned", "posted", "paid", "voided",
+    ]
+    direction: Literal["expense", "refund", "income"] | None = None
+    payment_kind: str | None = None
+    amount_minor: int | None = Field(default=None, gt=0)
     currency: Literal["CNY"] = "CNY"
     payment_date: date | None = None
     payment_method: str | None = None
-    vendor_id: str = Field(min_length=1)
+    vendor_id: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def infer_legacy_ledger_kind(cls, data: object) -> object:
+        if isinstance(data, dict) and not data.get("ledger_kind"):
+            data = dict(data)
+            data["ledger_kind"] = {
+                "refund": "refund", "income": "income",
+            }.get(str(data.get("direction")), "payment")
+        return data
+
+    @model_validator(mode="after")
+    def validate_ledger_kind(self) -> LedgerCreate:
+        if self.status not in valid_statuses_for_ledger_kind(self.ledger_kind):
+            raise ValueError("账目状态与账目类型不一致")
+        if not self.vendor_id or not self.payment_kind or self.amount_minor is None:
+            raise ValueError("资金流水必须填写商家、款项性质和金额")
+        if self.direction != LEDGER_DIRECTION_BY_KIND[self.ledger_kind]:
+            raise ValueError("账目子类型与收支方向不一致")
+        return self
 
 
 class LedgerUpdate(RecordCommonUpdate):
     record_type: Literal["ledger"]
-    status: Literal["planned", "posted", "voided"] | None = None
+    ledger_kind: Literal["payment", "refund", "income"] | None = None
+    status: Literal[
+        "planned", "posted", "paid", "voided",
+    ] | None = None
     direction: Literal["expense", "refund", "income"] | None = None
     payment_kind: str | None = None
     amount_minor: int | None = Field(default=None, gt=0)
@@ -179,63 +207,6 @@ class DecisionUpdate(RecordCommonUpdate):
     confirmed_at: datetime | None = None
 
 
-class ProcurementCreate(RecordCommonCreate):
-    record_type: Literal["procurement"]
-    status: Literal[
-        "planned",
-        "ordered",
-        "partially_paid",
-        "paid",
-        "delivery_pending",
-        "delivered",
-        "returned",
-        "completed",
-        "cancelled",
-    ]
-    item_name: str
-    specification: str | None = None
-    quantity: Decimal | None = Field(default=None, gt=0)
-    quantity_unit: str | None = None
-    vendor_id: str | None = None
-    order_number: str | None = None
-    order_total_minor: int | None = Field(default=None, ge=0)
-    currency: Literal["CNY"] = "CNY"
-    promised_date: date | None = None
-    delivery_address: str | None = None
-    return_terms: str | None = None
-    acceptance_result: str | None = None
-
-
-class ProcurementUpdate(RecordCommonUpdate):
-    record_type: Literal["procurement"]
-    status: (
-        Literal[
-            "planned",
-            "ordered",
-            "partially_paid",
-            "paid",
-            "delivery_pending",
-            "delivered",
-            "returned",
-            "completed",
-            "cancelled",
-        ]
-        | None
-    ) = None
-    item_name: str | None = None
-    specification: str | None = None
-    quantity: Decimal | None = Field(default=None, gt=0)
-    quantity_unit: str | None = None
-    vendor_id: str | None = None
-    order_number: str | None = None
-    order_total_minor: int | None = Field(default=None, ge=0)
-    currency: Literal["CNY"] | None = None
-    promised_date: date | None = None
-    delivery_address: str | None = None
-    return_terms: str | None = None
-    acceptance_result: str | None = None
-
-
 class ResearchCreate(RecordCommonCreate):
     record_type: Literal["research"]
     status: Literal["collecting", "comparing", "concluded", "archived"]
@@ -264,7 +235,6 @@ RecordCreate = Annotated[
     | IssueCreate
     | MeasurementCreate
     | DecisionCreate
-    | ProcurementCreate
     | ResearchCreate,
     Field(discriminator="record_type"),
 ]
@@ -274,7 +244,6 @@ RecordUpdate = Annotated[
     | IssueUpdate
     | MeasurementUpdate
     | DecisionUpdate
-    | ProcurementUpdate
     | ResearchUpdate,
     Field(discriminator="record_type"),
 ]

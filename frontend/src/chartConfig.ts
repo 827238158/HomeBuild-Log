@@ -60,11 +60,14 @@ export function horizontalBarOption(
   rows: DistributionItem[],
   unit = '项',
   preserveOrder = false,
+  showTooltip = true,
 ): EChartsCoreOption {
   const ordered = preserveOrder ? rows : [...rows].sort((a, b) => a.value - b.value)
   return {
     color: [chartPalette.primary],
-    tooltip: { ...tooltip, trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (value: unknown) => `${value}${unit}` },
+    tooltip: showTooltip
+      ? { ...tooltip, trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (value: unknown) => `${value}${unit}` }
+      : { show: false, showContent: false },
     grid: { left: 12, right: 54, top: 12, bottom: 20, containLabel: true },
     xAxis: {
       type: 'value', minInterval: unit === '项' ? 1 : undefined,
@@ -86,11 +89,13 @@ export function horizontalBarOption(
   }
 }
 
-export function donutOption(rows: DistributionItem[], unit = '项'): EChartsCoreOption {
+export function donutOption(rows: DistributionItem[], unit = '项', showTooltip = true): EChartsCoreOption {
   const total = rows.reduce((sum, item) => sum + item.value, 0)
   return {
     color: chartCategoryColors,
-    tooltip: { ...tooltip, trigger: 'item', valueFormatter: (value: unknown) => `${value}${unit}` },
+    tooltip: showTooltip
+      ? { ...tooltip, trigger: 'item', valueFormatter: (value: unknown) => `${value}${unit}` }
+      : { show: false, showContent: false },
     legend: { bottom: 0, type: 'scroll', textStyle: { color: '#5f6d75' }, icon: 'circle' },
     graphic: [{
       type: 'text', left: 'center', top: '40%',

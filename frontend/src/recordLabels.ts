@@ -1,10 +1,18 @@
+export const recordTypeLabels: Record<string, string> = {
+  event: '事件',
+  ledger: '账目',
+  issue: '问题',
+  measurement: '尺寸',
+  decision: '决策',
+  research: '调研',
+}
+
 const generalStatusLabels: Record<string, string> = {
   planned: '计划中', occurred: '已发生', completed: '已完成', cancelled: '已取消',
   posted: '已入账', voided: '已作废', open: '待处理', in_progress: '处理中',
   waiting: '等待中', resolved: '已解决', closed: '已关闭', active: '当前有效',
-  superseded: '已替代', pending: '待处理', confirmed: '已确认', ordered: '已下单',
-  partially_paid: '部分付款', paid: '已付款', delivery_pending: '待送货',
-  delivered: '已送达', returned: '已退货', collecting: '收集中', comparing: '比较中',
+  superseded: '已替代', pending: '待处理', confirmed: '已确认', paid: '已付款',
+  collecting: '收集中', comparing: '比较中',
   concluded: '已有结论', archived: '已归档', done: '已完成',
 }
 
@@ -13,7 +21,10 @@ const statusOverrides: Record<string, Record<string, string>> = {
   issue: { pending: '待处理' },
 }
 
-export function recordStatusLabel(recordType: string, status: string): string {
+export function recordStatusLabel(recordType: string, status: string, _ledgerKind?: unknown): string {
+  if (recordType === 'ledger' && status === 'paid') {
+    return '已出账'
+  }
   return statusOverrides[recordType]?.[status] ?? generalStatusLabels[status] ?? '未知状态'
 }
 

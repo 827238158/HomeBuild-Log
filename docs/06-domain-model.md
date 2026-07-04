@@ -1,6 +1,6 @@
 # 领域模型
 
-> 本文定义首版业务语义和关系。阶段 2A 已按公共`records`表、八张详情表、共享实体和关联表落地；任何后续语义调整仍须通过样本验证并留下决策记录。
+> 本文定义首版业务语义和关系。阶段 2A 已按公共`records`表、类型详情表（当前六类，原八类中的采购/待办已并入）、共享实体和关联表落地；任何后续语义调整仍须通过样本验证并留下决策记录。
 
 ## 当前实现说明
 
@@ -22,14 +22,14 @@ Project
   │      ├─ Issue
   │      ├─ Measurement
   │      ├─ Decision
-  │      ├─ Procurement
-  │      ├─ Research
-  │      └─ Todo
+  │      └─ Research
   ├─ Space ── Material
   ├─ Vendor / Participant
   ├─ ProjectStage
   └─ RecordRelation
 ```
+
+> 历史说明：原八类记录中的"采购"已并入"账目"（migration 0015/0017），"待办"已并入"问题"（migration 0014）。当前产品层保留六类正式记录。
 
 一条`SourceEntry`可以产生多个候选和多个正式记录。正式记录之间通过`RecordRelation`连接，共享来源、空间、人物、阶段、材料和附件，但各自保留独立状态。
 
@@ -76,7 +76,9 @@ Project
 
 公共发生时间只保存用户确认到日的日期，不伪造时或分钟；无法确定具体日期时留空。付款日、截止日等类型专属日期保持原语义。
 
-## 八类业务记录
+## 六类业务记录
+
+> 当前产品层保留六类正式记录（event / ledger / issue / measurement / decision / research）。原八类中的"采购"已并入账目，"待办"已并入问题。
 
 ### Event 事件
 
@@ -93,33 +95,32 @@ Project
 
 ### LedgerEntry 账目
 
-用途：保存每笔真实资金流，而不是订单应付总额。
+用途：统一保存付款、退款和收入三种真实资金流水。
 
 候选字段：
 
-- `direction`：`expense`支出、`refund`退款或`income`收入。
+- `ledger_kind`：`payment`付款、`refund`退款或`income`收入。
+- 资金流水使用`direction`、`payment_kind`和`amount_minor`。
 - `payment_kind`：预付款、阶段款、尾款、补款、退款或其他。
 - `amount_minor`、支付日期、支付方式；`currency`兼容字段固定为`CNY`，产品只支持人民币。
-- 关联采购、商家、附件和备注。
-- `status`：`planned`、`posted`、`voided`。
+- 付款状态为`planned`（计划中）、`paid`（已出账）、`voided`（已作废）。
+- 退款和收入状态为`planned`（计划中）、`posted`（已入账）、`voided`（已作废）。
 
-规则：推算余额不创建资金流水；作废或纠错必须保留审计。
+规则：推算余额和订单总价不创建资金流水；类型、方向和完成状态必须一致；净支出为付款减退款再减收入；作废或纠错必须保留审计。
 
-### Issue 施工问题
+### Issue 问题
 
-用途：记录缺陷、争议、影响、处理和复核过程。
+用途：记录缺陷、争议、影响、处理和复核过程。原待办（Todo）已通过 migration 0014 并入问题类型，统一使用问题记录。
 
 候选字段：
 
 - 发现时间、空间、现象、严重度和证据。
 - 责任对象、沟通记录、处理方案和实际结果。
-- 处理人复用记录的参与者关联；`expected_resolution_at`保存预计解决日期，`resolved_at`保存实际解决日期，二者均只精确到日。
+- 处理人复用记录的参与者关联；`completed_at`保存实际完成日期，只精确到日。
 - `resolution_kind`：返工、替换、遮挡、接受现状、退款或其他。
-- `status`：`open`、`in_progress`、`waiting`、`resolved`、`closed`。
+- `status`：`pending`（待处理）、`in_progress`（处理中）、`done`（已完成）。
 
-规则：`resolved`表示方案已执行，`closed`表示用户完成复核；“决定不返工”是处置决策，不等于门套遮挡已经完成。问题首次进入已解决/已关闭时按北京时间自动记录实际解决日期，重新打开时清空。
-
-边界：问题描述“哪里出了什么缺陷以及最终如何解决”；待办描述“下一步由谁执行什么动作”。一个问题可关联零个或多个待办，二者不互相替代。
+规则：`done`表示问题处理完毕；问题首次进入`done`时按北京时间自动记录实际完成日期，重新打开时清空。"决定不返工"是处置决策，不等于门套遮挡已经完成。
 
 ### Measurement 尺寸
 
@@ -148,20 +149,6 @@ Project
 
 规则：逐步补充的方案不能静默覆盖旧决定，应保留版本或替代关系。
 
-### Procurement 采购
-
-用途：保存商品、订单总额和履约，而不是实际资金流水。
-
-候选字段：
-
-- 商品/材料、规格、数量、单位、商家和订单号。
-- 订单总额、约定日期、送货地址、退补条款和验收结果。
-- `status`：`planned`、`ordered`、`partially_paid`、`paid`、`delivery_pending`、`delivered`、`returned`、`completed`、`cancelled`。
-- 关联决策、账目、待办和附件。
-
-规则：已付金额来自关联`LedgerEntry`汇总；订单余额为计算结果并标记计算来源。
-金额规则：订单总额与关联账目统一为人民币，不支持汇率换算；`currency`兼容字段固定为`CNY`。
-
 ### Research 调研
 
 用途：保存需要长期复用的调研问题、选项、证据和结论。
@@ -174,18 +161,9 @@ Project
 
 规则：仅有“逛了一上午”但没有问题、选项、证据或结论时，可以只作为事件，不强制创建调研。
 
-### Todo 待办
+### Todo 待办（已废弃，并入 Issue）
 
-用途：保存尚需执行或条件触发的动作。
-
-候选字段：
-
-- 动作、负责人、计划信息、截止日期、触发条件和优先级。
-- 完成时间、完成证据及关联记录。
-- 执行人复用记录的参与者关联；`due_at`表示截止日期，`completed_at`表示实际完成日期，二者均只精确到日。候选阶段不接收实际完成日期；正式待办进入`done`后自动记录当天日期并允许修正，离开`done`时清空。
-- `status`：`pending`、`in_progress`、`waiting`、`done`、`cancelled`。
-
-规则：未来语义不自动等于待办；必须能表达明确动作或用户确认需要跟踪。
+> 原待办类型已通过 migration 0014 并入问题（Issue）。待办的动作、负责人、截止日期等语义现由问题记录承担。此节仅保留历史参考，不再作为当前模型使用。
 
 ## 共享实体
 
@@ -214,7 +192,7 @@ Project
 
 ### RecordRelation
 
-首版至少支持：`derived_from`、`relates_to`、`implements`、`resolves`、`pays_for`、`tracks_delivery`、`supersedes`、`blocks`和`produces`。
+首版至少支持：`derived_from`、`relates_to`、`implements`、`resolves`、`supersedes`、`blocks`和`produces`。
 
 ### 建议确认来源键
 

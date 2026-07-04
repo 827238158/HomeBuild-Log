@@ -1,5 +1,5 @@
-﻿import { authHeaders } from './api'
 import { API_BASE } from './config'
+import { requestJson as request } from './http'
 
 export interface SourceEntry {
   id: string
@@ -10,8 +10,11 @@ export interface SourceEntry {
   reported_time_text: string | null
   updated_at: string
   revision: number
-  analysis_status?: 'unprocessed' | 'pending' | 'partially_confirmed' | 'confirmed'
+  analysis_status?: 'unprocessed' | 'pending' | 'partially_confirmed' | 'confirmed' | 'reviewed'
   generated_record_count?: number
+  pending_candidate_count?: number
+  confirmed_candidate_count?: number
+  ignored_candidate_count?: number
 }
 
 export interface AttachmentEntry {
@@ -56,9 +59,8 @@ export interface ProjectionRecord extends DomainRecord {
   amount_minor?: number
   currency?: string
   direction?: 'expense' | 'refund' | 'income'
-  order_total_minor?: number | null
-  outstanding_minor?: number
-  net_paid_minor?: number
+  vendor_id?: string | null
+  vendor?: { id: string; name: string } | null
   refund_minor?: number
   phenomenon?: string
   severity?: string | null
@@ -95,20 +97,12 @@ export interface TimelineResponse {
 
 export interface LedgerResponse {
   totals: {
-    procurement_total_minor: number
     expense_minor: number
     refund_minor: number
     income_minor: number
-    net_paid_minor: number
-    outstanding_minor: number
-    overpaid_minor: number
-    unallocated_expense_minor: number
-    unallocated_refund_minor: number
-    unallocated_income_minor: number
+    net_expense_minor: number
   }
-  procurements: ProjectionRecord[]
   ledger_entries: ProjectionRecord[]
-  warnings: string[]
   analytics: {
     money_trend: Array<{
       key: string; label: string; expense_minor: number; refund_minor: number; income_minor: number
@@ -146,6 +140,7 @@ export interface SpaceArchiveResponse {
     issue_status_distribution: DistributionItem[]
     expense_minor: number
     refund_minor: number
+    income_minor: number
   }
 }
 
@@ -287,7 +282,7 @@ export interface CandidateBundle {
   requested_engine: 'auto' | 'ai' | 'local'
   engine: string
   fallback_reason: string | null
-  status: 'pending' | 'partially_confirmed' | 'confirmed' | 'superseded'
+  status: 'pending' | 'partially_confirmed' | 'confirmed' | 'reviewed' | 'superseded'
   version: number
   created_at: string
   updated_at: string
@@ -316,13 +311,6 @@ export interface ExtractionRun {
   finished_at: string
 }
 
-export interface SuggestionBundle {
-  source_id: string
-  engine: string
-  suggestions: LocalSuggestion[]
-  relations: Array<{ from_key: string; to_key: string; relation_type: string }>
-}
-
 export interface SourceDeletionImpact {
   source_id: string
   attachments: number
@@ -339,21 +327,7 @@ export interface SourceDeletionResult extends SourceDeletionImpact {
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      ...(init?.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...authHeaders(),
-      ...init?.headers,
-    },
-  })
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    const detail = error.detail
-    throw new Error(typeof detail === 'string' ? detail : '请求失败，请检查候选字段。')
-  }
-  if (response.status === 204) return undefined as T
-  return (await response.json()) as T
+  return request<T>(url.startsWith(API_BASE) ? url.slice(API_BASE.length) : url, init)
 }
 
 export const listSources = () => requestJson<SourceEntry[]>(`${API_BASE}/sources`)
@@ -377,15 +351,6 @@ export const createRecord = (payload: Record<string, unknown>) =>
     method: 'POST',
     body: JSON.stringify(payload),
   })
-export const getSuggestions = (sourceId: string) =>
-  requestJson<SuggestionBundle>(`${API_BASE}/sources/${sourceId}/suggestions`)
-export const confirmSuggestions = (
-  sourceId: string,
-  selections: Array<{ key: string; payload: Record<string, unknown> }>,
-) => requestJson<{ records: Array<{ key: string; created: boolean; record: DomainRecord }> }>(
-  `${API_BASE}/sources/${sourceId}/suggestions/confirm`,
-  { method: 'POST', body: JSON.stringify({ selections }) },
-)
 export const createExtraction = (
   sourceId: string,
   engine: 'auto' | 'ai' | 'local' = 'auto',
@@ -403,12 +368,13 @@ export const confirmCandidateBundle = (
   bundleId: string,
   expectedVersion: number,
   selections: Array<{ key: string; payload: Record<string, unknown> }>,
+  ignoredKeys: string[] = [],
 ) => requestJson<{
   records: Array<{ key: string; created: boolean; record: DomainRecord }>
   bundle: CandidateBundle
 }>(`${API_BASE}/candidate-bundles/${bundleId}/confirm`, {
   method: 'POST',
-  body: JSON.stringify({ expected_version: expectedVersion, selections }),
+  body: JSON.stringify({ expected_version: expectedVersion, selections, ignored_keys: ignoredKeys }),
 })
 export const deferCandidate = (bundleId: string, candidateKey: string, expectedVersion: number) =>
   requestJson<CandidateBundle>(
