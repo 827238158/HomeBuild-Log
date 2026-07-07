@@ -63,4 +63,5 @@
 | 2026-07-04 | 时间线与账本看板 UI 优化 | Codex /root | 回顶按钮调整为侧边偏下固定位置；资金流水卡片墙替换为月净支出趋势；共享 EChart 增加可选动态高度与限高纵向滚动，商家超过 8 项时启用；新增 3 项验收用例通过，lint/build 通过，CoreViews 全量测试另有 2 项既存断言失败 | 已完成 |
 | 2026-07-04 | 修复时间线记录类型图表筛选 | Codex /root | 图表点击与取消筛选统一立即刷新时间线请求并重置分批展示；新增筛选、数据替换与恢复回归测试；定向 2 项、lint、build 通过，CoreViews 全量 17 通过、2 项既存账本断言失败 | 已完成 |
 | 2026-07-04 | 项目文档一致性审计与整理 | deepseek-v4-pro | 全面审计 26 份文档 vs 当前代码事实；重写 progress-summary.md（更新为阶段3B实际状态，移除已删除功能描述）；更新 06-domain-model.md（六类记录、三状态Issue、移除采购/待办独立章节）；修正 03-api-contracts.md（字段名和状态引用）；修正 07-ux-visualization.md（看板列、图表依赖、"独立视图"标注）；修正 08-roadmap（类型列表）；补充 05-decisions（待办/问题合并决策）；修正 02-style-guide（术语列表） | 已完成 |
+| 2026-07-04 | 问题看板高严重度视觉标识 | deepseek-v4-pro | issue-card 加 data-severity 属性；CSS 新增 .issue-card[data-severity="high"]（红色左边框+浅红底色）；horizontalBarOption 支持 itemColors 参数；严重程度柱状图"高"栏标记 risk 红色；lint/build/测试 71 通过（2项既存账本断言失败与本次无关） | 已完成 |
 | 2026-07-04 | 修复账本完整明细栏长列表卡片错位 | Codex /root | 记录区改为占用剩余高度的单列内容行 Grid 并独立滚动，长标题安全换行；新增 24 条长列表回归用例；lint/build 及新增用例通过，同批有 1 项既存移动端账本 mock 断言失败；按用户要求停止后续测试与浏览器验收 | 已完成 |

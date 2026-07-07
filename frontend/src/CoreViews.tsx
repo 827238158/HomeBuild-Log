@@ -5,7 +5,7 @@ import { Select } from './Select'
 import { AiAnalyticsView, OverviewView, RecordsAnalyticsView } from './AnalyticsViews'
 import { defaultPayload, payloadForSave, RecordEditFields, type RecordType } from './DomainWorkspace'
 import { LazyEChart as EChart } from './LazyEChart'
-import { chartSummary, donutOption, horizontalBarOption, lineOption } from './chartConfig'
+import { chartPalette, chartSummary, donutOption, horizontalBarOption, lineOption } from './chartConfig'
 import {
   getIssueBoard,
   getLedgerSummary,
@@ -68,6 +68,7 @@ const auditActionLabels: Record<string, string> = { create: '创建记录', upda
 function AnalyticsChart({
   title, rows, onClick, unit = '项', kind, description, selectedKey, onHover, onLeave, disableTooltip = false,
   verticalScrollAfter,
+  itemColors,
 }: {
   title: string
   rows: DistributionItem[]
@@ -80,10 +81,11 @@ function AnalyticsChart({
   onLeave?: () => void
   disableTooltip?: boolean
   verticalScrollAfter?: number
+  itemColors?: Record<string, string>
 }) {
   const option = kind === 'line' ? lineOption(rows, unit)
     : kind === 'donut' ? donutOption(rows, unit, !disableTooltip)
-    : horizontalBarOption(rows, unit, false, !disableTooltip)
+    : horizontalBarOption(rows, unit, false, !disableTooltip, itemColors)
   // 类目超过可读阈值后增加真实画布高度，由共享图表容器负责限高滚动。
   const scrollable = verticalScrollAfter !== undefined && rows.length > verticalScrollAfter
   return <EChart title={title} description={description} kind={kind} option={option} summary={chartSummary(title, rows, unit)} onDataClick={onClick} onDataHover={onHover} onDataLeave={onLeave} selectedKey={selectedKey} scrollableContentHeight={scrollable ? Math.max(290, rows.length * 42) : undefined} scrollableMaxHeight={scrollable ? 360 : undefined} />
@@ -497,9 +499,9 @@ function IssuesView({ onOpen }: { onOpen: (id: string) => void }) {
   return <section className="view-panel"><div className="issue-page-header"><header><p className="eyebrow">统一跟踪处理事项</p><h2>问题看板</h2><p>待办、普通问题和施工问题统一在这里处理；完成时登记结果和日期。</p></header>
     <div className="filter-grid issue-filter-bar"><label className="field-stack"><span>空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><button className="filter-button" type="button" onClick={() => setReload((value) => value + 1)}>应用筛选</button></div></div>
     <LoadState loading={loading} error={error} empty={data?.total === 0} />
-    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="问题状态分布" description="点击状态可聚焦对应处理列" kind="donut" rows={data.analytics.status_distribution} onClick={setStatusFilter} selectedKey={statusFilter} /><AnalyticsChart title="问题严重程度" description="按问题数量比较风险等级" kind="bar" rows={data.analytics.severity_distribution} /></div>}
+    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="问题状态分布" description="点击状态可聚焦对应处理列" kind="donut" rows={data.analytics.status_distribution} onClick={setStatusFilter} selectedKey={statusFilter} /><AnalyticsChart title="问题严重程度" description="按问题数量比较风险等级" kind="bar" rows={data.analytics.severity_distribution} itemColors={{ high: chartPalette.risk }} /></div>}
     {statusFilter && <button type="button" className="clear-filter" onClick={() => setStatusFilter('')}>当前按问题状态筛选，点击返回</button>}
-    <div className="issue-board">{data?.columns.filter((column) => !statusFilter || column.status === statusFilter).map((column) => <section className="issue-column" key={column.status}><h3>{column.label}<span>{column.items.length}</span></h3><div className="issue-column__body">{column.items.length === 0 && <p className="muted">暂无</p>}{column.items.map((record) => <article className="issue-card" key={record.id}><button type="button" className="title-button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong></button><p>{record.phenomenon}</p>{record.spaces.length > 0 && <small>{record.spaces.map((item) => item.name).join(' · ')}</small>}<label className="field-stack"><span>处理状态</span><Select value={record.status} onChange={(event) => void changeStatus(record, event.target.value)}>{data.columns.map((item) => <option key={item.status} value={item.status}>{item.label}</option>)}</Select></label></article>)}</div></section>)}</div>
+    <div className="issue-board">{data?.columns.filter((column) => !statusFilter || column.status === statusFilter).map((column) => <section className="issue-column" key={column.status}><h3>{column.label}<span>{column.items.length}</span></h3><div className="issue-column__body">{column.items.length === 0 && <p className="muted">暂无</p>}{column.items.map((record) => <article className="issue-card" key={record.id} data-severity={record.severity}><button type="button" className="title-button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong></button><p>{record.phenomenon}</p>{record.spaces.length > 0 && <small>{record.spaces.map((item) => item.name).join(' · ')}</small>}<label className="field-stack"><span>处理状态</span><Select value={record.status} onChange={(event) => void changeStatus(record, event.target.value)}>{data.columns.map((item) => <option key={item.status} value={item.status}>{item.label}</option>)}</Select></label></article>)}</div></section>)}</div>
   </section>
 }
 

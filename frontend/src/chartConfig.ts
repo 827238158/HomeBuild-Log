@@ -61,6 +61,7 @@ export function horizontalBarOption(
   unit = '项',
   preserveOrder = false,
   showTooltip = true,
+  itemColors?: Record<string, string>,
 ): EChartsCoreOption {
   const ordered = preserveOrder ? rows : [...rows].sort((a, b) => a.value - b.value)
   return {
@@ -81,7 +82,13 @@ export function horizontalBarOption(
     },
     series: [{
       type: 'bar', barMaxWidth: 24,
-      data: ordered.map((item) => ({ value: item.value, key: item.key, name: item.label })),
+      data: ordered.map((item) => {
+        const override = itemColors?.[item.key]
+        return {
+          value: item.value, key: item.key, name: item.label,
+          ...(override ? { itemStyle: { color: override, borderRadius: [0, 4, 4, 0] } } : {}),
+        }
+      }),
       itemStyle: { color: chartPalette.primary, borderRadius: [0, 4, 4, 0] },
       label: { show: true, position: 'right', color: chartPalette.text, formatter: `{c}${unit}` },
       emphasis: { itemStyle: { color: chartPalette.accent } },
