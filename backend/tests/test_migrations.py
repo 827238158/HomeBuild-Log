@@ -31,7 +31,7 @@ def test_migrations_upgrade_temporary_database_to_head(
     finally:
         engine.dispose()
 
-    assert revision == "0015_merge_procurement"
+    assert revision == "0018_unify_relations"
 
     engine = create_engine(url)
     try:
@@ -45,6 +45,48 @@ def test_migrations_upgrade_temporary_database_to_head(
     finally:
         engine.dispose()
     assert root == ("整套房屋", "house", None)
+
+
+def test_relation_migration_normalizes_direction_and_merges_duplicates(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database_file = tmp_path / "migration-relations.sqlite3"
+    url = database_url(database_file)
+    monkeypatch.setenv("HOMEBUILD_DATABASE_URL", url)
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    command.upgrade(config, "0017_remove_purchase_orders")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO records "
+            "(id, project_id, record_type, title, timezone, status, created_at, updated_at) VALUES "
+            "('record-a', '00000000000000000000000000000001', 'event', '甲', "
+            "'Asia/Shanghai', 'occurred', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), "
+            "('record-b', '00000000000000000000000000000001', 'issue', '乙', "
+            "'Asia/Shanghai', 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ))
+        connection.execute(text(
+            "INSERT INTO record_relations "
+            "(id, project_id, from_record_id, to_record_id, relation_type, created_at) VALUES "
+            "('relation-oldest', '00000000000000000000000000000001', "
+            "'record-b', 'record-a', 'implements', '2026-01-01 00:00:00'), "
+            "('relation-reverse', '00000000000000000000000000000001', "
+            "'record-a', 'record-b', 'resolves', '2026-01-02 00:00:00'), "
+            "('relation-type', '00000000000000000000000000000001', "
+            "'record-b', 'record-a', 'relates_to', '2026-01-03 00:00:00')"
+        ))
+    engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        rows = connection.execute(text(
+            "SELECT id, from_record_id, to_record_id, relation_type FROM record_relations"
+        )).all()
+    engine.dispose()
+    assert rows == [("relation-oldest", "record-a", "record-b", "relates_to")]
 
 
 def test_domain_migration_backfills_existing_sources_and_round_trips(

@@ -1,117 +1,39 @@
 # HomeBuild Log
 
-装修事件与知识管理系统。用户通过自然语言、图片或票据描述装修过程中发生的事情，系统将其整理为事件、账目、问题、尺寸、决策和调研记录，并通过时间线、账本、问题看板和空间档案呈现。账目只记录付款、退款和收入，待办、普通问题和施工问题统一为“问题”。
+HomeBuild Log 是面向个人业主的本地优先装修事实工作台。用户录入文字并可附加图片或 PDF 票据作为原始证据；系统保留来源，对文字生成候选信息，经用户确认后形成事件、账目、问题、尺寸、决策和调研记录。
 
-## 当前阶段
+## 当前可用范围
 
-项目已完成阶段 1 本地数据底座、阶段 2 手工记录闭环、阶段 3A 文本 AI 录入和阶段 3B 全项目数据可视化。当前默认进入中文概览，可查看问题、到货风险和最近动态；时间线、人民币账本、问题、空间、六类记录及 AI 运行数据均提供可下钻分析。阶段 4 OCR/PWA 及阶段 5 稳定化仍待单独授权。
+- 技术基线：React、TypeScript、Vite、FastAPI、SQLite 和本地附件目录。
+- Windows 11 本地运行是当前正式可用方式。
+- Ubuntu 26.04 已完成空数据 Docker 镜像构建、前端/API 健康检查和容器重启持久化验证。
+- 真实数据迁移、Ubuntu 整机重启恢复、机械硬盘数据目录、局域网访问和资源占用仍需验收。
+- AI 当前只分析文字；OCR、图像理解、离线同步和完整 PWA 能力尚未实现。
 
-规划基线：个人私用的响应式Web/PWA，Windows本地自托管，React/TypeScript/Vite PWA前端、FastAPI后端、SQLite与本地附件目录、可插拔AI，以及跨模型Agent单写者串行协作。
+## 快速开始
 
-## 文档地图
+已安装依赖后，可双击根目录 `HomeBuild-Log.cmd` 使用 Windows 本地控制菜单启动、停止、查看状态和打开页面。
 
-- [AGENTS.md](AGENTS.md)：Agent 协作规则与按需检索流程。
-- [项目规格](docs/00-project-spec.md)：目标用户、核心能力、非目标与未知项。
-- [概念架构](docs/01-architecture.md)：模块、数据流与不可随意改动的边界。
-- [代码与文档风格](docs/02-style-guide.md)：术语、注释、错误处理和文档规则。
-- [接口契约](docs/03-api-contracts.md)：当前契约边界及未来记录要求。
-- [开发流程](docs/04-dev-workflow.md)：任务、检查、测试、构建和提交约定。
-- [决策记录](docs/05-decisions.md)：已确认决策及待决策事项。
-- [领域模型](docs/06-domain-model.md)：来源、候选、六类记录、共享实体、状态和关联。
-- [交互与可视化](docs/07-ux-visualization.md)：录入、确认、核心页面和响应式体验。
-- [路线图与跨模型协作](docs/08-roadmap-agent-collaboration.md)：实施阶段、任务门禁、活动锁和交接规则。
-- [真实事件样本](docs/samples/real-events.md)：保留原始描述并记录候选信息与一事多记录分析。
-- [任务总览](tasks/README.md)：任务状态、当前任务和候选任务池。
-- [当前活动任务](tasks/ACTIVE.md)：唯一写入Agent、任务范围和锁状态。
-- [检查清单](checklists/task-start.md)：任务开始、实现审查、文档更新和发布检查入口。
+手动启动、依赖安装、测试、构建、Docker 部署和迁移命令统一维护在 [memory/RUNBOOK.md](memory/RUNBOOK.md)。本地开发前端默认访问 `http://127.0.0.1:5173`，后端健康接口为 `http://127.0.0.1:8000/api/v1/health`，OpenAPI 文档为 `http://127.0.0.1:8000/docs`。
 
-## 开始下一项工作
+## AI 基线
 
-1. 阅读 `AGENTS.md`，先输出本任务的 `Need:` 列表。
-2. 读取`tasks/ACTIVE.md`确认写入权；只读任务不得认领写入锁。
-3. 从 `tasks/TASK-TEMPLATE.md` 创建任务，明确范围、非目标、允许修改文件与验收标准。
-4. 只读取当前步骤需要的资料，完成后执行 `checklists/implementation-review.md`并释放活动锁。
+AI 默认关闭；MiMo 和 DeepSeek 作为 OpenAI 兼容供应商，未启用或未配置 Key 时，`auto` 模式使用本地规则。配置方式与环境变量名见 [memory/RUNBOOK.md](memory/RUNBOOK.md)。
 
-当前候选方向只是待梳理事项，不代表已批准实施；请先在 `tasks/README.md` 中确认或调整优先级。
+## 文档与记忆入口
 
-## 本地开发基线
+- [AGENTS.md](AGENTS.md)：Agent 行为、安全、检索与记忆更新规则。
+- [DESIGN.md](DESIGN.md)：唯一 UI/视觉规范。
+- [memory/MEMORY.md](memory/MEMORY.md)：稳定事实与按需检索路由。
+- [memory/CURRENT.md](memory/CURRENT.md)：当前任务、验收、进展和下一步。
+- [memory/LOG.md](memory/LOG.md)：重要操作、部署、迁移与长期决策。
+- [memory/RUNBOOK.md](memory/RUNBOOK.md)：启动、测试、构建、部署、迁移和恢复命令。
+- [memory/PITFALLS.md](memory/PITFALLS.md)：按问题类型整理的重复性陷阱。
+- [backend/migrations/README.md](backend/migrations/README.md)：数据库迁移子系统索引。
+- [deploy/README-UBUNTU.md](deploy/README-UBUNTU.md)：Ubuntu 离线部署操作说明。
 
-### 后端
+未来 Agent 的默认读取集仅为 `AGENTS.md`、`memory/MEMORY.md`、`memory/CURRENT.md`；其他文件按任务需要读取。
 
-```powershell
-conda create -n homebuild-log python=3.13 pip -y
-conda activate homebuild-log
-Set-Location backend
-python -m pip install -r requirements.lock
-python -m pip install -e . --no-deps
-python -m alembic -c alembic.ini upgrade head
-fastapi dev app/main.py --host 127.0.0.1 --port 8000
-```
+## 本地数据
 
-后端健康接口：`http://127.0.0.1:8000/api/v1/health`；OpenAPI文档：`http://127.0.0.1:8000/docs`。
-
-### 文本 AI 配置
-
-AI 默认关闭。推荐先设置环境变量，再将`.local-data/config/secrets.json`中的`ai.enabled`改为`true`；环境变量优先于文件内Key：
-
-```powershell
-$env:DEEPSEEK_API_KEY = "你的 DeepSeek Key"
-$env:MIMO_API_KEY = "你的 MiMo Key"
-```
-
-`secrets.json`的AI区块默认值如下，修改时保留已有管理员密码哈希和JWT密钥：
-
-```json
-{
-  "ai": {
-    "enabled": true,
-    "provider_order": ["mimo", "deepseek"],
-    "timeout_seconds": 30,
-    "temperature": 0.3,
-    "providers": {
-      "deepseek": {
-        "base_url": "https://api.deepseek.com",
-        "model": "deepseek-v4-flash",
-        "auth_style": "bearer",
-        "api_key": ""
-      },
-      "mimo": {
-        "base_url": "https://api.xiaomimimo.com/v1",
-        "model": "mimo-v2.5-pro",
-        "auth_style": "api-key",
-        "api_key": ""
-      }
-    }
-  }
-}
-```
-
-未配置任何Key时服务仍正常启动，`auto`自动使用本地规则。
-
-### 前端
-
-另开一个PowerShell窗口：
-
-```powershell
-Set-Location frontend
-npm ci
-npm run dev
-```
-
-浏览器访问`http://127.0.0.1:5173`。Vite会把`/api`请求代理到本地后端。
-
-### 检查
-
-```powershell
-Set-Location backend
-python -m ruff check . --no-cache
-python -m pytest
-
-Set-Location ..\frontend
-npm run lint
-npm run test
-npm run build
-npm audit
-```
-
-运行数据统一位于项目根目录的`.local-data/`，不会进入Git。
+运行数据统一位于项目根目录 `.local-data/`，包括 SQLite、附件、配置和运行状态。该目录不进入 Git；密钥、令牌、票据原文和个人信息不得写入普通 Markdown、日志或提交信息。

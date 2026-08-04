@@ -1,12 +1,11 @@
-:root {
-  color: #2f302b;
-  background: #f4efe5;
-  font-family:
-    Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-}
+@import './styles/tokens.css';
+@import './styles/shell.css';
+@import './styles/components.css';
+@import './styles/views.css';
+@import './styles/responsive.css';
 
+/* 旧规则作为迁移兼容层保留；未分层的新设计规范始终拥有最终优先级。 */
+@layer legacy {
 .select-control { position: relative; min-width: 0; }
 .select-native-proxy { position: absolute !important; width: 1px !important; height: 1px !important; margin: -1px !important; padding: 0 !important; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0 !important; }
 .select-trigger { width: 100%; min-height: var(--control-height, 42px); display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm, 10px); background: var(--surface-solid, #fff); color: var(--ink, inherit); text-align: left; outline: 0; transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease; }
@@ -157,28 +156,6 @@ h1 {
 }
 
 /* 专业工作台视觉系统 */
-:root {
-  --app-bg: #f3f6f7;
-  --surface: #ffffff;
-  --surface-soft: #f8fafb;
-  --ink: #24323a;
-  --ink-muted: #687780;
-  --border: #dfe5e8;
-  --primary: #315b70;
-  --primary-soft: #dce9ee;
-  --accent: #b6633f;
-  --risk: #b64b4b;
-  --risk-soft: #fbebeb;
-  --warning: #b77d29;
-  --warning-soft: #fff4df;
-  --success: #4f7d67;
-  --success-soft: #e7f1ec;
-  --shadow-sm: 0 1px 2px rgb(24 42 51 / 6%), 0 8px 24px rgb(24 42 51 / 5%);
-  color: var(--ink);
-  background: var(--app-bg);
-  font-family: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
-}
-
 .app-workspace {
   min-width: 320px;
   min-height: 100vh;
@@ -2698,36 +2675,6 @@ h1 {
 }
 
 /* 2026 全局体验层：令牌集中在最终覆盖文件，避免历史样式分叉。 */
-:root {
-  --app-bg: #f5f5f7;
-  --surface: rgb(255 255 255 / 86%);
-  --surface-solid: #ffffff;
-  --surface-soft: #f5f7f9;
-  --surface-raised: rgb(255 255 255 / 94%);
-  --ink: #1d1d1f;
-  --ink-muted: #6e6e73;
-  --ink-subtle: #86868b;
-  --border: rgb(29 29 31 / 10%);
-  --border-strong: rgb(29 29 31 / 16%);
-  --primary: #1769c2;
-  --primary-hover: #0d5cad;
-  --primary-soft: #e8f2ff;
-  --accent: #a4512f;
-  --risk: #c93434;
-  --risk-soft: #fff0f0;
-  --warning: #9a650e;
-  --warning-soft: #fff7e6;
-  --success: #28784c;
-  --success-soft: #ecf8f1;
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
-  --control-height: 42px;
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 4%), 0 6px 18px rgb(0 0 0 / 5%);
-  --shadow-md: 0 14px 40px rgb(0 0 0 / 10%);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-}
-
 .app-workspace {
   background:
     radial-gradient(circle at 78% -20%, rgb(23 105 194 / 8%), transparent 38rem),
@@ -3024,11 +2971,6 @@ select:disabled,
 }
 
 @media (max-width: 620px) {
-  :root {
-    --radius-md: 13px;
-    --radius-lg: 17px;
-  }
-
   .workspace-topbar {
     min-height: 58px;
   }
@@ -3289,11 +3231,6 @@ select:disabled,
 }
 
 /* 表单控件共享同一排版指标，避免组件实现不同造成视觉高度漂移。 */
-:root {
-  --control-font-size: .875rem;
-  --control-line-height: 20px;
-}
-
 input:not([type='checkbox']):not([type='radio']):not([type='file']),
 select,
 .select-trigger,
@@ -3451,3 +3388,5 @@ textarea {
     transition-duration: 0.01ms !important;
   }
 }
+
+} /* legacy layer */

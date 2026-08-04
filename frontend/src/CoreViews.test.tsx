@@ -16,6 +16,7 @@ vi.mock('./domainApi', () => ({
   getSpaceArchive: vi.fn(),
   searchRecords: vi.fn(),
   listSpaces: vi.fn(),
+  listRecords: vi.fn(),
   listEntities: vi.fn(),
   updateRecord: vi.fn(),
   deleteRecord: vi.fn(),
@@ -36,7 +37,9 @@ vi.mock('./EChart', () => ({
     scrollableContentHeight?: number
     scrollableMaxHeight?: number
   }) => {
-    const key = title === '主要商家金额' ? '砖世界' : title === '记录类型分布' ? 'issue' : 'paid'
+    const key = title === '主要商家金额' ? '砖世界'
+      : title === '记录类型分布' ? 'issue'
+        : title === '资金构成' ? 'expense' : 'paid'
     return <figure data-chart-kind={kind} data-scroll-content-height={scrollableContentHeight} data-scroll-max-height={scrollableMaxHeight}><h3>{title}</h3>{summary}<button type="button" aria-label={`${title}测试数据项`} onMouseEnter={() => onDataHover?.({ key, clientX: 100, clientY: 100, anchorRect: { left: 96, top: 96, right: 104, bottom: 104, width: 8, height: 8 } })} onMouseLeave={onDataLeave} onClick={() => onDataClick?.(key)}>数据项</button></figure>
   },
 }))
@@ -73,6 +76,7 @@ const record: ProjectionRecord = {
 beforeEach(() => {
   vi.unstubAllGlobals()
   vi.mocked(api.listSpaces).mockResolvedValue([])
+  vi.mocked(api.listRecords).mockResolvedValue([record])
   vi.mocked(api.listEntities).mockResolvedValue([])
   vi.mocked(api.getOverview).mockResolvedValue({
     as_of_date: '2026-07-01', horizon_date: '2026-07-08',
@@ -204,10 +208,10 @@ describe('CoreViews', () => {
     expect(api.getSource).toHaveBeenCalledWith('source-1')
   })
 
-  it('记录详情使用中文关系名称', async () => {
+  it('记录详情统一展示相关记录标题', async () => {
     const procurement = { ...record, id: 'procurement-1', record_type: 'procurement', title: '花砖采购' }
     vi.mocked(api.listRelations).mockResolvedValue([{
-      id: 'relation-1', from_record_id: record.id, to_record_id: procurement.id, relation_type: 'produces',
+      id: 'relation-1', from_record_id: record.id, to_record_id: procurement.id, relation_type: 'relates_to',
     }])
     vi.mocked(api.getRecord).mockImplementation(async (id) => id === procurement.id ? procurement : record)
 
@@ -215,8 +219,8 @@ describe('CoreViews', () => {
     fireEvent.click(screen.getByRole('button', { name: '时间线' }))
     fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
 
-    expect(await screen.findByText('产生 · 花砖采购')).toBeTruthy()
-    expect(screen.queryByText(/produces/)).toBeNull()
+    expect(await screen.findByText('花砖采购')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '相关记录' })).toBeTruthy()
   })
 
   it('账本明确展示付款、退款、收入和净支出', async () => {
@@ -434,7 +438,7 @@ describe('CoreViews', () => {
     expect(dialog.parentElement).toBe(document.body)
     expect(screen.getByRole('button', { name: '点击遮罩关闭明细' }).parentElement).toBe(document.body)
     expect(within(dialog).getByText('1 条记录')).toBeTruthy()
-    fireEvent.click(within(dialog).getByRole('button', { name: /瓷砖首款/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: /瓷砖付款/ }))
     await waitFor(() => expect(api.getRecord).toHaveBeenCalledWith('ledger-1'))
     fireEvent.click(await screen.findByRole('button', { name: '关闭详情' }))
     expect(await screen.findByRole('dialog', { name: '付款总额' })).toBeTruthy()

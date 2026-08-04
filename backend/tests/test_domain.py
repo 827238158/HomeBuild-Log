@@ -350,10 +350,16 @@ def test_update_archive_restore_relation_and_audit() -> None:
         json={
             "from_record_id": second["id"],
             "to_record_id": first["id"],
-            "relation_type": "implements",
         },
     )
     assert relation.status_code == 201, relation.text
+    assert relation.json()["relation_type"] == "relates_to"
+    assert relation.json()["from_record_id"] < relation.json()["to_record_id"]
+    reverse_duplicate = client.post(
+        "/api/v1/record-relations",
+        json={"from_record_id": first["id"], "to_record_id": second["id"]},
+    )
+    assert reverse_duplicate.status_code == 409
     assert (
         client.post(
             "/api/v1/record-relations",
@@ -368,6 +374,47 @@ def test_update_archive_restore_relation_and_audit() -> None:
     assert client.delete(f"/api/v1/record-relations/{relation.json()['id']}").status_code == 204
     actions = [entry["action"] for entry in client.get("/api/v1/audit?target_table=records").json()]
     assert {"create", "update", "archive", "restore"}.issubset(actions)
+
+
+def test_record_payload_synchronizes_generic_relations_and_measurement_status() -> None:
+    client = _client()
+    source_id = _source(client, "尺寸与关联")
+    event = client.post(
+        "/api/v1/records",
+        json={**_common(source_id, "event", "occurred"), "event_kind": "site_visit"},
+    ).json()
+    measurement = client.post(
+        "/api/v1/records",
+        json={
+            **_common(source_id, "measurement", "active"),
+            "object_name": "门洞",
+            "measurement_role": "site_measurement",
+            "values": [{"axis": "height", "value": 2100, "unit": "mm"}],
+            "related_record_ids": [event["id"], event["id"]],
+        },
+    )
+    assert measurement.status_code == 201, measurement.text
+    measurement_id = measurement.json()["id"]
+    assert measurement.json()["related_record_ids"] == [event["id"]]
+
+    updated = client.patch(
+        f"/api/v1/records/{measurement_id}",
+        json={
+            "record_type": "measurement",
+            "status": "superseded",
+            "related_record_ids": [],
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["status"] == "superseded"
+    assert updated.json()["related_record_ids"] == []
+    assert client.get(f"/api/v1/record-relations?record_id={measurement_id}").json() == []
+
+    self_relation = client.patch(
+        f"/api/v1/records/{measurement_id}",
+        json={"record_type": "measurement", "related_record_ids": [measurement_id]},
+    )
+    assert self_relation.status_code == 400
 
 
 def test_issue_completion_date_follows_status_transitions() -> None:

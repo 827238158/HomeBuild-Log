@@ -430,11 +430,11 @@ def suggest_from_text(
     relations: list[dict[str, str]] = []
     if issue_key:
         relations.extend(
-            {"from_key": key, "to_key": issue_key, "relation_type": "resolves"}
+            {"from_key": key, "to_key": issue_key, "relation_type": "relates_to"}
             for key in decision_keys[:1]
         )
         relations.extend(
-            {"from_key": key, "to_key": issue_key, "relation_type": "implements"}
+            {"from_key": key, "to_key": issue_key, "relation_type": "relates_to"}
             for key in todo_keys[:1]
         )
     if pending_decision_key and research_key:

@@ -109,7 +109,7 @@ def test_timeline_preserves_unknown_time_and_groups_related_records() -> None:
         json={
             "from_record_id": event["id"],
             "to_record_id": decision["id"],
-            "relation_type": "produces",
+            "relation_type": "relates_to",
         },
     )
 
@@ -273,7 +273,7 @@ def test_issue_board_and_space_archive_project_shared_records() -> None:
         json={
             "from_record_id": follow_up["id"],
             "to_record_id": issue["id"],
-            "relation_type": "implements",
+            "relation_type": "relates_to",
         },
     )
 

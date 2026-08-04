@@ -34,6 +34,7 @@ export interface DomainRecord {
   title: string
   status: string
   description: string | null
+  related_record_ids?: string[]
   archived_at: string | null
   source_refs: Array<{
     source_id: string
@@ -369,12 +370,13 @@ export const confirmCandidateBundle = (
   expectedVersion: number,
   selections: Array<{ key: string; payload: Record<string, unknown> }>,
   ignoredKeys: string[] = [],
+  relations?: Array<{ from_key: string; to_key: string }>,
 ) => requestJson<{
   records: Array<{ key: string; created: boolean; record: DomainRecord }>
   bundle: CandidateBundle
 }>(`${API_BASE}/candidate-bundles/${bundleId}/confirm`, {
   method: 'POST',
-  body: JSON.stringify({ expected_version: expectedVersion, selections, ignored_keys: ignoredKeys }),
+  body: JSON.stringify({ expected_version: expectedVersion, selections, ignored_keys: ignoredKeys, relations }),
 })
 export const deferCandidate = (bundleId: string, candidateKey: string, expectedVersion: number) =>
   requestJson<CandidateBundle>(

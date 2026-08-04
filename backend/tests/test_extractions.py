@@ -105,12 +105,17 @@ def test_candidate_confirmation_is_atomic_and_idempotent(client: TestClient) -> 
         "selections": [
             {"key": item["key"], "payload": item["payload"]} for item in explicit
         ],
+        "relations": [
+            {"from_key": explicit[0]["key"], "to_key": explicit[1]["key"]}
+        ] if len(explicit) > 1 else [],
     }
     first = client.post(
         f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json=body
     )
     assert first.status_code == 200, first.text
     assert all(item["created"] for item in first.json()["records"])
+    if len(explicit) > 1:
+        assert first.json()["relations"][0]["relation_type"] == "relates_to"
     first_count = len(client.get(f"/api/v1/records?source_id={source_id}").json())
     reloaded = client.get(
         f"/api/v1/sources/{source_id}/candidate-bundles/latest"
@@ -132,6 +137,45 @@ def test_candidate_confirmation_is_atomic_and_idempotent(client: TestClient) -> 
     assert all(not item["created"] for item in second.json()["records"])
     assert len(client.get(f"/api/v1/records?source_id={source_id}").json()) == first_count
     assert client.get(f"/api/v1/sources/{source_id}").json()["original_text"] == text
+
+
+def test_confirmation_respects_manual_candidate_type_change(client: TestClient) -> None:
+    source_id = _source(client, "待现场规划壁龛如何铺贴，是花砖还是普通砖。")
+    bundle = client.post(
+        f"/api/v1/sources/{source_id}/extractions?engine=local"
+    ).json()
+    research = next(
+        item for item in bundle["suggestions"] if item["record_type"] == "research"
+    )
+    issue_payload = {
+        "record_type": "issue",
+        "title": "现场铺贴方案待确认",
+        "status": "pending",
+        "phenomenon": "壁龛铺贴方案尚未确认",
+        "handling_plan": "现场确认使用花砖还是普通砖",
+        "severity": "medium",
+    }
+
+    response = client.post(
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json={
+            "expected_version": bundle["version"],
+            "selections": [{"key": research["key"], "payload": issue_payload}],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["records"][0]["record"]["record_type"] == "issue"
+    assert result["records"][0]["record"]["phenomenon"] == issue_payload["phenomenon"]
+    confirmed = next(
+        item
+        for item in result["bundle"]["suggestions"]
+        if item["key"] == research["key"]
+    )
+    assert confirmed["record_type"] == "issue"
+    assert confirmed["type_label"] == "问题"
+    assert confirmed["payload"]["record_type"] == "issue"
 
 
 def test_confirmation_atomically_ignores_unselected_candidates(client: TestClient) -> None:

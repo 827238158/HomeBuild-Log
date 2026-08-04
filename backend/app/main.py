@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+from starlette.staticfiles import StaticFiles
 
 from app.api.analytics import router as analytics_router
 from app.api.audit import router as audit_router
@@ -17,12 +21,31 @@ from app.api.health import router as health_router
 from app.api.sources import router as sources_router
 from app.api.views import router as views_router
 from app.core.config import SecretsConfig
-from app.core.paths import StoragePaths, ensure_storage_directories, get_storage_paths
+from app.core.paths import PROJECT_ROOT, StoragePaths, ensure_storage_directories, get_storage_paths
 from app.db import create_database_engine
 from app.health import HealthChecker, RuntimeHealthChecker
 
 # 无需认证即可访问的路径前缀
 _PUBLIC_PREFIXES = ("/api/v1/health", "/api/v1/auth", "/openapi.json", "/docs", "/redoc")
+
+
+class _SinglePageApplicationFiles(StaticFiles):
+    """提供 Vite 产物，并为前端页面路由回退到 index.html。"""
+
+    async def get_response(self, path: str, scope: dict) -> Response:
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            response = Response(status_code=404)
+        if response.status_code != 404:
+            return response
+
+        # 未知 API 和缺失的带扩展名资源必须保持 404，避免返回 HTML 干扰调用方。
+        if path.startswith("api/") or Path(path).suffix:
+            return response
+        return await super().get_response("index.html", scope)
 
 
 class _AuthMiddleware(BaseHTTPMiddleware):
@@ -71,6 +94,7 @@ def create_app(
     storage_paths: StoragePaths | None = None,
     health_checker: HealthChecker | None = None,
     secrets: SecretsConfig | None = None,
+    static_directory: Path | None = None,
 ) -> FastAPI:
     paths = storage_paths or get_storage_paths()
     secrets_config = secrets or SecretsConfig(paths.config)
@@ -105,6 +129,14 @@ def create_app(
     application.include_router(domain_router, prefix="/api/v1")
     application.include_router(extractions_router, prefix="/api/v1")
     application.include_router(views_router, prefix="/api/v1")
+    frontend_directory = static_directory or PROJECT_ROOT / "frontend" / "dist"
+    if frontend_directory.is_dir():
+        # 所有 API 路由均已注册，根挂载仅接管页面和静态资源。
+        application.mount(
+            "/",
+            _SinglePageApplicationFiles(directory=frontend_directory, html=True),
+            name="frontend",
+        )
     return application
 
 

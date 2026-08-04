@@ -17,6 +17,7 @@ from app.domain_models import (
     Participant,
     ProjectStage,
     Record,
+    RecordRelation,
     Space,
     Vendor,
     record_attachments,
@@ -112,6 +113,19 @@ def serialize_records(db: Session, records: list[Record]) -> dict[str, dict[str,
     for row in attachment_rows:
         attachment_ids[row.record_id].append(row.attachment_id)
 
+    related_record_ids: dict[str, list[str]] = defaultdict(list)
+    relation_rows = db.scalars(
+        select(RecordRelation).where(
+            (RecordRelation.from_record_id.in_(record_ids))
+            | (RecordRelation.to_record_id.in_(record_ids))
+        )
+    ).all()
+    for relation in relation_rows:
+        if relation.from_record_id in record_ids:
+            related_record_ids[relation.from_record_id].append(relation.to_record_id)
+        if relation.to_record_id in record_ids:
+            related_record_ids[relation.to_record_id].append(relation.from_record_id)
+
     stage_ids = {record.stage_id for record in records if record.stage_id}
     stages = {
         stage.id: {"id": stage.id, "name": stage.name}
@@ -182,6 +196,7 @@ def serialize_records(db: Session, records: list[Record]) -> dict[str, dict[str,
             "participant_ids": [item["id"] for item in participants.get(record.id, [])],
             "participants": participants.get(record.id, []),
             "attachment_ids": attachment_ids.get(record.id, []),
+            "related_record_ids": sorted(set(related_record_ids.get(record.id, []))),
             "vendor": vendors.get(vendor_id),
             **detail,
         }

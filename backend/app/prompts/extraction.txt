@@ -46,9 +46,8 @@ payment_kind 合法值（使用中文，常见值如下）:
 
 所有 payload 字段的值请使用中文描述和中文名词，不要输出英文词或英文缩写。
 
-关系放在 relations，元素为 from_ref、to_ref、relation_type；relation_type 仅允许 
-derived_from、relates_to、implements、resolves、
-supersedes、blocks、produces。ref 只在本次 JSON 内引用，服务端不会将其作为
+关系放在 relations，元素为 from_ref、to_ref、relation_type；relation_type 只允许
+relates_to，表示两条记录无方向地相关。ref 只在本次 JSON 内引用，服务端不会将其作为
 正式标识。
 
 特别边界：水管打压测试"通过"是验收事件，不是施工问题；采购或订单信息不生成账目，

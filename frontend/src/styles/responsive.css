@@ -1,0 +1,120 @@
+/* 阶段 4B 仅保证现有窄屏行为不回退；手机专项留到阶段 4C。 */
+@media (max-width: 1100px) {
+  .workspace-content {
+    padding-right: 22px;
+    padding-left: 22px;
+  }
+
+  .issue-page-header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+}
+
+@media (max-width: 900px) {
+  .workspace-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-sidebar {
+    width: min(280px, 86vw);
+    box-shadow: 18px 0 48px rgb(15 23 42 / 24%);
+  }
+
+  .workspace-topbar {
+    padding: 0 18px;
+  }
+
+  .workspace-content {
+    padding: 22px 18px 44px;
+  }
+
+  .nav-backdrop {
+    background: rgb(15 23 42 / 42%);
+    backdrop-filter: none;
+  }
+
+  .issue-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .summary-grid,
+  .summary-grid--money,
+  .card-grid,
+  .chart-grid,
+  .filter-grid,
+  .filter-grid--compact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .detail-panel.ledger-detail-panel {
+    border-radius: 16px 16px 0 0;
+    background: var(--surface);
+  }
+}
+
+@media (max-width: 620px) {
+  .shell--auth {
+    padding: 18px 14px;
+  }
+
+  .shell--auth .hero {
+    padding: 28px 22px;
+    border-radius: var(--radius-md);
+  }
+
+  .workspace-topbar {
+    min-height: 58px;
+  }
+
+  .workspace-content {
+    padding: 18px 12px 36px;
+  }
+
+  .view-panel > header h2,
+  .capture-workspace__header h2,
+  .issue-page-header > header h2 {
+    font-size: 1.3rem;
+  }
+
+  .filter-grid,
+  .capture-workspace .source-form,
+  .space-overview,
+  .overview-stage-panel,
+  .chart-card,
+  .summary-card {
+    padding: 14px;
+  }
+
+  .detail-panel {
+    padding: 18px 16px;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .workspace-topbar,
+  .detail-panel,
+  .select-menu,
+  .multi-select-options {
+    background: var(--surface);
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+

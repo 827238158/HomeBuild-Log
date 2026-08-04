@@ -23,7 +23,6 @@ from app.candidate_fields import candidate_validation_message, normalize_measure
 from app.core.constants import (
     CERTAINTY_LABELS,
     FIELDS_BY_TYPE,
-    RELATION_TYPES,
     STATUS_DEFAULTS,
     TYPE_LABELS,
     VALID_ENUMS,
@@ -39,7 +38,13 @@ from app.domain_models import (
 from app.local_suggestions import resolve_date_text, suggest_from_text, unique_resolved_date
 from app.models import SourceEntry
 
-from .domain import RECORD_CREATE_ADAPTER, _create_record_in_session, _record_json, log_audit
+from .domain import (
+    RECORD_CREATE_ADAPTER,
+    _canonical_relation_ids,
+    _create_record_in_session,
+    _record_json,
+    log_audit,
+)
 
 router = APIRouter(tags=["extractions"])
 User = Annotated[CurrentUser, Depends(require_user)]
@@ -50,10 +55,16 @@ class CandidateSelection(BaseModel):
     payload: dict[str, Any] | None = None
 
 
+class CandidateRelationSelection(BaseModel):
+    from_key: str
+    to_key: str
+
+
 class CandidateConfirmRequest(BaseModel):
     expected_version: int = Field(ge=1)
     selections: list[CandidateSelection] = Field(default_factory=list)
     ignored_keys: list[str] = Field(default_factory=list)
+    relations: list[CandidateRelationSelection] | None = None
 
 
 class CandidateDeferRequest(BaseModel):
@@ -272,7 +283,7 @@ def _ai_bundle_content(
             {
                 "from_key": from_key,
                 "to_key": to_key,
-                "relation_type": relation.relation_type,
+                "relation_type": "relates_to",
             }
         )
     return {
@@ -709,7 +720,8 @@ def _prepare_bundle_selections(
         if candidate.get("review_state") == "deferred":
             raise HTTPException(status_code=409, detail="候选已移除，请重新加载后确认。")
         payload = copy.deepcopy(selection.payload or candidate["payload"])
-        payload["record_type"] = candidate["record_type"]
+        # 前端允许用户纠正 AI 候选类型；旧客户端未传类型时才回退到 AI 原类型。
+        payload["record_type"] = payload.get("record_type") or candidate["record_type"]
         payload["source_refs"] = [
             {"source_id": source.id, "evidence_excerpt": candidate["evidence"]}
         ]
@@ -761,7 +773,12 @@ def _apply_confirmations(
             candidate["review_state"] = "confirmed"
             candidate["deferred_at"] = None
             candidate["confirmed_record_id"] = existing.id
-            candidate["payload"] = jsonable_encoder(parsed)
+            confirmed_payload = jsonable_encoder(parsed)
+            # 候选包也要同步人工纠正后的类型，避免前端确认后恢复旧标签。
+            confirmed_type = confirmed_payload["record_type"]
+            candidate["record_type"] = confirmed_type
+            candidate["type_label"] = TYPE_LABELS[confirmed_type]
+            candidate["payload"] = confirmed_payload
 
         all_candidates = {item["key"]: item for item in bundle.bundle_json.get("suggestions", [])}
         for key, candidate in all_candidates.items():
@@ -772,25 +789,24 @@ def _apply_confirmations(
                     key_to_record[key] = record
 
         for hint in bundle.bundle_json.get("relations", []):
-            if hint.get("relation_type") not in RELATION_TYPES:
-                continue
             from_record = key_to_record.get(hint.get("from_key"))
             to_record = key_to_record.get(hint.get("to_key"))
             if from_record is None or to_record is None:
                 continue
+            from_id, to_id = _canonical_relation_ids(from_record.id, to_record.id)
             relation = db.execute(
                 select(RecordRelation).where(
-                    RecordRelation.from_record_id == from_record.id,
-                    RecordRelation.to_record_id == to_record.id,
-                    RecordRelation.relation_type == hint["relation_type"],
+                    RecordRelation.from_record_id == from_id,
+                    RecordRelation.to_record_id == to_id,
+                    RecordRelation.relation_type == "relates_to",
                 )
             ).scalar_one_or_none()
             if relation is None:
                 relation = RecordRelation(
                     project_id=DEFAULT_PROJECT_ID,
-                    from_record_id=from_record.id,
-                    to_record_id=to_record.id,
-                    relation_type=hint["relation_type"],
+                    from_record_id=from_id,
+                    to_record_id=to_id,
+                    relation_type="relates_to",
                 )
                 db.add(relation)
                 db.flush()
@@ -800,9 +816,9 @@ def _apply_confirmations(
                     "record_relations",
                     relation.id,
                     after={
-                        "from_record_id": from_record.id,
-                        "to_record_id": to_record.id,
-                        "relation_type": hint["relation_type"],
+                        "from_record_id": from_id,
+                        "to_record_id": to_id,
+                        "relation_type": "relates_to",
                     },
                 )
             relation_results.append(
@@ -869,6 +885,31 @@ def confirm_candidate_bundle(
                 raise HTTPException(status_code=409, detail="已确认候选不能忽略。")
             candidate["review_state"] = "deferred"
             candidate["deferred_at"] = _now().isoformat()
+        if body.relations is not None:
+            relation_keys = {
+                selection.key for selection in body.selections
+            } | {
+                key
+                for key, candidate in suggestion_map.items()
+                if candidate.get("confirmed_record_id")
+            }
+            normalized_relations: list[dict[str, str]] = []
+            seen_pairs: set[tuple[str, str]] = set()
+            for relation in body.relations:
+                if relation.from_key not in relation_keys or relation.to_key not in relation_keys:
+                    raise HTTPException(status_code=400, detail="关联候选必须同时被确认。")
+                if relation.from_key == relation.to_key:
+                    raise HTTPException(status_code=400, detail="候选不能关联自身。")
+                pair = tuple(sorted((relation.from_key, relation.to_key)))
+                if pair in seen_pairs:
+                    continue
+                seen_pairs.add(pair)
+                normalized_relations.append({
+                    "from_key": pair[0],
+                    "to_key": pair[1],
+                    "relation_type": "relates_to",
+                })
+            bundle.bundle_json["relations"] = normalized_relations
         result = _apply_confirmations(db, [(bundle, body.selections)])
         result["bundle"] = _bundle_json(bundle)
         db.commit()

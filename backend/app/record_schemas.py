@@ -26,6 +26,7 @@ class RecordCommonCreate(BaseModel):
     material_ids: list[str] = []
     participant_ids: list[str] = []
     attachment_ids: list[str] = []
+    related_record_ids: list[str] = []
 
 
 class RecordCommonUpdate(BaseModel):
@@ -40,6 +41,7 @@ class RecordCommonUpdate(BaseModel):
     material_ids: list[str] | None = None
     participant_ids: list[str] | None = None
     attachment_ids: list[str] | None = None
+    related_record_ids: list[str] | None = None
 
 
 class EventCreate(RecordCommonCreate):
@@ -161,7 +163,7 @@ class MeasurementValueInput(BaseModel):
 
 class MeasurementCreate(RecordCommonCreate):
     record_type: Literal["measurement"]
-    status: Literal["active"] = "active"
+    status: Literal["active", "superseded", "cancelled"] = "active"
     object_name: str
     measurement_role: Literal[
         "material_spec", "site_measurement", "design_requirement", "calculated"
@@ -175,7 +177,7 @@ class MeasurementCreate(RecordCommonCreate):
 
 class MeasurementUpdate(RecordCommonUpdate):
     record_type: Literal["measurement"]
-    status: Literal["active"] | None = None
+    status: Literal["active", "superseded", "cancelled"] | None = None
     object_name: str | None = None
     measurement_role: (
         Literal["material_spec", "site_measurement", "design_requirement", "calculated"] | None

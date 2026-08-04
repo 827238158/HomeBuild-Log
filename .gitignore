@@ -1,6 +1,7 @@
 # 项目本地运行数据与模型不得进入版本库
 .local-data/
 .browser-data/
+.local-artifacts/
 
 # 前端依赖、构建和工具缓存
 frontend/node_modules/

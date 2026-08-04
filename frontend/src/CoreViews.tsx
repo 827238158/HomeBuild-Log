@@ -16,12 +16,14 @@ import {
   deleteRecord,
   listEntities,
   listRecordAudit,
+  listRecords,
   listRelations,
   listSpaces,
   searchRecords,
   reviewRecordSource,
   updateRecord,
   type AuditEntry,
+  type DomainRecord,
   type IssueBoardResponse,
   type LedgerResponse,
   type NamedEntity,
@@ -37,7 +39,6 @@ import {
 import { formatMoney } from './currency'
 import { recordStatusLabel, recordTypeLabels } from './recordLabels'
 import { statusesForRecordType } from './recordConfig'
-import { relationLabel } from './relationLabels'
 import { beijingToday, formatBeijingDateTime, formatCalendarDate } from './time'
 
 type ViewName = 'overview' | 'capture' | 'timeline' | 'ledger' | 'issues' | 'spaces' | 'records' | 'ai' | 'search'
@@ -60,6 +61,21 @@ const viewGroups: Array<{ label: string; items: ViewName[] }> = [
   { label: '数据分析', items: ['records', 'ai'] },
   { label: '工具', items: ['search'] },
 ]
+
+function NavIcon({ view }: { view: ViewName }) {
+  const common = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+  return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...common}>
+    {view === 'overview' && <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>}
+    {view === 'capture' && <><path d="M12 5v14M5 12h14" /><circle cx="12" cy="12" r="9" /></>}
+    {view === 'timeline' && <><path d="M7 3v18M7 7h8M7 12h11M7 17h6" /><circle cx="7" cy="7" r="1.5" /><circle cx="7" cy="12" r="1.5" /><circle cx="7" cy="17" r="1.5" /></>}
+    {view === 'ledger' && <><path d="M4 7.5h14.5A1.5 1.5 0 0 1 20 9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" /><path d="M15 12h5v4h-5a2 2 0 0 1 0-4Z" /></>}
+    {view === 'issues' && <><path d="m12 3 9 16H3L12 3Z" /><path d="M12 9v4" /><path d="M12 16h.01" /></>}
+    {view === 'spaces' && <><path d="m3 11 9-8 9 8" /><path d="M5 10v10h14V10M9 20v-6h6v6" /></>}
+    {view === 'records' && <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></>}
+    {view === 'ai' && <><path d="m12 3 1.3 4.2L17.5 8.5l-4.2 1.3L12 14l-1.3-4.2-4.2-1.3 4.2-1.3L12 3Z" /><path d="m18 14 .7 2.3L21 17l-2.3.7L18 20l-.7-2.3L15 17l2.3-.7L18 14Z" /></>}
+    {view === 'search' && <><circle cx="11" cy="11" r="7" /><path d="m16.2 16.2 4 4" /></>}
+  </svg>
+}
 
 
 const spaceKindLabels: Record<string, string> = { house: '房屋', room: '房间', component: '构件', surface: '表面' }
@@ -571,6 +587,7 @@ function RecordDetail({ recordId, onClose, onChanged }: { recordId: string; onCl
   const [sources, setSources] = useState<SourceDetail[]>([])
   const [relations, setRelations] = useState<RecordRelation[]>([])
   const [relatedRecords, setRelatedRecords] = useState<ProjectionRecord[]>([])
+  const [allRecords, setAllRecords] = useState<DomainRecord[]>([])
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [error, setError] = useState('')
   const [reload, setReload] = useState(0)
@@ -585,16 +602,16 @@ function RecordDetail({ recordId, onClose, onChanged }: { recordId: string; onCl
   useEffect(() => {
     let active = true
     Promise.all([
-      getRecord(recordId), listRelations(recordId), listRecordAudit(recordId), listSpaces(),
+      getRecord(recordId), listRelations(recordId), listRecordAudit(recordId), listSpaces(), listRecords(undefined),
       listEntities('materials'), listEntities('vendors'), listEntities('participants'), listEntities('stages'),
     ])
-      .then(async ([recordResult, relationRows, auditRows, spaceRows, materials, vendors, participants, stages]) => {
+      .then(async ([recordResult, relationRows, auditRows, spaceRows, recordRows, materials, vendors, participants, stages]) => {
         const sourceRows = await Promise.all(recordResult.source_refs.map((item) => getSource(item.source_id)))
         const relatedIds = Array.from(new Set(relationRows.flatMap((item) => [item.from_record_id, item.to_record_id]).filter((id) => id !== recordId)))
         const related = await Promise.all(relatedIds.map((id) => getRecord(id)))
         if (!active) return
         setRecord(recordResult); setSources(sourceRows); setRelations(relationRows); setRelatedRecords(related); setAudit(auditRows)
-        setSpaces(spaceRows); setEditEntities({ materials, vendors, participants, stages })
+        setSpaces(spaceRows); setAllRecords(recordRows); setEditEntities({ materials, vendors, participants, stages })
       }).catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '详情加载失败'))
     return () => { active = false }
   }, [recordId, reload])
@@ -669,7 +686,7 @@ function RecordDetail({ recordId, onClose, onChanged }: { recordId: string; onCl
     <div className="detail-panel__header"><div><p className="eyebrow">{editing ? '编辑正式记录' : '来源可追溯'}</p><h2>{editing ? '修改记录' : '记录详情'}</h2></div>{!editing && <button type="button" onClick={onClose} aria-label="关闭详情">关闭</button>}</div>
     {error && <p role="alert" className="view-state--error">{error}</p>}
     {!record && !error && <p role="status">正在加载详情…</p>}
-    {record && editing ? <section className="detail-edit-section"><RecordEditFields recordType={record.record_type as RecordType} payload={editPayload} spaces={spaces} entities={editEntities} onChange={changeEditField} /><div className="record-actions"><button type="button" disabled={busy} onClick={() => void saveEdit()}>{busy ? '保存中…' : '保存修改'}</button><button type="button" disabled={busy} onClick={cancelEdit}>取消</button></div></section> : record && <>
+    {record && editing ? <section className="detail-edit-section"><RecordEditFields recordType={record.record_type as RecordType} payload={editPayload} spaces={spaces} entities={editEntities} records={allRecords} currentRecordId={record.id} onChange={changeEditField} /><div className="record-actions"><button type="button" disabled={busy} onClick={() => void saveEdit()}>{busy ? '保存中…' : '保存修改'}</button><button type="button" disabled={busy} onClick={cancelEdit}>取消</button></div></section> : record && <>
       <div className="detail-record-actions"><button type="button" disabled={busy} onClick={beginEdit}>修改记录</button><button className="danger-button" type="button" disabled={busy} onClick={() => void removeRecord()}>删除记录</button></div>
       <span className="record-type-tag">{recordTypeLabels[record.record_type]}</span>
       <h3>{record.title}</h3>
@@ -691,7 +708,7 @@ function RecordDetail({ recordId, onClose, onChanged }: { recordId: string; onCl
           {source.attachments.map((attachment) => <small key={attachment.id}>附件：{attachment.original_filename} · {Math.ceil(attachment.size_bytes / 1024)} 千字节</small>)}
         </article>
       })}</section>
-      <section><h4>关联记录</h4>{relations.length === 0 && <p className="muted">暂无显式关系。</p>}{relations.map((relation) => { const related = relatedRecords.find((item) => item.id === (relation.from_record_id === recordId ? relation.to_record_id : relation.from_record_id)); return <p className="relation-summary" key={relation.id}>{relationLabel(relation.relation_type)} · {related?.title || '关联记录'}</p> })}</section>
+      <section><h4>相关记录</h4>{relations.length === 0 && <p className="muted">暂无相关记录。</p>}{relations.map((relation) => { const related = relatedRecords.find((item) => item.id === (relation.from_record_id === recordId ? relation.to_record_id : relation.from_record_id)); return <p className="relation-summary" key={relation.id}>{related?.title || '相关记录'}</p> })}</section>
       <section><h4>操作记录</h4><p className="muted">这里记录数据如何变化：“隐藏记录”只是从常用视图隐藏，“重新显示”会让它再次出现；它们都不会删除历史。</p>{audit.map((item) => <p className="audit-row" key={item.id}>{formatBeijingDateTime(item.timestamp)} · {auditActionLabels[item.action] || '数据操作'}</p>)}</section>
     </>}
   </aside>
@@ -707,7 +724,7 @@ export function CoreViews({ children, onLogout }: { children: ReactNode; onLogou
   return <div className="workspace-shell">
     <aside className={`workspace-sidebar${navOpen ? ' is-open' : ''}`}>
       <div className="workspace-brand"><span className="workspace-brand__mark">H</span><div><strong>HomeBuild Log</strong><small>装修事实工作台</small></div></div>
-      <nav className="workspace-nav" aria-label="核心功能">{viewGroups.map((group) => <section key={group.label}><h2>{group.label}</h2>{group.items.map((key) => { const item = viewLabels.find((entry) => entry.key === key)!; return <button key={key} type="button" className={view === key ? 'is-active' : ''} aria-current={view === key ? 'page' : undefined} onClick={() => selectView(key)}><span aria-hidden="true">{item.label.slice(0, 1)}</span>{item.label}</button> })}</section>)}</nav>
+      <nav className="workspace-nav" aria-label="核心功能">{viewGroups.map((group) => <section key={group.label}><h2>{group.label}</h2>{group.items.map((key) => { const item = viewLabels.find((entry) => entry.key === key)!; return <button key={key} type="button" className={view === key ? 'is-active' : ''} aria-current={view === key ? 'page' : undefined} onClick={() => selectView(key)}><span aria-hidden="true"><NavIcon view={key} /></span>{item.label}</button> })}</section>)}</nav>
       <footer className="workspace-sidebar__footer"><p><span className="service-dot" />本地服务运行正常</p>{onLogout && <button type="button" onClick={onLogout}>退出登录</button>}</footer>
     </aside>
     {navOpen && <button type="button" className="nav-backdrop" aria-label="关闭导航" onClick={() => setNavOpen(false)} />}

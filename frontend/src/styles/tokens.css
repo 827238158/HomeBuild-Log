@@ -1,0 +1,68 @@
+/* 阶段 4B 唯一视觉令牌源；旧 class 通过同名变量平滑迁移。 */
+:root {
+  color: #1f2328;
+  background: #f5f6f8;
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  --app-bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-solid: #ffffff;
+  --surface-soft: #f8fafc;
+  --surface-muted: #eef2f6;
+  --surface-raised: #ffffff;
+  --sidebar: #171d24;
+  --sidebar-active: #293746;
+  --ink: #1f2328;
+  --ink-muted: #667085;
+  --ink-subtle: #8a94a3;
+  --muted: #667085;
+  --border: #e1e6eb;
+  --border-strong: #cfd6de;
+  --primary: #1769c2;
+  --primary-hover: #0d5cad;
+  --primary-active: #0a4f98;
+  --primary-soft: #e8f2ff;
+  --accent: #a4512f;
+  --risk: #c93434;
+  --risk-soft: #fff0f0;
+  --warning: #9a650e;
+  --warning-soft: #fff7e6;
+  --success: #28784c;
+  --success-soft: #ecf8f1;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --control-height: 42px;
+  --control-font-size: .875rem;
+  --control-line-height: 20px;
+  --shadow-xs: 0 1px 2px rgb(15 23 42 / 4%);
+  --shadow-sm: 0 5px 16px rgb(15 23 42 / 6%);
+  --shadow-md: 0 12px 30px rgb(15 23 42 / 12%);
+  --shadow-panel: 0 24px 60px rgb(15 23 42 / 18%);
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+}
+
+html {
+  color-scheme: light;
+  background: var(--app-bg);
+}
+
+body {
+  color: var(--ink);
+  background: var(--app-bg);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+::selection {
+  background: rgb(23 105 194 / 18%);
+}
+
+:where(button, a, summary, input, textarea, select, [tabindex]):focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px rgb(23 105 194 / 22%);
+}
+

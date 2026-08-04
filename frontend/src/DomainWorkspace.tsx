@@ -7,7 +7,6 @@ import {
   createEntity,
   confirmCandidateBundle,
   createRecord,
-  createRelation,
   createExtraction,
   deleteSource,
   deleteEntity,
@@ -17,10 +16,8 @@ import {
   createSpace,
   listEntities,
   listRecords,
-  listRelations,
   listSources,
   listSpaces,
-  removeRelation,
   deferCandidate,
   updateSource,
   type DomainRecord,
@@ -28,14 +25,12 @@ import {
   type NamedEntity,
   type CandidateBundle,
   type CandidateSuggestion,
-  type RecordRelation,
   type SourceEntry,
   type SpaceEntry,
 } from './domainApi'
 import { recordStatusLabel } from './recordLabels'
 import { completedStatusForLedgerKind, recordConfig, statusesForRecord, type RecordType } from './recordConfig'
 import { measurementRoleLabels, normalizeMeasurementRole } from './recordFields'
-import { relationConfig, relationLabel, type RelationType } from './relationLabels'
 import { formatBeijingDateTime } from './time'
 
 interface Props {
@@ -136,6 +131,7 @@ function normalizeOptions(value: unknown): string[] {
 
 export function payloadForSave(recordType: string, payload: Record<string, unknown>) {
   const next = { ...payload }
+  delete next.related_candidate_keys
   if (recordType === 'measurement') {
     next.measurement_role = normalizeMeasurementRole(next.measurement_role)
     next.values = normalizeMeasurementValues(next.values).filter((item) => {
@@ -315,28 +311,49 @@ function SourcePicker({
   </div>
 }
 
-function normalizeMeasurementValues(values: unknown): Array<Record<string, unknown>> {
+export function normalizeMeasurementValues(values: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(values)) return []
-  return values.map((entry) => {
+  const normalized = values.map((entry) => {
     if (typeof entry !== 'object' || entry === null) return {}
     const next = { ...(entry as Record<string, unknown>) }
     const unit = String(next.unit ?? 'mm').toLowerCase()
-    const numeric = Number(next.value)
-    if (Number.isFinite(numeric)) {
+    const hasValue = next.value !== null && next.value !== '' && next.value !== undefined
+    const numeric = hasValue ? Number(next.value) : Number.NaN
+    if (hasValue && Number.isFinite(numeric)) {
       if (unit === 'cm') next.value = numeric * 10
-      if (unit === 'm') next.value = numeric * 1000
+      else if (unit === 'm') next.value = numeric * 1000
+      else next.value = numeric
+    } else {
+      next.value = null
     }
     next.unit = 'mm'
     return next
   })
+  const axes = ['width', 'height', 'length']
+  const slots: Array<Record<string, unknown> | null> = [null, null, null]
+  const unassigned: Array<Record<string, unknown>> = []
+  normalized.forEach((entry) => {
+    const index = axes.indexOf(String(entry.axis ?? ''))
+    if (index >= 0 && slots[index] === null) slots[index] = { ...entry, axis: axes[index] }
+    else unassigned.push(entry)
+  })
+  axes.forEach((axis, index) => {
+    if (slots[index] !== null) return
+    const fallback = unassigned.shift()
+    slots[index] = { ...(fallback ?? {}), axis, value: fallback?.value ?? null, unit: 'mm' }
+  })
+  return slots as Array<Record<string, unknown>>
 }
 
 export function defaultPayload(recordType: RecordType, base: Record<string, unknown> = {}): Record<string, unknown> {
+  const ledgerKind = String(base.ledger_kind ?? 'payment')
+  const allowedStatuses = statusesForRecord(recordType, ledgerKind)
+  const requestedStatus = String(base.status ?? '')
   const common: Record<string, unknown> = {
     record_type: recordType,
     title: base.title ?? '',
     description: base.description ?? null,
-    status: base.status ?? recordConfig[recordType].statuses[0],
+    status: allowedStatuses.includes(requestedStatus) ? requestedStatus : allowedStatuses[0],
     occurred_date: base.occurred_date ?? null,
     original_time_text: base.original_time_text ?? null,
     timezone: base.timezone ?? 'Asia/Shanghai',
@@ -344,6 +361,7 @@ export function defaultPayload(recordType: RecordType, base: Record<string, unkn
     space_ids: base.space_ids ?? [],
     material_ids: base.material_ids ?? [],
     participant_ids: base.participant_ids ?? [],
+    related_record_ids: base.related_record_ids ?? [],
     stage_id: base.stage_id ?? null,
   }
   if (recordType === 'event') {
@@ -403,12 +421,14 @@ function toDateInput(value: unknown): string {
 }
 
 export function RecordEditFields({
-  recordType, payload, spaces, entities, onChange,
+  recordType, payload, spaces, entities, records = [], currentRecordId, onChange,
 }: {
   recordType: RecordType
   payload: Record<string, unknown>
   spaces: SpaceEntry[]
   entities: Record<EntityType, NamedEntity[]>
+  records?: DomainRecord[]
+  currentRecordId?: string
   onChange: (field: string, value: unknown) => void
 }) {
   const ledgerKind = String(payload.ledger_kind ?? 'payment')
@@ -460,7 +480,7 @@ export function RecordEditFields({
 
   return <div className="record-form-grid">
     <label className="field-stack record-form-grid__wide"><span>标题</span><input value={String(payload.title ?? '')} placeholder={titlePlaceholder[recordType]} onChange={(event) => onChange('title', event.target.value)} /></label>
-    {recordType !== 'measurement' && <label className="field-stack"><span>状态</span><Select value={status} onChange={(event) => onChange('status', event.target.value)}>{visibleStatuses.map((item) => <option key={item} value={item}>{recordStatusLabel(recordType, item, ledgerKind)}</option>)}</Select></label>}
+    <label className="field-stack"><span>状态</span><Select value={status} onChange={(event) => onChange('status', event.target.value)}>{visibleStatuses.map((item) => <option key={item} value={item}>{recordStatusLabel(recordType, item, ledgerKind)}</option>)}</Select></label>
     {recordType === 'measurement' && <label className="field-stack"><span>尺寸用途</span><Select value={normalizeMeasurementRole(payload.measurement_role)} onChange={(event) => onChange('measurement_role', event.target.value)}>{Object.entries(measurementRoleLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>}
     {recordType === 'ledger' && <label className="field-stack"><span>账目类型</span><Select value={ledgerKind} onChange={(event) => {
       const kind = event.target.value
@@ -478,6 +498,7 @@ export function RecordEditFields({
     <MultiSelectField label="空间" selectedIds={Array.isArray(payload.space_ids) ? payload.space_ids.map(String) : []} options={spaces} onChange={(ids) => onChange('space_ids', ids)} />
     <MultiSelectField label="材料" selectedIds={Array.isArray(payload.material_ids) ? payload.material_ids.map(String) : []} options={entities.materials} onChange={(ids) => onChange('material_ids', ids)} />
     <MultiSelectField label={recordType === 'issue' ? '处理人' : '参与者'} selectedIds={Array.isArray(payload.participant_ids) ? payload.participant_ids.map(String) : []} options={entities.participants} onChange={(ids) => onChange('participant_ids', ids)} />
+    <MultiSelectField label="关联记录（可选）" selectedIds={Array.isArray(payload.related_record_ids) ? payload.related_record_ids.map(String) : []} options={records.filter((item) => item.id !== currentRecordId).map((item) => ({ id: item.id, name: `${recordConfig[item.record_type as RecordType]?.label || '记录'} · ${item.title}` }))} onChange={(ids) => onChange('related_record_ids', ids)} />
     <label className="field-stack"><span>装修阶段</span><Select value={String(payload.stage_id ?? '')} onChange={(event) => onChange('stage_id', event.target.value || null)}><option value="">未指定</option>{entities.stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>
     {cfg.showVendor && <label className="field-stack"><span>{recordType === 'ledger' ? '交易对象（商家）' : '商家'}</span><Select required={recordType === 'ledger'} value={String(payload.vendor_id ?? '')} onChange={(event) => onChange('vendor_id', event.target.value || null)}><option value="">请选择</option>{entities.vendors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}
     <label className="field-stack"><span>发生日期</span><input type="date" value={String(payload.occurred_date ?? '')} onChange={(event) => onChange('occurred_date', event.target.value || null)} /></label>
@@ -497,10 +518,6 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
   const [entities, setEntities] = useState<Record<EntityType, NamedEntity[]>>({
     materials: [], vendors: [], participants: [], stages: [],
   })
-  const [relations, setRelations] = useState<RecordRelation[]>([])
-  const [relationFrom, setRelationFrom] = useState('')
-  const [relationTo, setRelationTo] = useState('')
-  const [relationType, setRelationType] = useState<RelationType>('relates_to')
   const [manageType, setManageType] = useState<EntityType>('materials')
   const [manageName, setManageName] = useState('')
   const [manageBrand, setManageBrand] = useState('')
@@ -531,6 +548,11 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
       const manualSuggestions = preserveManual
         ? current.filter((item) => item.key.startsWith('manual:'))
         : []
+      const relatedCandidateKeys = new Map<string, string[]>()
+      for (const relation of nextBundle?.relations ?? []) {
+        relatedCandidateKeys.set(relation.from_key, [...(relatedCandidateKeys.get(relation.from_key) ?? []), relation.to_key])
+        relatedCandidateKeys.set(relation.to_key, [...(relatedCandidateKeys.get(relation.to_key) ?? []), relation.from_key])
+      }
       const serverSuggestions = (nextBundle?.suggestions ?? []).filter(
         (item) => item.review_state !== 'deferred' && item.record_type !== 'procurement',
       ).map((item) => item.record_type === 'todo' ? {
@@ -545,8 +567,20 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
         status: item.payload.status === 'done' ? 'done' : item.payload.status === 'in_progress' ? 'in_progress' : 'pending',
       }),
       } : item.record_type === 'issue' ? { ...item, type_label: '问题' }
-      : item.record_type === 'measurement' ? { ...item, payload: { ...item.payload, measurement_role: normalizeMeasurementRole(item.payload.measurement_role), values: normalizeMeasurementValues(item.payload.values) } }
-      : item).map((item) => {
+      : item.record_type === 'measurement' ? { ...item, payload: {
+        ...item.payload,
+        status: recordConfig.measurement.statuses.includes(String(item.payload.status) as 'active' | 'superseded' | 'cancelled') ? item.payload.status : 'active',
+        measurement_role: normalizeMeasurementRole(item.payload.measurement_role),
+        values: normalizeMeasurementValues(item.payload.values),
+      } }
+      : item).map((item) => ({
+        ...item,
+        payload: {
+          ...item.payload,
+          related_record_ids: Array.isArray(item.payload.related_record_ids) ? item.payload.related_record_ids : [],
+          related_candidate_keys: relatedCandidateKeys.get(item.key) ?? [],
+        },
+      })).map((item) => {
         const draft = currentByKey.get(item.key)
         return preserveDrafts && draft && !item.confirmed_record_id
           ? { ...item, record_type: draft.record_type, type_label: draft.type_label, payload: draft.payload }
@@ -584,12 +618,8 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
   }
 
   const refreshRecords = async (_selectedSource = sourceId) => {
-    const [everyRecord, relationRows] = await Promise.all([
-      listRecords(undefined),
-      listRelations(),
-    ])
+    const everyRecord = await listRecords(undefined)
     setAllRecords(everyRecord)
-    setRelations(relationRows)
   }
 
   const refreshSourceRows = async (preferredId = sourceId) => {
@@ -638,8 +668,6 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
       ignored: items.filter((item) => item.review_state === 'deferred').length,
     }
   }, [bundle])
-  const relationFromRecord = allRecords.find((item) => item.id === relationFrom)
-  const relationToRecord = allRecords.find((item) => item.id === relationTo)
   const rootHouseCount = spaces.filter(
     (item) => item.kind === 'house' && item.parent_id === null,
   ).length
@@ -655,12 +683,27 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
       : item))
   }
 
+  const updateCandidateRelations = (key: string, relatedKeys: string[]) => {
+    const selected = new Set(relatedKeys)
+    setSuggestions((current) => current.map((item) => {
+      const existing = Array.isArray(item.payload.related_candidate_keys)
+        ? item.payload.related_candidate_keys.map(String)
+        : []
+      if (item.key === key) {
+        return { ...item, payload: { ...item.payload, related_candidate_keys: relatedKeys } }
+      }
+      const next = new Set(existing)
+      if (selected.has(item.key)) next.add(key)
+      else next.delete(key)
+      return { ...item, payload: { ...item.payload, related_candidate_keys: [...next] } }
+    }))
+  }
+
   const switchSuggestionType = (key: string, newType: RecordType) => {
     setSuggestions((current) => current.map((item) => {
       if (item.key !== key) return item
       const base: Record<string, unknown> = {
         title: item.payload.title,
-        status: item.payload.status,
         occurred_date: item.payload.occurred_date,
         original_time_text: item.payload.original_time_text,
         timezone: item.payload.timezone,
@@ -747,7 +790,28 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
     setConfirming(true)
     try {
       if (aiSelections.length || ignoredAiKeys.length) {
-        const result = await confirmCandidateBundle(bundle!.id, bundle!.version, aiSelections.map((item) => ({ key: item.key, payload: payloadForSave(item.record_type, item.payload) })), ignoredAiKeys)
+        const eligibleAiSuggestions = suggestions.filter((item) =>
+          !item.key.startsWith('manual:')
+          && (selectedKeys.has(item.key) || Boolean(item.confirmed_record_id)),
+        )
+        const eligibleAiKeys = new Set(eligibleAiSuggestions.map((item) => item.key))
+        const relationPairs = new Map<string, { from_key: string; to_key: string }>()
+        eligibleAiSuggestions.forEach((item) => {
+          const relatedKeys = Array.isArray(item.payload.related_candidate_keys)
+            ? item.payload.related_candidate_keys.map(String)
+            : []
+          relatedKeys.filter((key) => eligibleAiKeys.has(key) && key !== item.key).forEach((key) => {
+            const [fromKey, toKey] = [item.key, key].sort()
+            relationPairs.set(`${fromKey}\u0000${toKey}`, { from_key: fromKey, to_key: toKey })
+          })
+        })
+        const result = await confirmCandidateBundle(
+          bundle!.id,
+          bundle!.version,
+          aiSelections.map((item) => ({ key: item.key, payload: payloadForSave(item.record_type, item.payload) })),
+          ignoredAiKeys,
+          [...relationPairs.values()],
+        )
         applyBundle(result.bundle, manualSelections.length > 0, true)
       }
       if (manualSelections.length) {
@@ -897,32 +961,6 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
     }
   }
 
-  const addRelation = async () => {
-    if (!relationFrom || !relationTo) {
-      setMessage('请选择关系两端的记录。')
-      return
-    }
-    try {
-      await createRelation({ from_record_id: relationFrom, to_record_id: relationTo, relation_type: relationType })
-      setMessage('记录关联已建立。')
-      await refreshRecords()
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : '建立记录关联失败')
-    }
-  }
-
-  const deleteRelationItem = async (relation: RecordRelation) => {
-    const confirmed = window.confirm('确认移除这条关联吗？这可能影响账本待付、时间线关联或问题下一步展示。')
-    if (!confirmed) return
-    try {
-      await removeRelation(relation.id)
-      setMessage('记录关联已移除。')
-      await refreshRecords()
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : '移除记录关联失败')
-    }
-  }
-
   // 只有已勾选且尚未生成正式记录的候选，才属于当前可提交内容。
   const hasSelectedUnconfirmed = suggestions.some(
     (item) => selectedKeys.has(item.key) && !item.confirmed_record_id,
@@ -1005,6 +1043,8 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
           const spaceIds = Array.isArray(payload.space_ids) ? payload.space_ids : []
           const materialIds = Array.isArray(payload.material_ids) ? payload.material_ids : []
           const participantIds = Array.isArray(payload.participant_ids) ? payload.participant_ids : []
+          const relatedRecordIds = Array.isArray(payload.related_record_ids) ? payload.related_record_ids : []
+          const relatedCandidateKeys = Array.isArray(payload.related_candidate_keys) ? payload.related_candidate_keys : []
           const stageId = String(payload.stage_id ?? '')
           const vendorId = String(payload.vendor_id ?? '')
           const detailA = recordType === 'event' ? String(payload.event_kind ?? '')
@@ -1054,11 +1094,11 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
               </div>
               <div className="record-form-grid">
                 <label className="field-stack record-form-grid__wide"><span>标题</span><input value={title} placeholder={titlePlaceholder[recordType]} onChange={(event) => updateSuggestion(suggestion.key, 'title', event.target.value)} /></label>
-                {recordType !== 'measurement' && <label className="field-stack"><span>状态</span>
+                <label className="field-stack"><span>状态</span>
                   <Select value={status} onChange={(event) => updateSuggestion(suggestion.key, 'status', event.target.value)}>
                     {statusesForRecord(recordType, ledgerKind).map((item) => <option key={item} value={item}>{recordStatusLabel(recordType, item, ledgerKind)}</option>)}
                   </Select>
-                </label>}
+                </label>
                 {recordType === 'measurement' && <label className="field-stack"><span>尺寸用途</span><Select value={normalizeMeasurementRole(payload.measurement_role)} onChange={(event) => updateSuggestion(suggestion.key, 'measurement_role', event.target.value)}>{Object.entries(measurementRoleLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>}
                 {recordType === 'ledger' && <label className="field-stack"><span>账目类型</span><Select value={ledgerKind} onChange={(event) => {
                   const kind = event.target.value
@@ -1108,6 +1148,8 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
                 <MultiSelectField label="空间" selectedIds={spaceIds.map(String)} options={spaces} onChange={(ids) => updateSuggestion(suggestion.key, 'space_ids', ids)} />
                 <MultiSelectField label="材料" selectedIds={materialIds.map(String)} options={entities.materials} onChange={(ids) => updateSuggestion(suggestion.key, 'material_ids', ids)} />
                 <MultiSelectField label={recordType === 'issue' ? '处理人' : '参与者'} selectedIds={participantIds.map(String)} options={entities.participants} onChange={(ids) => updateSuggestion(suggestion.key, 'participant_ids', ids)} />
+                <MultiSelectField label="关联记录（可选）" selectedIds={relatedRecordIds.map(String)} options={allRecords.map((item) => ({ id: item.id, name: recordOptionLabel(item) }))} onChange={(ids) => updateSuggestion(suggestion.key, 'related_record_ids', ids)} />
+                {!suggestion.key.startsWith('manual:') && <MultiSelectField label="关联本批候选（可选）" selectedIds={relatedCandidateKeys.map(String)} options={suggestions.filter((item) => item.key !== suggestion.key && !item.key.startsWith('manual:') && !item.confirmed_record_id).map((item) => ({ id: item.key, name: `${item.type_label} · ${String(item.payload.title || item.summary)}` }))} onChange={(ids) => updateCandidateRelations(suggestion.key, ids)} />}
                 <label className="field-stack"><span>装修阶段</span>
                   <Select value={stageId} onChange={(event) => updateSuggestion(suggestion.key, 'stage_id', event.target.value || null)}>
                     <option value="">未指定</option>
@@ -1173,25 +1215,6 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
         </div>
       </details>
 
-      <details className="manage-panel">
-        <summary>记录之间的关联（一般无需手动设置）</summary>
-        <div className="relation-guide">
-          <p>关联会帮助时间线串联事实、账本计算采购待付，以及问题看板展示下一步。系统通常会自动建立；只有自动关联不准确时才需要手工调整。</p>
-          <p><strong>方向：</strong>第一条记录 → 关系 → 第二条记录。{relationConfig[relationType].example}</p>
-        </div>
-        <div className="relation-form">
-          <label className="field-stack"><span>第一条记录</span><Select value={relationFrom} onChange={(event) => setRelationFrom(event.target.value)}><option value="">请选择</option>{allRecords.map((item) => <option key={item.id} value={item.id}>{recordOptionLabel(item)}</option>)}</Select></label>
-          <label className="field-stack"><span>它与第二条记录的关系</span><Select value={relationType} onChange={(event) => setRelationType(event.target.value as RelationType)}>{Object.entries(relationConfig).map(([key, config]) => <option key={key} value={key}>{config.label}</option>)}</Select></label>
-          <label className="field-stack"><span>第二条记录</span><Select value={relationTo} onChange={(event) => setRelationTo(event.target.value)}><option value="">请选择</option>{allRecords.map((item) => <option key={item.id} value={item.id}>{recordOptionLabel(item)}</option>)}</Select></label>
-          <button type="button" onClick={() => void addRelation()}>建立关联</button>
-        </div>
-        {relationFromRecord && relationToRecord && <p className="relation-preview"><strong>关系预览：</strong>{recordOptionLabel(relationFromRecord)} → {relationLabel(relationType)} → {recordOptionLabel(relationToRecord)}</p>}
-        <div className="relation-list">
-          <h4>已有记录关联</h4>
-          {relations.length === 0 && <p className="muted">还没有记录关联。</p>}
-          {relations.map((relation) => <p className="relation-row" key={relation.id}><span>{allRecords.find((item) => item.id === relation.from_record_id)?.title || relation.from_record_id} → {relationLabel(relation.relation_type)} → {allRecords.find((item) => item.id === relation.to_record_id)?.title || relation.to_record_id}</span><button type="button" onClick={() => void deleteRelationItem(relation)}>移除</button></p>)}
-        </div>
-      </details>
     </section>
   )
 }

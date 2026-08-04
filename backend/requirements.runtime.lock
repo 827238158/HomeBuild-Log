@@ -1,0 +1,29 @@
+# HomeBuild Log Linux 容器运行依赖（Python 3.13）
+# 从 requirements.lock 中拆分；已通过 Ubuntu 26.04 Linux 镜像实机构建验证。
+alembic==1.18.5
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.14.1
+certifi==2026.6.17
+click==8.4.2
+greenlet==3.5.3
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.8.0
+httpx==0.28.1
+idna==3.18
+Mako==1.3.12
+MarkupSafe==3.0.3
+pydantic==2.13.4
+pydantic_core==2.46.4
+python-multipart==0.0.32
+PyJWT==2.13.0
+PyYAML==6.0.3
+SQLAlchemy==2.0.51
+starlette==0.50.0
+typing_extensions==4.15.0
+typing-inspection==0.4.2
+uvicorn==0.49.0
+watchfiles==1.2.0
+websockets==16.0
+fastapi==0.128.0

@@ -28,16 +28,6 @@ CERTAINTY_LABELS: dict[str, str] = {
     "missing": "关键信息缺失",
 }
 
-RELATION_TYPES: set[str] = {
-    "derived_from",
-    "relates_to",
-    "implements",
-    "resolves",
-    "supersedes",
-    "blocks",
-    "produces",
-}
-
 DETAIL_MODELS: dict[str, type] = {
     "event": EventDetail,
     "ledger": LedgerDetail,

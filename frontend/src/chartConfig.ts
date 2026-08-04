@@ -3,16 +3,16 @@ import type { EChartsCoreOption } from 'echarts/core'
 import type { DistributionItem } from './domainApi'
 
 export const chartPalette = {
-  primary: '#315b70',
-  primarySoft: '#dce9ee',
-  accent: '#b6633f',
-  risk: '#b64b4b',
-  warning: '#c28a35',
-  success: '#4f7d67',
-  slate: '#71808a',
-  muted: '#a9b2b7',
-  grid: '#e5e9eb',
-  text: '#24323a',
+  primary: '#1769c2',
+  primarySoft: '#e8f2ff',
+  accent: '#a4512f',
+  risk: '#c93434',
+  warning: '#9a650e',
+  success: '#28784c',
+  slate: '#667085',
+  muted: '#a8b0bc',
+  grid: '#e7ebef',
+  text: '#1f2328',
 }
 
 export const chartCategoryColors = [
@@ -25,7 +25,7 @@ export const chartCategoryColors = [
 
 const tooltip = {
   backgroundColor: '#ffffff',
-  borderColor: '#dce2e5',
+  borderColor: '#e1e6eb',
   borderWidth: 1,
   textStyle: { color: chartPalette.text },
 }
@@ -38,19 +38,19 @@ export function lineOption(rows: DistributionItem[], unit = '项'): EChartsCoreO
     grid: { left: 12, right: 18, top: 26, bottom: rotate ? 54 : 28, containLabel: true },
     xAxis: {
       type: 'category', boundaryGap: false, data: rows.map((item) => item.label),
-      axisLine: { lineStyle: { color: '#b8c2c7' } }, axisTick: { show: false },
-      axisLabel: { color: '#687780', rotate, hideOverlap: true },
+      axisLine: { lineStyle: { color: '#cfd6de' } }, axisTick: { show: false },
+      axisLabel: { color: '#667085', rotate, hideOverlap: true },
     },
     yAxis: {
       type: 'value', minInterval: unit === '项' ? 1 : undefined,
-      axisLabel: { color: '#687780' }, axisLine: { show: true, lineStyle: { color: '#b8c2c7' } },
+      axisLabel: { color: '#667085' }, axisLine: { show: true, lineStyle: { color: '#cfd6de' } },
       splitLine: { lineStyle: { color: chartPalette.grid } },
     },
     series: [{
       type: 'line', smooth: rows.length >= 4, symbol: 'circle', symbolSize: 7,
       data: rows.map((item) => item.value), lineStyle: { width: 3 },
       itemStyle: { color: chartPalette.primary },
-      areaStyle: { color: 'rgba(49, 91, 112, 0.10)' },
+      areaStyle: { color: 'rgba(23, 105, 194, 0.08)' },
       label: { show: rows.length <= 8, position: 'top', color: chartPalette.text, formatter: `{c}${unit}` },
     }],
   }
@@ -72,7 +72,7 @@ export function horizontalBarOption(
     grid: { left: 12, right: 54, top: 12, bottom: 20, containLabel: true },
     xAxis: {
       type: 'value', minInterval: unit === '项' ? 1 : undefined,
-      axisLabel: { color: '#687780' }, axisLine: { show: true, lineStyle: { color: '#b8c2c7' } },
+      axisLabel: { color: '#667085' }, axisLine: { show: true, lineStyle: { color: '#cfd6de' } },
       splitLine: { lineStyle: { color: chartPalette.grid } },
     },
     yAxis: {
@@ -103,7 +103,7 @@ export function donutOption(rows: DistributionItem[], unit = '项', showTooltip 
     tooltip: showTooltip
       ? { ...tooltip, trigger: 'item', valueFormatter: (value: unknown) => `${value}${unit}` }
       : { show: false, showContent: false },
-    legend: { bottom: 0, type: 'scroll', textStyle: { color: '#5f6d75' }, icon: 'circle' },
+    legend: { bottom: 0, type: 'scroll', textStyle: { color: '#667085' }, icon: 'circle' },
     graphic: [{
       type: 'text', left: 'center', top: '40%',
       style: { text: `${total}${unit}`, fill: chartPalette.text, fontSize: 22, fontWeight: 700, textAlign: 'center' },

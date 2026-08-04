@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as api from './domainApi'
-import { DomainWorkspace } from './DomainWorkspace'
+import { defaultPayload, DomainWorkspace, normalizeMeasurementValues, payloadForSave } from './DomainWorkspace'
 
 vi.mock('./domainApi', () => ({
   listSources: vi.fn(),
@@ -109,6 +109,25 @@ beforeEach(() => {
 })
 
 describe('DomainWorkspace', () => {
+  it('尺寸默认状态与轴顺序稳定并统一换算为毫米', () => {
+    const payload = defaultPayload('measurement', { status: 'planned' })
+    expect(payload.status).toBe('active')
+
+    const values = normalizeMeasurementValues([
+      { axis: 'height', value: 2, unit: 'm' },
+      { axis: 'width', value: 60, unit: 'cm' },
+    ])
+    expect(values.map((item) => [item.axis, item.value, item.unit])).toEqual([
+      ['width', 600, 'mm'],
+      ['height', 2000, 'mm'],
+      ['length', null, 'mm'],
+    ])
+    expect(payloadForSave('measurement', { ...payload, values }).values).toEqual([
+      { axis: 'width', value: 600, unit: 'mm' },
+      { axis: 'height', value: 2000, unit: 'mm' },
+    ])
+  })
+
   it('外部保存新来源后优先选中后端返回的来源 ID', async () => {
     vi.mocked(api.listSources).mockResolvedValue([source, anotherSource])
     render(<DomainWorkspace refreshKey={1} preferredSourceId={anotherSource.id} />)
@@ -350,6 +369,42 @@ describe('DomainWorkspace', () => {
     expect(screen.queryByLabelText('问题现象')).toBeNull()
   })
 
+  it('调研候选切换为问题后提交人工选择的类型', async () => {
+    const researchSuggestion = {
+      ...explicitBundle.suggestions[0],
+      key: 'research:1',
+      record_type: 'research',
+      type_label: '调研',
+      summary: '壁龛如何铺贴',
+      payload: {
+        record_type: 'research', title: '壁龛铺贴调研', status: 'collecting',
+        question: '壁龛如何铺贴', options: ['花砖', '普通砖'],
+      },
+    }
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({
+      ...explicitBundle,
+      suggestions: [researchSuggestion],
+    })
+    render(<DomainWorkspace refreshKey={0} />)
+
+    const card = (await screen.findByText('调研：壁龛如何铺贴')).closest('article')!
+    fireEvent.change(within(card).getByLabelText('记录类型'), { target: { value: 'issue' } })
+    fireEvent.change(within(card).getByLabelText('问题现象'), {
+      target: { value: '壁龛铺贴方案尚未确认' },
+    })
+    fireEvent.change(within(card).getByLabelText('严重程度'), { target: { value: 'medium' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
+    expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0].payload)
+      .toMatchObject({
+        record_type: 'issue',
+        status: 'pending',
+        phenomenon: '壁龛铺贴方案尚未确认',
+        severity: 'medium',
+      })
+  })
+
   it('问题业务时间只提交年月日', async () => {
     render(<DomainWorkspace refreshKey={0} />)
     await screen.findByText('问题：主卧门口地砖有一处破裂')
@@ -467,34 +522,47 @@ describe('DomainWorkspace', () => {
     confirm.mockRestore()
   })
 
-  it('用中文说明和预览建立原始枚举关系', async () => {
+  it('在候选可选栏中关联已有正式记录', async () => {
     const ledger = { id: 'ledger-1', record_type: 'ledger', ledger_kind: 'payment', title: '500 元预付款', status: 'paid', description: null, archived_at: null, source_refs: [] }
     const refund = { id: 'refund-1', record_type: 'ledger', ledger_kind: 'refund', title: '花砖退款', status: 'posted', description: null, archived_at: null, source_refs: [] }
     vi.mocked(api.listRecords).mockResolvedValue([ledger, refund])
-    vi.mocked(api.listRelations).mockResolvedValue([{ id: 'relation-1', from_record_id: ledger.id, to_record_id: refund.id, relation_type: 'relates_to' }])
-    vi.mocked(api.createRelation).mockResolvedValue({ id: 'relation-2', from_record_id: ledger.id, to_record_id: refund.id, relation_type: 'relates_to' })
-    vi.mocked(api.removeRelation).mockResolvedValue(undefined)
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<DomainWorkspace refreshKey={0} />)
-    await screen.findByText('500 元预付款 → 相关 → 花砖退款')
-    fireEvent.change(screen.getByLabelText('第一条记录'), { target: { value: ledger.id } })
-    fireEvent.change(screen.getByLabelText('它与第二条记录的关系'), { target: { value: 'relates_to' } })
-    fireEvent.change(screen.getByLabelText('第二条记录'), { target: { value: refund.id } })
+    const relationField = await screen.findByRole('group', { name: '关联记录（可选）' })
+    fireEvent.click(within(relationField).getByRole('button'))
+    fireEvent.click(await screen.findByLabelText('账目 · 500 元预付款'))
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
 
-    expect(screen.getByText(/账目 · 500 元预付款 → 相关 → 账目 · 花砖退款/)).toBeTruthy()
-    fireEvent.click(screen.getByText('建立关联'))
-    await waitFor(() => expect(api.createRelation).toHaveBeenCalledWith({
-      from_record_id: ledger.id,
-      to_record_id: refund.id,
-      relation_type: 'relates_to',
-    }))
-    const relationList = screen.getByText('已有记录关联').closest('.relation-list') as HTMLElement
-    fireEvent.click(within(relationList).getByText('移除'))
-    await waitFor(() => expect(api.removeRelation).toHaveBeenCalledWith('relation-1'))
-    expect(confirm).toHaveBeenCalled()
-    expect(screen.queryByText('relates_to')).toBeNull()
-    confirm.mockRestore()
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
+    const selections = vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2]
+    expect(selections?.[0].payload.related_record_ids).toEqual([ledger.id])
+    expect(screen.queryByText('记录之间的关联（一般无需手动设置）')).toBeNull()
+  })
+
+  it('显式展示并允许移除本批候选的通用关联', async () => {
+    const second = {
+      ...explicitBundle.suggestions[0],
+      key: 'issue:2',
+      summary: '第二个问题',
+      payload: { ...explicitBundle.suggestions[0].payload, title: '第二个问题' },
+    }
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({
+      ...explicitBundle,
+      suggestions: [explicitBundle.suggestions[0], second],
+      relations: [{ from_key: 'issue:1', to_key: 'issue:2', relation_type: 'relates_to' }],
+    })
+
+    render(<DomainWorkspace refreshKey={0} />)
+    const firstCard = (await screen.findByDisplayValue('地砖破裂')).closest('article')!
+    const relationField = within(firstCard).getByRole('group', { name: '关联本批候选（可选）' })
+    fireEvent.click(within(relationField).getByRole('button'))
+    const relatedOption = await screen.findByLabelText('问题 · 第二个问题')
+    expect(relatedOption).toHaveProperty('checked', true)
+    fireEvent.click(relatedOption)
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
+    expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[4]).toEqual([])
   })
 
   it('批量确认失败时保留勾选和编辑内容', async () => {
@@ -594,7 +662,7 @@ describe('DomainWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
 
     await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalledWith(
-      'bundle-1', 1, expect.any(Array), ['issue:2'],
+      'bundle-1', 1, expect.any(Array), ['issue:2'], [],
     ))
     expect(screen.queryByDisplayValue('不需要')).toBeNull()
   })

@@ -1,0 +1,43 @@
+{
+  "description": "HomeBuild Log 的定向记忆检索与结束归档门禁。",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "D:\\Anaconda\\python.exe -X utf8 -B .codex\\hooks\\memory_router.py",
+            "statusMessage": "Retrieving relevant project memory",
+            "timeout": 10,
+            "additionalContextLimit": 6000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "D:\\Anaconda\\python.exe -X utf8 -B .codex\\hooks\\memory_signal_collector.py",
+            "statusMessage": "Collecting high-signal failure clues",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "D:\\Anaconda\\python.exe -X utf8 -B .codex\\hooks\\memory_gate.py",
+            "statusMessage": "Checking project memory updates",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

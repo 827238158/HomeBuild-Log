@@ -16,7 +16,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.audit import log_audit as _write_audit
 from app.auth import CurrentUser, require_user
 from app.candidate_fields import candidate_validation_message, normalize_measurement_role
-from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_DB, RELATION_TYPES
+from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_DB
 from app.db import create_session_factory
 from app.domain_models import (
     DEFAULT_PROJECT_ID,
@@ -63,6 +63,7 @@ ASSOCIATION_FIELDS = {
     "material_ids",
     "participant_ids",
     "attachment_ids",
+    "related_record_ids",
 }
 
 
@@ -155,15 +156,7 @@ class NamedEntityUpdate(BaseModel):
 class RelationInput(BaseModel):
     from_record_id: str
     to_record_id: str
-    relation_type: Literal[
-        "derived_from",
-        "relates_to",
-        "implements",
-        "resolves",
-        "supersedes",
-        "blocks",
-        "produces",
-    ]
+    relation_type: Literal["relates_to"] | None = None
 
 
 class SuggestionSelection(BaseModel):
@@ -551,6 +544,7 @@ def _validate_record_refs(db: Session, payload: dict[str, Any]) -> None:
     vendor_id = payload.get("vendor_id")
     if vendor_id:
         _ensure_ids(db, Vendor, [vendor_id], "商家")
+    _ensure_ids(db, Record, payload.get("related_record_ids", []), "关联记录")
 
 
 def _detail_values(record_type: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -596,6 +590,52 @@ def _replace_associations(db: Session, record_id: str, payload: dict[str, Any]) 
                 insert(table),
                 [{"record_id": record_id, column: value} for value in payload[field]],
             )
+
+
+def _canonical_relation_ids(first_id: str, second_id: str) -> tuple[str, str]:
+    """通用关系没有方向，统一端点顺序以阻止反向重复。"""
+    return tuple(sorted((first_id, second_id)))
+
+
+def _related_record_ids(db: Session, record_id: str) -> list[str]:
+    rows = db.execute(
+        select(RecordRelation).where(
+            (RecordRelation.from_record_id == record_id)
+            | (RecordRelation.to_record_id == record_id)
+        )
+    ).scalars()
+    return sorted(
+        relation.to_record_id
+        if relation.from_record_id == record_id
+        else relation.from_record_id
+        for relation in rows
+    )
+
+
+def _replace_record_relations(
+    db: Session, record_id: str, payload: dict[str, Any]
+) -> None:
+    if "related_record_ids" not in payload:
+        return
+    related_ids = set(payload["related_record_ids"] or [])
+    if record_id in related_ids:
+        raise HTTPException(status_code=400, detail="记录不能关联自身。")
+    db.execute(
+        delete(RecordRelation).where(
+            (RecordRelation.from_record_id == record_id)
+            | (RecordRelation.to_record_id == record_id)
+        )
+    )
+    for related_id in sorted(related_ids):
+        from_id, to_id = _canonical_relation_ids(record_id, related_id)
+        db.add(
+            RecordRelation(
+                project_id=DEFAULT_PROJECT_ID,
+                from_record_id=from_id,
+                to_record_id=to_id,
+                relation_type="relates_to",
+            )
+        )
 
 
 def _replace_measurements(db: Session, record_id: str, values: list[dict[str, Any]]) -> None:
@@ -673,6 +713,7 @@ def _record_json(db: Session, record: Record) -> dict[str, Any]:
         "material_ids": _association_ids(db, record_materials, "material_id", record.id),
         "participant_ids": _association_ids(db, record_participants, "participant_id", record.id),
         "attachment_ids": _association_ids(db, record_attachments, "attachment_id", record.id),
+        "related_record_ids": _related_record_ids(db, record.id),
         **detail_values,
     }
 
@@ -716,6 +757,7 @@ def _create_record_in_session(
     detail_model = DETAIL_MODELS[record.record_type]
     db.add(detail_model(record_id=record.id, **_detail_values(record.record_type, payload)))
     _replace_associations(db, record.id, payload)
+    _replace_record_relations(db, record.id, payload)
     if record.record_type == "measurement":
         _replace_measurements(db, record.id, payload["values"])
     db.flush()
@@ -829,19 +871,20 @@ def confirm_local_suggestions(
                 continue
             from_record = key_to_record[hint["from_key"]]
             to_record = key_to_record[hint["to_key"]]
+            from_id, to_id = _canonical_relation_ids(from_record.id, to_record.id)
             relation = db.execute(
                 select(RecordRelation).where(
-                    RecordRelation.from_record_id == from_record.id,
-                    RecordRelation.to_record_id == to_record.id,
-                    RecordRelation.relation_type == hint["relation_type"],
+                    RecordRelation.from_record_id == from_id,
+                    RecordRelation.to_record_id == to_id,
+                    RecordRelation.relation_type == "relates_to",
                 )
             ).scalar_one_or_none()
             if relation is None:
                 relation = RecordRelation(
                     project_id=DEFAULT_PROJECT_ID,
-                    from_record_id=from_record.id,
-                    to_record_id=to_record.id,
-                    relation_type=hint["relation_type"],
+                    from_record_id=from_id,
+                    to_record_id=to_id,
+                    relation_type="relates_to",
                 )
                 db.add(relation)
                 db.flush()
@@ -851,9 +894,9 @@ def confirm_local_suggestions(
                     "record_relations",
                     relation.id,
                     after={
-                        "from_record_id": from_record.id,
-                        "to_record_id": to_record.id,
-                        "relation_type": hint["relation_type"],
+                        "from_record_id": from_id,
+                        "to_record_id": to_id,
+                        "relation_type": "relates_to",
                     },
                 )
             relation_results.append(
@@ -979,6 +1022,7 @@ def update_record(
         for key, value in _detail_values(record.record_type, payload).items():
             setattr(detail, key, value)
         _replace_associations(db, record.id, payload)
+        _replace_record_relations(db, record.id, payload)
         if record.record_type == "measurement" and "values" in payload:
             _replace_measurements(db, record.id, payload["values"])
         db.flush()
@@ -1162,16 +1206,25 @@ def list_relations(
 def create_relation(request: Request, body: RelationInput, user: User) -> dict[str, Any]:
     db = _db(request)
     try:
-        if body.relation_type not in RELATION_TYPES:
-            raise HTTPException(status_code=400, detail="关系类型无效。")
         from_record = _get_record(db, body.from_record_id)
         to_record = _get_record(db, body.to_record_id)
         if from_record.project_id != to_record.project_id:
             raise HTTPException(status_code=400, detail="记录关系不能跨项目。")
-        relation = RecordRelation(project_id=DEFAULT_PROJECT_ID, **body.model_dump())
+        from_id, to_id = _canonical_relation_ids(from_record.id, to_record.id)
+        relation = RecordRelation(
+            project_id=DEFAULT_PROJECT_ID,
+            from_record_id=from_id,
+            to_record_id=to_id,
+            relation_type="relates_to",
+        )
         db.add(relation)
         db.flush()
-        result = {"id": relation.id, **body.model_dump()}
+        result = {
+            "id": relation.id,
+            "from_record_id": relation.from_record_id,
+            "to_record_id": relation.to_record_id,
+            "relation_type": "relates_to",
+        }
         log_audit(db, "create", "record_relations", relation.id, after=result)
         db.commit()
         return result

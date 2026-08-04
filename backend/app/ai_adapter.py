@@ -38,15 +38,7 @@ class AICandidate(BaseModel):
 class AIRelation(BaseModel):
     from_ref: str
     to_ref: str
-    relation_type: Literal[
-        "derived_from",
-        "relates_to",
-        "implements",
-        "resolves",
-        "supersedes",
-        "blocks",
-        "produces",
-    ]
+    relation_type: Literal["relates_to"] = "relates_to"
 
 
 class AIExtractionDraft(BaseModel):
