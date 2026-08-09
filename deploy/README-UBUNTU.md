@@ -1,8 +1,10 @@
 # HomeBuild Log Ubuntu 离线部署
 
+如果机器可以联网并持有完整源码，只需要本地构建镜像和启动容器，请使用 [Docker 本地快速部署](README-DOCKER-QUICKSTART.md)。本文只说明带镜像归档和校验文件的离线部署。
+
 ## 前置条件
 
-- Ubuntu 26.04 x86_64（已完成空数据实机验证；24.04 未验证）。
+- Ubuntu 26.04 x86_64（已完成空数据实机验证）。
 - 已安装 Docker Engine 与 Docker Compose v2；当前账号可使用 `sudo`。
 - 当前 Docker 基线默认只监听 `127.0.0.1:8000`，不提供公网、HTTPS 或 Tailscale。
 

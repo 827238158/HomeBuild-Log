@@ -10,3 +10,4 @@
 | 2026-08-03 | HomeBuild Log 空数据容器实机验证 | 当前工作树已传至 `/home/pawel/workspace/HomeBuild-Log`，镜像 `homebuild-log:4a-20260715` 构建成功；前端首页、健康接口、SQLite/存储、只读根文件系统和容器重启持久化均通过。修复 Linux 运行锁缺少 PyJWT 与部署目录数值 UID/GID 赋权失败；真实数据、整机重启和局域网访问未验收。 |
 | 2026-08-04 | 活文档与 Agent 记忆漂移检修 | 继续使用 `AGENTS.md` 与 `memory/` 轻量记忆层，未恢复旧 `docs/`、`tasks/`、`checklists/` 文档树；对齐 README 能力边界和 Ubuntu 状态，修正 Ubuntu 版本、迁移 current head、DESIGN 候选关联与 LOG 检索路由。 |
 | 2026-08-04 | 项目记忆检索与归档提醒闭环 | 项目级 Hook 形成“定向检索—高信号失败摘要—结束归档提醒”链路：不自动写记忆、不保存完整命令或日志，普通成功和单次临时失败不升级；详细逻辑收纳在 `.codex/hooks/`，不重复写入 `AGENTS.md`。 |
+| 2026-08-09 | README 改为用户手动维护 | `README.md` 不再随代码、部署或记忆变化由 Agent 自动更新；只有用户在当前任务中明确授权时才能修改，长期约束已写入 `AGENTS.md`。 |
