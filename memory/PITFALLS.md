@@ -127,3 +127,11 @@
 - 触发：镜像能构建，但容器启动时报 `ModuleNotFoundError`。
   原因：`pyproject.toml` 的运行依赖没有完整同步到 Linux 运行锁文件。
   处理：对照后端第三方导入、`pyproject.toml` 和真实项目环境核对 `requirements.runtime.lock`；镜像构建后必须实际启动应用，不以构建成功代替运行验收。
+
+- 触发：Docker 国内镜像和 Mihomo 均可用，但 Buildx 长时间停在 `resolve image config for docker-image://docker.io/docker/dockerfile:1.7`。
+  原因：Dockerfile 顶部的 syntax 指令会额外解析 Dockerfile 前端镜像，该阶段可能不按预期经过宿主机代理。
+  处理：确认 Dockerfile 未使用特定前端高级语法后，可用一次性临时 Dockerfile 移除 syntax 指令，让 BuildKit 使用内置前端；不要为临时网络问题修改已跟踪的 Dockerfile。
+
+- 触发：新容器的健康、迁移和数据计数均通过，但镜像 ID 断言误判后触发保护性回退。
+  原因：`docker compose images -q` 返回无 `sha256:` 前缀的纯 ID，`docker image inspect --format '{{.Id}}'` 返回带前缀的 ID，字符串直接比较必然不等。
+  处理：部署验收优先检查容器 `Config.Image` 是否等于目标标签；如必须比较 ID，先统一移除或补齐 `sha256:` 前缀。
