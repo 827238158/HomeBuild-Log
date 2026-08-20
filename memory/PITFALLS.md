@@ -48,6 +48,10 @@
   原因：pip、python、pytest 来自不同环境。
   处理：使用 `D:\Anaconda\envs\homebuild-log\python.exe -m pip` 和同一路径执行测试。
 
+- 触发：提交前执行 `ruff check .` 时只有历史迁移 `0016_retire_legacy_detail_tables.py` 报 3 个 `E501`。
+  原因：该未修改迁移保留了超过 100 字符的 SQL 字符串，导致全量 Ruff 基线并非全绿，不代表当前改动产生回归。
+  处理：不得把全量失败误报为本次回归；先对所有本次修改或新增的 Python 文件执行 Ruff 并确保通过，历史迁移的 3 个长行应在独立维护任务中修复后再恢复全量门禁。
+
 - 触发：Codex 沙箱内 pytest 大量报 `PermissionError`，或禁用 `tmpdir` 插件后提示缺少 `tmp_path` fixture。
   原因：`tests/.tmp`、系统 `TEMP` 和 Python `tempfile` 创建的目录可能受沙箱权限限制；`-p no:tmpdir` 只适合不依赖 `tmp_path` 的目标测试，不能作为全量测试方案。
   处理：目标测试可使用项目自建的唯一 `.runtime` 目录；全量测试应在核对 `--basetemp` 位于工作区后申请沙箱外执行，例如 `D:\Anaconda\envs\homebuild-log\python.exe -m pytest --basetemp=tests/.runtime/<唯一名称>`。不得把权限失败统计成业务回归。
