@@ -26,3 +26,6 @@ backend/dist/
 !.env.example
 .vscode/
 .idea/
+
+# 本地设计需求稿不进入版本库
+踩坑记录-设计Brief.md

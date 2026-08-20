@@ -175,7 +175,9 @@ class TestHealthUnauthenticated:
     def test_health_no_token(self):
         client, _ = _create_client()
         response = client.get("/api/v1/health")
-        assert response.status_code == 200
+        # 健康接口保持公开，但未迁移的空库必须明确报告 revision 不匹配。
+        assert response.status_code == 503
+        assert response.json()["code"] == "DATABASE_REVISION_MISMATCH"
 
 
 class TestAuthMiddleware:

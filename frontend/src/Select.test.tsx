@@ -15,6 +15,7 @@ describe('Select', () => {
     fireEvent.click(screen.getByRole('button', { name: /甲/ }))
     const menu = screen.getByRole('listbox')
     expect(menu.parentElement).toBe(document.body)
+    expect(menu.classList.contains('dropdown-portal')).toBe(true)
     expect(menu.style.position).toBe('fixed')
     fireEvent.click(screen.getByRole('button', { name: /一/ }))
     expect(screen.getAllByRole('listbox')).toHaveLength(1)

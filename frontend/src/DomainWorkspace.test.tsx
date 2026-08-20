@@ -523,14 +523,17 @@ describe('DomainWorkspace', () => {
   })
 
   it('在候选可选栏中关联已有正式记录', async () => {
-    const ledger = { id: 'ledger-1', record_type: 'ledger', ledger_kind: 'payment', title: '500 元预付款', status: 'paid', description: null, archived_at: null, source_refs: [] }
-    const refund = { id: 'refund-1', record_type: 'ledger', ledger_kind: 'refund', title: '花砖退款', status: 'posted', description: null, archived_at: null, source_refs: [] }
+    const ledger = { id: 'ledger-1', record_type: 'ledger', ledger_kind: 'payment', title: '500 元预付款', status: 'paid', created_at: '2026-06-29T18:00:00+00:00', description: null, archived_at: null, source_refs: [] }
+    const refund = { id: 'refund-1', record_type: 'ledger', ledger_kind: 'refund', title: '花砖退款', status: 'posted', created_at: '无效时间', description: null, archived_at: null, source_refs: [] }
     vi.mocked(api.listRecords).mockResolvedValue([ledger, refund])
 
     render(<DomainWorkspace refreshKey={0} />)
     const relationField = await screen.findByRole('group', { name: '关联记录（可选）' })
     fireEvent.click(within(relationField).getByRole('button'))
+    expect(screen.getByText('2026-06-30').classList.contains('multi-select-option__meta')).toBe(true)
+    expect(screen.queryByText('时间格式无效')).toBeNull()
     fireEvent.click(await screen.findByLabelText('账目 · 500 元预付款'))
+    expect(within(relationField).getByRole('button', { name: '账目 · 500 元预付款' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
 
     await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())

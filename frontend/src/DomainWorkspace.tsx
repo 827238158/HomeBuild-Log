@@ -31,7 +31,7 @@ import {
 import { recordStatusLabel } from './recordLabels'
 import { completedStatusForLedgerKind, recordConfig, statusesForRecord, type RecordType } from './recordConfig'
 import { measurementRoleLabels, normalizeMeasurementRole } from './recordFields'
-import { formatBeijingDateTime } from './time'
+import { formatBeijingDate, formatBeijingDateTime } from './time'
 
 interface Props {
   refreshKey: number
@@ -164,7 +164,7 @@ function MultiSelectField({
 }: {
   label: string
   selectedIds: string[]
-  options: Array<{ id: string; name: string }>
+  options: Array<{ id: string; name: string; trailingText?: string }>
   onChange: (ids: string[]) => void
 }) {
   const controlId = useId()
@@ -205,7 +205,16 @@ function MultiSelectField({
   const summary = selected.length === 0
     ? '请选择（可多选）'
     : selected.length <= 2 ? selected.map((item) => item.name).join('、') : `已选择 ${selected.length} 项`
-  return <fieldset ref={rootRef} className="multi-select-field"><legend>{label}</legend><div className="multi-select-control"><button ref={triggerRef} className="multi-select-summary" type="button" id={controlId} aria-haspopup="listbox" aria-expanded={open} onClick={toggleOpen}><span>{summary}</span></button>{open && createPortal(<div ref={menuRef} className="multi-select-options dropdown-portal" style={menuStyle} role="listbox" aria-multiselectable="true">{options.length > 0 ? options.map((item) => <label key={item.id} role="option" aria-selected={selectedIds.includes(item.id)}><input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggle(item.id)} />{item.name}</label>) : <span>暂无可选项</span>}</div>, document.body)}</div></fieldset>
+  return <fieldset ref={rootRef} className="multi-select-field"><legend>{label}</legend><div className="multi-select-control"><button ref={triggerRef} className="multi-select-summary" type="button" id={controlId} aria-haspopup="listbox" aria-expanded={open} onClick={toggleOpen}><span>{summary}</span></button>{open && createPortal(<div ref={menuRef} className="multi-select-options dropdown-portal" style={menuStyle} role="listbox" aria-multiselectable="true">{options.length > 0 ? options.map((item) => <label key={item.id} role="option" aria-selected={selectedIds.includes(item.id)}><input aria-label={item.name} type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggle(item.id)} /><span className="multi-select-option__name">{item.name}</span>{item.trailingText && <span className="multi-select-option__meta">{item.trailingText}</span>}</label>) : <span>暂无可选项</span>}</div>, document.body)}</div></fieldset>
+}
+
+function recordSelectOption(record: DomainRecord) {
+  const typeLabel = recordConfig[record.record_type as RecordType]?.label || '记录'
+  return {
+    id: record.id,
+    name: `${typeLabel} · ${record.title}`,
+    trailingText: formatBeijingDate(record.created_at),
+  }
 }
 
 function SourcePicker({
@@ -498,7 +507,7 @@ export function RecordEditFields({
     <MultiSelectField label="空间" selectedIds={Array.isArray(payload.space_ids) ? payload.space_ids.map(String) : []} options={spaces} onChange={(ids) => onChange('space_ids', ids)} />
     <MultiSelectField label="材料" selectedIds={Array.isArray(payload.material_ids) ? payload.material_ids.map(String) : []} options={entities.materials} onChange={(ids) => onChange('material_ids', ids)} />
     <MultiSelectField label={recordType === 'issue' ? '处理人' : '参与者'} selectedIds={Array.isArray(payload.participant_ids) ? payload.participant_ids.map(String) : []} options={entities.participants} onChange={(ids) => onChange('participant_ids', ids)} />
-    <MultiSelectField label="关联记录（可选）" selectedIds={Array.isArray(payload.related_record_ids) ? payload.related_record_ids.map(String) : []} options={records.filter((item) => item.id !== currentRecordId).map((item) => ({ id: item.id, name: `${recordConfig[item.record_type as RecordType]?.label || '记录'} · ${item.title}` }))} onChange={(ids) => onChange('related_record_ids', ids)} />
+    <MultiSelectField label="关联记录（可选）" selectedIds={Array.isArray(payload.related_record_ids) ? payload.related_record_ids.map(String) : []} options={records.filter((item) => item.id !== currentRecordId).map(recordSelectOption)} onChange={(ids) => onChange('related_record_ids', ids)} />
     <label className="field-stack"><span>装修阶段</span><Select value={String(payload.stage_id ?? '')} onChange={(event) => onChange('stage_id', event.target.value || null)}><option value="">未指定</option>{entities.stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>
     {cfg.showVendor && <label className="field-stack"><span>{recordType === 'ledger' ? '交易对象（商家）' : '商家'}</span><Select required={recordType === 'ledger'} value={String(payload.vendor_id ?? '')} onChange={(event) => onChange('vendor_id', event.target.value || null)}><option value="">请选择</option>{entities.vendors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}
     <label className="field-stack"><span>发生日期</span><input type="date" value={String(payload.occurred_date ?? '')} onChange={(event) => onChange('occurred_date', event.target.value || null)} /></label>
@@ -671,11 +680,6 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
   const rootHouseCount = spaces.filter(
     (item) => item.kind === 'house' && item.parent_id === null,
   ).length
-
-  const recordOptionLabel = (record: DomainRecord) => {
-    const typeLabel = recordConfig[record.record_type as RecordType]?.label || '记录'
-    return `${typeLabel} · ${record.title}`
-  }
 
   const updateSuggestion = (key: string, field: string, value: unknown) => {
     setSuggestions((current) => current.map((item) => item.key === key
@@ -1148,7 +1152,7 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
                 <MultiSelectField label="空间" selectedIds={spaceIds.map(String)} options={spaces} onChange={(ids) => updateSuggestion(suggestion.key, 'space_ids', ids)} />
                 <MultiSelectField label="材料" selectedIds={materialIds.map(String)} options={entities.materials} onChange={(ids) => updateSuggestion(suggestion.key, 'material_ids', ids)} />
                 <MultiSelectField label={recordType === 'issue' ? '处理人' : '参与者'} selectedIds={participantIds.map(String)} options={entities.participants} onChange={(ids) => updateSuggestion(suggestion.key, 'participant_ids', ids)} />
-                <MultiSelectField label="关联记录（可选）" selectedIds={relatedRecordIds.map(String)} options={allRecords.map((item) => ({ id: item.id, name: recordOptionLabel(item) }))} onChange={(ids) => updateSuggestion(suggestion.key, 'related_record_ids', ids)} />
+                <MultiSelectField label="关联记录（可选）" selectedIds={relatedRecordIds.map(String)} options={allRecords.map(recordSelectOption)} onChange={(ids) => updateSuggestion(suggestion.key, 'related_record_ids', ids)} />
                 {!suggestion.key.startsWith('manual:') && <MultiSelectField label="关联本批候选（可选）" selectedIds={relatedCandidateKeys.map(String)} options={suggestions.filter((item) => item.key !== suggestion.key && !item.key.startsWith('manual:') && !item.confirmed_record_id).map((item) => ({ id: item.key, name: `${item.type_label} · ${String(item.payload.title || item.summary)}` }))} onChange={(ids) => updateCandidateRelations(suggestion.key, ids)} />}
                 <label className="field-stack"><span>装修阶段</span>
                   <Select value={stageId} onChange={(event) => updateSuggestion(suggestion.key, 'stage_id', event.target.value || null)}>

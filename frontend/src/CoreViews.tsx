@@ -5,6 +5,7 @@ import { Select } from './Select'
 import { AiAnalyticsView, OverviewView, RecordsAnalyticsView } from './AnalyticsViews'
 import { defaultPayload, payloadForSave, RecordEditFields, type RecordType } from './DomainWorkspace'
 import { LazyEChart as EChart } from './LazyEChart'
+import { PitfallsView } from './PitfallsView'
 import { chartPalette, chartSummary, donutOption, horizontalBarOption, lineOption } from './chartConfig'
 import {
   getIssueBoard,
@@ -41,7 +42,7 @@ import { recordStatusLabel, recordTypeLabels } from './recordLabels'
 import { statusesForRecordType } from './recordConfig'
 import { beijingToday, formatBeijingDateTime, formatCalendarDate } from './time'
 
-type ViewName = 'overview' | 'capture' | 'timeline' | 'ledger' | 'issues' | 'spaces' | 'records' | 'ai' | 'search'
+type ViewName = 'overview' | 'capture' | 'timeline' | 'ledger' | 'issues' | 'pitfalls' | 'spaces' | 'records' | 'ai' | 'search'
 
 const viewLabels: Array<{ key: ViewName; label: string }> = [
   { key: 'overview', label: '概览' },
@@ -49,6 +50,7 @@ const viewLabels: Array<{ key: ViewName; label: string }> = [
   { key: 'timeline', label: '时间线' },
   { key: 'ledger', label: '账本' },
   { key: 'issues', label: '问题' },
+  { key: 'pitfalls', label: '踩坑记录' },
   { key: 'spaces', label: '空间' },
   { key: 'records', label: '记录分析' },
   { key: 'ai', label: '智能分析' },
@@ -57,7 +59,7 @@ const viewLabels: Array<{ key: ViewName; label: string }> = [
 
 const viewGroups: Array<{ label: string; items: ViewName[] }> = [
   { label: '工作台', items: ['overview', 'capture'] },
-  { label: '业务管理', items: ['timeline', 'ledger', 'issues', 'spaces'] },
+  { label: '业务管理', items: ['timeline', 'ledger', 'issues', 'pitfalls', 'spaces'] },
   { label: '数据分析', items: ['records', 'ai'] },
   { label: '工具', items: ['search'] },
 ]
@@ -70,6 +72,7 @@ function NavIcon({ view }: { view: ViewName }) {
     {view === 'timeline' && <><path d="M7 3v18M7 7h8M7 12h11M7 17h6" /><circle cx="7" cy="7" r="1.5" /><circle cx="7" cy="12" r="1.5" /><circle cx="7" cy="17" r="1.5" /></>}
     {view === 'ledger' && <><path d="M4 7.5h14.5A1.5 1.5 0 0 1 20 9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" /><path d="M15 12h5v4h-5a2 2 0 0 1 0-4Z" /></>}
     {view === 'issues' && <><path d="m12 3 9 16H3L12 3Z" /><path d="M12 9v4" /><path d="M12 16h.01" /></>}
+    {view === 'pitfalls' && <><path d="M9 3h6l1 3h3v15H5V6h3l1-3Z" /><path d="M9 11h6M9 15h4" /><path d="m16.5 14.5 1 1 2-2" /></>}
     {view === 'spaces' && <><path d="m3 11 9-8 9 8" /><path d="M5 10v10h14V10M9 20v-6h6v6" /></>}
     {view === 'records' && <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></>}
     {view === 'ai' && <><path d="m12 3 1.3 4.2L17.5 8.5l-4.2 1.3L12 14l-1.3-4.2-4.2-1.3 4.2-1.3L12 3Z" /><path d="m18 14 .7 2.3L21 17l-2.3.7L18 20l-.7-2.3L15 17l2.3-.7L18 14Z" /></>}
@@ -600,6 +603,10 @@ function RecordDetail({ recordId, onClose, onChanged }: { recordId: string; onCl
   })
   const [busy, setBusy] = useState(false)
   useEffect(() => {
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    return () => returnFocus?.focus()
+  }, [])
+  useEffect(() => {
     let active = true
     Promise.all([
       getRecord(recordId), listRelations(recordId), listRecordAudit(recordId), listSpaces(), listRecords(undefined),
@@ -682,7 +689,7 @@ function RecordDetail({ recordId, onClose, onChanged }: { recordId: string; onCl
     }
   }
 
-  return <aside className="detail-panel" aria-label="记录详情">
+  return <aside className="detail-panel record-detail-panel" aria-label="记录详情">
     <div className="detail-panel__header"><div><p className="eyebrow">{editing ? '编辑正式记录' : '来源可追溯'}</p><h2>{editing ? '修改记录' : '记录详情'}</h2></div>{!editing && <button type="button" onClick={onClose} aria-label="关闭详情">关闭</button>}</div>
     {error && <p role="alert" className="view-state--error">{error}</p>}
     {!record && !error && <p role="status">正在加载详情…</p>}
@@ -730,7 +737,7 @@ export function CoreViews({ children, onLogout }: { children: ReactNode; onLogou
     {navOpen && <button type="button" className="nav-backdrop" aria-label="关闭导航" onClick={() => setNavOpen(false)} />}
     <div className="workspace-main">
       <header className="workspace-topbar"><button type="button" className="menu-button" aria-label="打开导航" aria-expanded={navOpen} onClick={() => setNavOpen((value) => !value)}>☰</button><div><small>HomeBuild Log</small><strong>{currentLabel}</strong></div><span><span className="service-dot" />服务正常</span></header>
-      <main className="workspace-content" key={`${view}-${viewRevision}`}>{view === 'overview' && <OverviewView onOpen={setDetailId} />}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={setDetailId} />}{view === 'ledger' && <LedgerView onOpen={setDetailId} detailOpen={Boolean(detailId)} />}{view === 'issues' && <IssuesView onOpen={setDetailId} />}{view === 'spaces' && <SpacesView onOpen={setDetailId} />}{view === 'records' && <RecordsAnalyticsView onOpen={setDetailId} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={setDetailId} />}</main>
+      <main className="workspace-content" key={`${view}-${viewRevision}`}>{view === 'overview' && <OverviewView onOpen={setDetailId} />}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={setDetailId} />}{view === 'ledger' && <LedgerView onOpen={setDetailId} detailOpen={Boolean(detailId)} />}{view === 'issues' && <IssuesView onOpen={setDetailId} />}{view === 'pitfalls' && <PitfallsView />}{view === 'spaces' && <SpacesView onOpen={setDetailId} />}{view === 'records' && <RecordsAnalyticsView onOpen={setDetailId} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={setDetailId} />}</main>
     </div>
     {detailId && <RecordDetail recordId={detailId} onClose={() => setDetailId('')} onChanged={() => setViewRevision((value) => value + 1)} />}
   </div>

@@ -25,6 +25,14 @@ vi.mock('./domainApi', () => ({
   listRelations: vi.fn(),
   listRecordAudit: vi.fn(),
   reviewRecordSource: vi.fn(),
+  listPitfalls: vi.fn(),
+  createPitfall: vi.fn(),
+  updatePitfall: vi.fn(),
+  deletePitfall: vi.fn(),
+  createPitfallResolution: vi.fn(),
+  updatePitfallResolution: vi.fn(),
+  deletePitfallResolution: vi.fn(),
+  analyzePitfalls: vi.fn(),
 }))
 vi.mock('./EChart', () => ({
   EChart: ({ summary, title, kind, onDataHover, onDataLeave, onDataClick, scrollableContentHeight, scrollableMaxHeight }: {
@@ -438,11 +446,94 @@ describe('CoreViews', () => {
     expect(dialog.parentElement).toBe(document.body)
     expect(screen.getByRole('button', { name: '点击遮罩关闭明细' }).parentElement).toBe(document.body)
     expect(within(dialog).getByText('1 条记录')).toBeTruthy()
-    fireEvent.click(within(dialog).getByRole('button', { name: /瓷砖付款/ }))
+    const ledgerRecordButton = within(dialog).getByRole('button', { name: /瓷砖付款/ })
+    ledgerRecordButton.focus()
+    fireEvent.click(ledgerRecordButton)
     await waitFor(() => expect(api.getRecord).toHaveBeenCalledWith('ledger-1'))
     fireEvent.click(await screen.findByRole('button', { name: '关闭详情' }))
     expect(await screen.findByRole('dialog', { name: '付款总额' })).toBeTruthy()
+    expect(document.activeElement).toBe(ledgerRecordButton)
     rectSpy.mockRestore()
+  })
+
+  it('从收入完整明细进入编辑后所有单选和多选下拉均显示在顶层', async () => {
+    const income = {
+      ...record,
+      id: 'income-1',
+      record_type: 'ledger',
+      ledger_kind: 'income',
+      direction: 'income' as const,
+      status: 'posted',
+      title: '装修补贴到账',
+      amount_minor: 80000,
+      vendor_id: 'vendor-1',
+      vendor: { id: 'vendor-1', name: '补贴发放方' },
+    }
+    const related = {
+      ...record,
+      id: 'event-related',
+      title: '补贴申请完成',
+      created_at: '2026-06-30T18:00:00+00:00',
+    }
+    vi.mocked(api.getLedgerSummary).mockResolvedValueOnce({
+      totals: { expense_minor: 0, refund_minor: 0, income_minor: 80000, net_expense_minor: -80000 },
+      ledger_entries: [income],
+      analytics: {
+        money_trend: [],
+        payment_composition: [{ key: 'income', label: '收入', value: 80000 }],
+        vendor_distribution: [],
+      },
+    })
+    vi.mocked(api.getRecord).mockImplementation(async (id) => id === income.id ? income : related)
+    vi.mocked(api.listRecords).mockResolvedValue([income, related])
+    vi.mocked(api.listSpaces).mockResolvedValue([{ id: 'room-1', name: '整套房屋', kind: 'house', parent_id: null }])
+    vi.mocked(api.listEntities).mockImplementation(async (type) => ({
+      materials: [{ id: 'material-1', name: '补贴材料' }],
+      vendors: [{ id: 'vendor-1', name: '补贴发放方' }],
+      participants: [{ id: 'person-1', name: '经办人' }],
+      stages: [{ id: 'stage-1', name: '竣工' }],
+    }[type] ?? []))
+
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '账本' }))
+    fireEvent.click(await screen.findByRole('button', { name: /收入总额/ }))
+    const ledgerDialog = await screen.findByRole('dialog', { name: '收入总额' })
+    fireEvent.click(within(ledgerDialog).getByRole('button', { name: /装修补贴到账/ }))
+
+    const detail = await screen.findByLabelText('记录详情')
+    expect(detail.classList.contains('record-detail-panel')).toBe(true)
+    expect(document.querySelector('.ledger-detail-panel')?.classList.contains('is-obscured')).toBe(true)
+    fireEvent.click(within(detail).getByRole('button', { name: '修改记录' }))
+
+    const openSingleSelect = (label: string, option: string) => {
+      const native = within(detail).getByLabelText(label)
+      const trigger = native.closest('.select-control')?.querySelector('.select-trigger') as HTMLElement
+      fireEvent.click(trigger)
+      const menu = screen.getByRole('listbox')
+      expect(menu.parentElement).toBe(document.body)
+      expect(menu.classList.contains('dropdown-portal')).toBe(true)
+      expect(within(menu).getByRole('option', { name: option })).toBeTruthy()
+    }
+
+    openSingleSelect('状态', '已入账')
+    openSingleSelect('账目类型', '收入')
+    openSingleSelect('装修阶段', '竣工')
+    openSingleSelect('交易对象（商家）', '补贴发放方')
+
+    for (const [groupName, optionName] of [
+      ['空间', '整套房屋'],
+      ['材料', '补贴材料'],
+      ['参与者', '经办人'],
+      ['关联记录（可选）', '事件 · 补贴申请完成'],
+    ]) {
+      const group = within(detail).getByRole('group', { name: groupName })
+      fireEvent.click(within(group).getByRole('button'))
+      const menu = screen.getByRole('listbox')
+      expect(menu.parentElement).toBe(document.body)
+      expect(screen.getByLabelText(optionName)).toBeTruthy()
+    }
+    expect(screen.getByText('2026-07-01').classList.contains('multi-select-option__meta')).toBe(true)
+    expect(within(detail).queryByText('2026-07-01')).toBeNull()
   })
 
   it('账本图表悬停展示对应摘要且点击打开完整明细', async () => {

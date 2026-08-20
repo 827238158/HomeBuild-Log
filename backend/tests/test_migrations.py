@@ -31,7 +31,7 @@ def test_migrations_upgrade_temporary_database_to_head(
     finally:
         engine.dispose()
 
-    assert revision == "0018_unify_relations"
+    assert revision == "0019_add_pitfall_logs"
 
     engine = create_engine(url)
     try:
@@ -45,6 +45,19 @@ def test_migrations_upgrade_temporary_database_to_head(
     finally:
         engine.dispose()
     assert root == ("整套房屋", "house", None)
+
+    engine = create_engine(url)
+    try:
+        with engine.connect() as connection:
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    text("SELECT name FROM sqlite_master WHERE type='table'")
+                )
+            }
+    finally:
+        engine.dispose()
+    assert {"pitfalls", "pitfall_resolutions"} <= tables
 
 
 def test_relation_migration_normalizes_direction_and_merges_duplicates(

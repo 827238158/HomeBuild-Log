@@ -309,3 +309,42 @@ class RecordRelation(Base):
     to_record_id: Mapped[str] = mapped_column(String(32), ForeignKey("records.id"), nullable=False)
     relation_type: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+
+
+class Pitfall(Base):
+    """独立的踩坑日志，不参与正式记录与候选确认流程。"""
+
+    __tablename__ = "pitfalls"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_id)
+    project_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    occurred_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+
+    resolutions: Mapped[list[PitfallResolution]] = relationship(
+        back_populates="pitfall",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by=lambda: (PitfallResolution.resolved_date, PitfallResolution.created_at),
+    )
+
+
+class PitfallResolution(Base):
+    """踩坑的追加式处理记录；每次处理都保留为独立行。"""
+
+    __tablename__ = "pitfall_resolutions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_id)
+    pitfall_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("pitfalls.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    resolved_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+
+    pitfall: Mapped[Pitfall] = relationship(back_populates="resolutions")

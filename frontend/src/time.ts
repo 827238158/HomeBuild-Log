@@ -9,11 +9,28 @@ const beijingFormatter = new Intl.DateTimeFormat('zh-CN', {
   hour12: false,
 })
 
+const beijingDateFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
 export function formatBeijingDateTime(value: string | null | undefined): string {
   if (!value) return '待补充'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '时间格式无效'
   return `${beijingFormatter.format(date)}（北京时间）`
+}
+
+export function formatBeijingDate(value: string | null | undefined): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  // 使用明确的北京时间日历字段，避免直接截取 UTC 字符串导致跨日错误。
+  const parts = beijingDateFormatter.formatToParts(date)
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
 }
 
 export function formatCalendarDate(value: string | null | undefined): string {

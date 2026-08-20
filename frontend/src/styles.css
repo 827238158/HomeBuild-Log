@@ -2,6 +2,7 @@
 @import './styles/shell.css';
 @import './styles/components.css';
 @import './styles/views.css';
+@import './styles/pitfalls.css';
 @import './styles/responsive.css';
 
 /* 旧规则作为迁移兼容层保留；未分层的新设计规范始终拥有最终优先级。 */
@@ -16,7 +17,7 @@
 .select-trigger > span { transition: transform 160ms ease; }
 .select-menu { position: absolute; z-index: 80; top: calc(100% + 6px); left: 0; right: 0; max-height: 280px; overflow: auto; padding: 6px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-sm); }
 .select-menu--portal,
-.dropdown-portal { z-index: 10000; right: auto; inset-inline-end: auto; }
+.dropdown-portal { z-index: 10000; right: auto; inset-inline-end: auto; pointer-events: auto; }
 .select-menu button { width: 100%; padding: 9px 10px; border: 0; border-radius: 9px; background: transparent; color: inherit; text-align: left; }
 .select-menu button:hover, .select-menu button.is-active { background: var(--primary-soft); }
 .select-menu button[aria-selected='true'] { color: var(--primary); font-weight: 700; }
@@ -2550,6 +2551,22 @@ h1 {
   margin: 0;
 }
 
+.multi-select-option__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multi-select-option__meta {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--ink-subtle);
+  font-size: .76rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
 .chart-card {
   min-width: 0;
   margin: 0;
@@ -3264,6 +3281,11 @@ textarea {
 
 .ledger-detail-panel.is-obscured {
   visibility: hidden;
+  pointer-events: none;
+}
+
+.detail-panel.record-detail-panel {
+  z-index: 40;
 }
 
 .ledger-detail-panel__header {

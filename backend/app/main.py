@@ -18,6 +18,7 @@ from app.api.auth import router as auth_router
 from app.api.domain import router as domain_router
 from app.api.extractions import router as extractions_router
 from app.api.health import router as health_router
+from app.api.pitfalls import router as pitfalls_router
 from app.api.sources import router as sources_router
 from app.api.views import router as views_router
 from app.core.config import SecretsConfig
@@ -126,6 +127,7 @@ def create_app(
     application.include_router(audit_router, prefix="/api/v1")
     # 固定路径的分析接口必须先于 /records/{record_id} 注册。
     application.include_router(analytics_router, prefix="/api/v1")
+    application.include_router(pitfalls_router, prefix="/api/v1")
     application.include_router(domain_router, prefix="/api/v1")
     application.include_router(extractions_router, prefix="/api/v1")
     application.include_router(views_router, prefix="/api/v1")

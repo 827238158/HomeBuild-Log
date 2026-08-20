@@ -18,8 +18,11 @@
 
 ```powershell
 Set-Location backend
+D:\Anaconda\envs\homebuild-log\python.exe -m alembic -c alembic.ini upgrade head
 D:\Anaconda\envs\homebuild-log\python.exe -m fastapi dev app/main.py --host 127.0.0.1 --port 8000
 ```
+
+根目录控制菜单会在启动前自动执行同一迁移命令；迁移失败时不会启动后端或前端。
 
 手动启动前端：
 

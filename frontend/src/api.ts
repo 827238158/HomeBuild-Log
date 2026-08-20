@@ -1,9 +1,9 @@
-import { API_BASE } from './config'
 import { authHeaders, requestJson } from './http'
 
 export interface HealthResponse {
   status: 'ok'
   database: { status: 'ok' }
+  database_revision: { status: 'ok'; current: string; expected: string }
   storage: { status: 'ok' }
 }
 
@@ -34,11 +34,7 @@ export interface AttachmentResponse {
 }
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
-  const response = await fetch(`${API_BASE}/health`, { signal })
-  if (!response.ok) {
-    throw new Error('本地服务暂不可用')
-  }
-  return (await response.json()) as HealthResponse
+  return requestJson<HealthResponse>('/health', { signal, auth: false })
 }
 
 export async function login(password: string): Promise<LoginResponse> {

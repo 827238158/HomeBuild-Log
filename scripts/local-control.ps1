@@ -201,6 +201,19 @@ function Start-HomeBuildLog {
     $escapedPython = $script:PythonPath.Replace("'", "''")
     $escapedNpm = $npmPath.Replace("'", "''")
 
+    Write-Host "正在检查并升级数据库结构……" -ForegroundColor Cyan
+    Push-Location $script:BackendDirectory
+    try {
+        # 数据库必须先到达当前 head；迁移失败时不允许启动任何应用进程。
+        & $script:PythonPath -m alembic -c alembic.ini upgrade head
+        if ($LASTEXITCODE -ne 0) {
+            throw "数据库迁移失败（退出码 $LASTEXITCODE），后端和前端均未启动。"
+        }
+    }
+    finally {
+        Pop-Location
+    }
+
     Write-Host "正在启动后端和前端……" -ForegroundColor Cyan
     $backendProcess = Start-LogWindow `
         -Title "HomeBuild Log - 后端" `

@@ -33,6 +33,7 @@ export interface DomainRecord {
   record_type: string
   title: string
   status: string
+  created_at?: string
   description: string | null
   related_record_ids?: string[]
   archived_at: string | null
@@ -327,6 +328,41 @@ export interface SourceDeletionResult extends SourceDeletionImpact {
   file_cleanup_warnings: string[]
 }
 
+export interface PitfallResolution {
+  id: string
+  pitfall_id: string
+  resolved_date: string
+  content: string
+  created_at: string
+  updated_at: string
+}
+
+export interface PitfallEntry {
+  id: string
+  occurred_date: string
+  description: string
+  status: 'unresolved' | 'resolved'
+  resolutions: PitfallResolution[]
+  created_at: string
+  updated_at: string
+}
+
+export interface PitfallListResponse {
+  items: PitfallEntry[]
+  summary: { total: number; unresolved: number; resolved: number }
+}
+
+export interface PitfallAIAnalysis {
+  summary: string
+  recurring_patterns: string[]
+  approaches: string[]
+  unresolved_items: string[]
+  prevention_advice: string[]
+  provider: string
+  model: string
+  generated_at: string
+}
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return request<T>(url.startsWith(API_BASE) ? url.slice(API_BASE.length) : url, init)
 }
@@ -467,3 +503,32 @@ export const getAiAnalyticsRuns = (range = '30d', offset = 0) =>
   requestJson<AiAnalyticsRunsResponse>(
     `${API_BASE}/ai-analytics/runs?range=${encodeURIComponent(range)}&offset=${offset}`,
   )
+
+export const listPitfalls = (state: 'all' | 'unresolved' | 'resolved' = 'all') =>
+  requestJson<PitfallListResponse>(`${API_BASE}/pitfalls?state=${state}`)
+export const createPitfall = (payload: { occurred_date: string; description: string }) =>
+  requestJson<PitfallEntry>(`${API_BASE}/pitfalls`, {
+    method: 'POST', body: JSON.stringify(payload),
+  })
+export const updatePitfall = (id: string, payload: { occurred_date: string; description: string }) =>
+  requestJson<PitfallEntry>(`${API_BASE}/pitfalls/${id}`, {
+    method: 'PATCH', body: JSON.stringify(payload),
+  })
+export const deletePitfall = (id: string) =>
+  requestJson<void>(`${API_BASE}/pitfalls/${id}`, { method: 'DELETE' })
+export const createPitfallResolution = (
+  pitfallId: string,
+  payload: { resolved_date: string; content: string },
+) => requestJson<PitfallResolution>(`${API_BASE}/pitfalls/${pitfallId}/resolutions`, {
+  method: 'POST', body: JSON.stringify(payload),
+})
+export const updatePitfallResolution = (
+  id: string,
+  payload: { resolved_date: string; content: string },
+) => requestJson<PitfallResolution>(`${API_BASE}/pitfalls/resolutions/${id}`, {
+  method: 'PATCH', body: JSON.stringify(payload),
+})
+export const deletePitfallResolution = (id: string) =>
+  requestJson<void>(`${API_BASE}/pitfalls/resolutions/${id}`, { method: 'DELETE' })
+export const analyzePitfalls = () =>
+  requestJson<PitfallAIAnalysis>(`${API_BASE}/pitfalls/analyze`, { method: 'POST' })
