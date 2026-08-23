@@ -29,5 +29,5 @@
 
 ## 工作区状态
 
-- 本轮修改 8 个前端源码、测试和样式文件，并更新本文件；尚未提交。
-- 上一轮未提交的 `memory/MEMORY.md`、`memory/RUNBOOK.md`、`memory/LOG.md` 与 `deploy/README-LAN.md` 保持原状；`README.md` 未修改。
+- 本轮移动端界面修复及前序记忆、部署说明已提交为 `48f97d6`（`IOS前端界面BUG修复`），并推送至 `origin/main`。
+- 本地 `main` 与 `origin/main` 已同步，工作区干净；`README.md` 未修改。
