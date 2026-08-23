@@ -8,7 +8,7 @@ import {
   type HealthResponse,
   type SourceResponse,
 } from './api'
-import { createExtraction, listSources } from './domainApi'
+import { listSources } from './domainApi'
 import { clearToken, getToken, saveToken } from './token'
 import { BACKEND_URL, UI, UPLOAD } from './config'
 import './styles.css'
@@ -182,24 +182,6 @@ export function App() {
     }
   }
 
-  const handleSaveAndAnalyze = async () => {
-    if (!sourceText.trim()) return
-    setSaveStatus('analyzing')
-    try {
-      const entry = await saveSource(sourceText, attachment)
-      if (!entry) return
-      await createExtraction(entry.id, 'auto')
-      setSaveStatus('analyzed')
-      setTimeout(() => setSaveStatus(''), UI.toastDuration)
-    } catch (error: unknown) {
-      if (error instanceof Error && error.message === 'attachment-error') {
-        setSaveStatus('attachment-error')
-      } else {
-        setSaveStatus('error')
-      }
-    }
-  }
-
   const handleAttachmentChange = (file: File | null) => {
     setAttachmentError('')
     setPendingUpload(null)
@@ -240,17 +222,15 @@ export function App() {
     return <main className="app-workspace">
       <CoreViews onLogout={handleLogout}>
         <section className="capture-workspace">
-          <header className="capture-workspace__header"><p className="eyebrow">快速录入</p><h2>记录装修现场</h2><p>先保存原始事实，再选择是否交给智能分析拆分。</p></header>
+          <header className="capture-workspace__header"><p className="eyebrow">快速录入</p><h2>记录装修现场</h2><p>先保存原始事实，再到下方按需进行智能拆分。</p></header>
           <div className="source-form">
             <textarea className="source-input" placeholder="记录今天发生的事情…" value={sourceText} onChange={(e) => setSourceText(e.target.value)} rows={3} />
             <label className="attachment-field"><span>附件（可选，单个文件）</span><input type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)} /></label>
             {attachment && <p className="attachment-name">已选择：{attachment.name}</p>}
             {attachmentError && <p className="source-error">{attachmentError}</p>}
             <div className="source-actions">
-              <button className="source-save" onClick={handleSaveSource} disabled={!sourceText.trim() || saveStatus === 'saving' || saveStatus === 'analyzing'}>{saveStatus === 'saving' ? '保存中…' : '保存记录'}</button>
-              <button className="secondary-button" type="button" onClick={handleSaveAndAnalyze} disabled={!sourceText.trim() || saveStatus === 'saving' || saveStatus === 'analyzing'}>{saveStatus === 'analyzing' ? '分析中…' : '保存并分析'}</button>
+              <button className="source-save" onClick={handleSaveSource} disabled={!sourceText.trim() || saveStatus === 'saving'}>{saveStatus === 'saving' ? '保存中…' : '保存记录'}</button>
               {saveStatus === 'saved' && <span className="source-saved">已保存</span>}
-              {saveStatus === 'analyzed' && <span className="source-saved">已保存并分析</span>}
               {saveStatus === 'error' && <span className="source-error">保存失败</span>}
               {saveStatus === 'attachment-error' && pendingUpload && <button className="attachment-retry" type="button" onClick={handleRetryAttachment}>来源已保存，重试附件</button>}
             </div>

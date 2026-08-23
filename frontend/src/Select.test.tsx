@@ -10,6 +10,17 @@ function Fixture() {
 }
 
 describe('Select', () => {
+  it('点击自定义触发器时阻止标签继续唤起原生选择器', () => {
+    render(<Fixture />)
+    const trigger = screen.getByRole('button', { name: /甲/ })
+    const nativeProxy = screen.getAllByRole('combobox')[0]
+
+    expect(fireEvent(trigger, new MouseEvent('click', { bubbles: true, cancelable: true }))).toBe(false)
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    expect(fireEvent.pointerDown(nativeProxy)).toBe(false)
+    expect(fireEvent.click(nativeProxy)).toBe(false)
+  })
+
   it('同一时间只展开一个并支持外部点击关闭', () => {
     render(<Fixture />)
     fireEvent.click(screen.getByRole('button', { name: /甲/ }))

@@ -61,8 +61,10 @@ export function Select({ value, onChange, children, disabled, required, classNam
     setActive(next)
   }
   return <div ref={rootRef} className={`select-control${className ? ` ${className}` : ''}`}>
-    <select className="select-native-proxy" tabIndex={-1} aria-label={accessibleLabel} value={value} disabled={disabled} required={required} onChange={(event) => onChange({ target: { value: event.target.value } })}>{children}</select>
-    <div ref={triggerRef} role="button" tabIndex={disabled ? -1 : 0} className="select-trigger" aria-disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-required={required} onClick={() => {
+    <select className="select-native-proxy" tabIndex={-1} aria-label={accessibleLabel} value={value} disabled={disabled} required={required} onPointerDown={(event) => event.preventDefault()} onClick={(event) => event.preventDefault()} onChange={(event) => onChange({ target: { value: event.target.value } })}>{children}</select>
+    <div ref={triggerRef} role="button" tabIndex={disabled ? -1 : 0} className="select-trigger" aria-disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-required={required} onClick={(event) => {
+      // Select 常被包在 label 中；阻止 label 在 iOS 上继续激活隐藏的原生选择器。
+      event.preventDefault()
       if (disabled) return
       const next = !open; setOpen(next)
       if (next) window.dispatchEvent(new CustomEvent('homebuild-dropdown-open', { detail: id }))

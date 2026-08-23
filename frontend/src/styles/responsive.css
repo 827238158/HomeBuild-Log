@@ -91,13 +91,33 @@
   .detail-panel {
     padding: 18px 16px;
   }
+
+  /* 16px 可避免 iOS 聚焦表单时自动放大，同时不限制用户手动缩放。 */
+  input:not([type='checkbox']):not([type='radio']):not([type='file']),
+  textarea,
+  select,
+  .select-trigger,
+  .multi-select-summary,
+  .source-picker__trigger {
+    font-size: 16px;
+  }
+
+  .source-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .source-actions .source-save {
+    width: 100%;
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
   .workspace-topbar,
   .detail-panel,
   .select-menu,
-  .multi-select-options {
+  .multi-select-options,
+  .source-picker__menu {
     background: var(--surface);
     backdrop-filter: none;
   }
@@ -117,4 +137,3 @@
     transition-duration: .01ms !important;
   }
 }
-

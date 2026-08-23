@@ -38,6 +38,8 @@
 }
 
 .source-actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: center;
 }
@@ -70,6 +72,12 @@
 
 .domain-workspace {
   gap: 18px;
+}
+
+.capture-workspace .domain-workspace > .source-picker,
+.source-maintenance {
+  width: 100%;
+  margin-inline: 0;
 }
 
 .source-picker,
@@ -261,4 +269,3 @@
 .run-row small {
   color: var(--ink-muted);
 }
-

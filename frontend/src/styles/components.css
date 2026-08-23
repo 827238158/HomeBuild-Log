@@ -105,6 +105,27 @@ button:not(:disabled):active {
   color: var(--risk);
 }
 
+/* 自定义 Select 保留原生值代理，但不允许触摸事件唤起第二套系统选项框。 */
+.select-native-proxy {
+  pointer-events: none;
+}
+
+.field-stack,
+.filter-grid > *,
+.record-form-grid > *,
+.select-control,
+.multi-select-control {
+  min-width: 0;
+}
+
+/* iOS 的日期输入带有固有宽度，需要显式允许它在网格和卡片内收缩。 */
+input[type='date'] {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
 input:not([type='checkbox']):not([type='radio']):not([type='file']),
 select,
 .select-trigger,
@@ -149,7 +170,10 @@ select:focus,
 }
 
 .select-menu,
-.multi-select-options {
+.multi-select-options,
+.source-picker__menu {
+  gap: 4px;
+  padding: 6px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
@@ -158,10 +182,27 @@ select:focus,
   animation: none;
 }
 
+.select-menu button,
+.source-picker__option,
+.multi-select-options label {
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+}
+
 .select-menu button:hover,
 .select-menu button.is-active,
-.multi-select-options label:hover {
+.multi-select-options label:hover,
+.source-picker__option:hover {
   background: var(--primary-soft);
+}
+
+.select-menu button[aria-selected='true'],
+.source-picker__option[aria-selected='true'] {
+  color: var(--primary);
+  font-weight: 700;
 }
 
 .summary-grid,
@@ -333,4 +374,3 @@ select:focus,
   from { opacity: 0; transform: translateX(12px); }
   to { opacity: 1; transform: translateX(0); }
 }
-

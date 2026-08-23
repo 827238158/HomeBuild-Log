@@ -236,6 +236,7 @@ describe('App', () => {
 
     render(<App />)
     await screen.findByText('记录装修现场')
+    expect(screen.queryByText('保存并分析')).toBeNull()
     fireEvent.change(screen.getByPlaceholderText('记录今天发生的事情…'), {
       target: { value: '现场记录' },
     })
@@ -250,6 +251,7 @@ describe('App', () => {
       '/api/v1/attachments?source_id=source-1',
       expect.objectContaining({ method: 'POST', body: expect.any(FormData) }),
     )
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/extractions'))).toBe(false)
   })
 
   it('附件失败时保留来源并允许只重试附件', async () => {
@@ -310,53 +312,4 @@ describe('App', () => {
     )).toHaveLength(1)
   })
 
-  it('保存并分析会先创建来源再触发提取', async () => {
-    sessionStorage.setItem('homebuild-log-token', 'test-token')
-    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
-      const url = String(input)
-      if (url.endsWith('/health')) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ status: 'ok', database: { status: 'ok' }, storage: { status: 'ok' } }),
-        })
-      }
-      if (url.endsWith('/sources')) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: 'source-3',
-            input_type: 'text',
-            original_text: '需要分析的现场记录',
-            captured_at: '2026-06-28T10:00:00+08:00',
-            reported_time_text: null,
-          }),
-        })
-      }
-      if (url.includes('/extractions')) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            id: 'bundle-3', source_id: 'source-3', extraction_run_id: 'run-3',
-            engine: 'local-rule-v1', fallback_reason: null, version: 1,
-            suggestions: [], relations: [], warnings: [],
-          }),
-        })
-      }
-      return Promise.resolve({ ok: true, json: async () => ({}) })
-    })
-    vi.stubGlobal('fetch', fetchMock)
-
-    render(<App />)
-    await screen.findByText('记录装修现场')
-    fireEvent.change(screen.getByPlaceholderText('记录今天发生的事情…'), {
-      target: { value: '需要分析的现场记录' },
-    })
-    fireEvent.click(screen.getByText('保存并分析'))
-
-    expect(await screen.findByText('已保存并分析')).toBeTruthy()
-    expect(fetchMock.mock.calls.filter(([url, init]) =>
-      String(url).endsWith('/sources') && (init as RequestInit | undefined)?.method === 'POST',
-    )).toHaveLength(1)
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/extractions'))).toBe(true)
-  })
 })
