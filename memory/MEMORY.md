@@ -8,7 +8,7 @@ HomeBuild Log 是本地优先的装修事实工作台：保存原始来源，生
 
 - 产品用户：单一业主本人，个人私用。
 - 技术基线：React、TypeScript、Vite、FastAPI、SQLite、本地附件目录。
-- 访问基线：Windows 本地运行可用；`ubuntu26` 的真实数据 Docker 服务只绑定有线局域网地址 `192.168.1.17:8000`，同网段 Windows 直连已验证，当前镜像为 `homebuild-log:3cc054144ec1`，数据库 revision 为 `0019_add_pitfall_logs`，容器健康、SQLite 与存储检查均已通过；整机重启恢复和手机实机登录尚未验收。
+- 访问基线：Windows 本地运行可用；`ubuntu26` 的真实数据 Docker 服务只绑定有线局域网地址 `192.168.1.17:8000`，同网段 Windows 直连已验证，当前镜像为 `homebuild-log:f255e5a89414`，数据库 revision 为 `0019_add_pitfall_logs`，容器健康、SQLite 与存储检查均已通过；整机重启恢复和手机实机登录尚未验收。
 - 数据目录：项目根目录 `.local-data/`，不得进入 Git。
 - 来源录入：文字必填，可附加单个图片或 PDF 作为证据；当前不对附件做 OCR 或视觉理解。
 - AI：只分析来源文字，默认关闭；MiMo 和 DeepSeek 可作为 OpenAI 兼容供应商，本地规则兜底。
