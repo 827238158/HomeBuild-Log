@@ -1,4 +1,10 @@
-/* 阶段 4B 仅保证现有窄屏行为不回退；手机专项留到阶段 4C。 */
+/* 平板横屏扣除侧栏后不足以容纳四张金额卡，提前换行保留金额阅读空间。 */
+@media (max-width: 1279px) {
+  .summary-grid--money {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1100px) {
   .workspace-content {
     padding-right: 22px;
@@ -8,6 +14,28 @@
   .issue-page-header {
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
+  }
+
+  /* 日期筛选使用两列，操作按钮另起一行，避免原生控件和按钮互相挤压。 */
+  .filter-grid,
+  .filter-grid--compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .filter-grid--compact > .filter-button {
+    grid-column: 1 / -1;
+  }
+
+  .chart-grid,
+  .overview-stage-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .overview-stage-panel > aside {
+    padding-top: 16px;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    border-left: 0;
   }
 }
 

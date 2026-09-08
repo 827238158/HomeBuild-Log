@@ -120,6 +120,22 @@ button:not(:disabled):active {
   max-width: 100%;
 }
 
+/* 显式允许网格轨道收缩，避免原生日期编辑区以固有宽度撑开候选卡。 */
+.field-stack {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.record-form-grid {
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 720px) {
+  .record-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* 移动端原生日期/时间控件带有固有宽度，需同时约束外框与 WebKit 内部编辑区。 */
 input[type='date'],
 input[type='time'],
@@ -135,6 +151,8 @@ input[type='week'] {
   max-width: 100%;
   max-inline-size: 100%;
   overflow: hidden;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 input[type='date']::-webkit-date-and-time-value,
@@ -209,6 +227,12 @@ select:focus,
   box-shadow: var(--shadow-md);
   backdrop-filter: none;
   animation: none;
+}
+
+/* Portal 菜单必须高于详情抽屉；旧层中后定义的多选样式会将层级降回 12。 */
+.dropdown-portal {
+  z-index: 10000;
+  pointer-events: auto;
 }
 
 .select-menu button,

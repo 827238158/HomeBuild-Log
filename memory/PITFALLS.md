@@ -30,6 +30,10 @@
   原因：未使用 `-LiteralPath` 或未正确引用路径。
   处理：PowerShell 文件操作优先使用 `-LiteralPath`，不要拼接未验证路径做删除或移动。
 
+- 触发：在 Codex 沙箱内执行 `git fetch` 报无法写入 `.git/FETCH_HEAD` 的 `Permission denied`，但已有远端引用看起来仍与本地一致。
+  原因：沙箱允许读取 `.git`，但远端引用刷新需要写入 Git 元数据；旧引用一致不能代替本次联网比对。
+  处理：按原命令范围申请沙箱外执行 `git fetch origin`，成功后再用 `git rev-list --left-right --count HEAD...origin/main` 判断分叉；不得把旧缓存引用误报为最新远端状态。
+
 - 触发：停止服务误杀其他 Python 或 Node 进程。
   原因：按进程名批量关闭。
   处理：优先使用项目控制脚本保存的运行状态，只停止由项目菜单启动的进程。
@@ -93,6 +97,10 @@
 - 触发：在 `frontend` 目录执行 Vitest 目标测试时提示 `No test files found`。
   原因：过滤路径仍写成仓库根目录下的 `frontend/src/...`，相对当前目录后实际重复了一层 `frontend`。
   处理：从 `frontend` 目录运行时使用 `npm run test -- --run src/<文件>.test.tsx`；过滤路径必须相对命令工作目录。
+
+- 触发：Codex 沙箱内运行 Vitest/Vite 时在加载 `vite.config.ts` 阶段报 `spawn EPERM`，尚未进入任何测试用例。
+  原因：Vite/Rolldown 需要创建子进程解析真实路径或加载配置，可能被 Windows 沙箱阻止；这不代表测试断言失败。
+  处理：确认错误发生在测试启动阶段后，在相同工作目录按原 `npm run test` 命令申请沙箱外执行；只有沙箱外实际测试结果才能计入通过或失败。
 
 - 触发：需要压缩前端生成图片时，项目 Python 环境导入 Pillow 报 `ModuleNotFoundError`。
   原因：`homebuild-log` 环境未安装 Pillow，但本机 Conda 工具目录已有 `D:\Anaconda\Library\bin\cwebp.exe`。
