@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as api from './domainApi'
@@ -35,7 +35,9 @@ vi.mock('./domainApi', () => ({
   analyzePitfalls: vi.fn(),
 }))
 vi.mock('./EChart', () => ({
-  EChart: ({ summary, title, kind, onDataHover, onDataLeave, onDataClick, scrollableContentHeight, scrollableMaxHeight }: {
+  EChart: ({ summary, title, kind, onDataHover, onDataLeave, onDataClick, interactionHint, selectedKey, scrollableContentHeight, scrollableMaxHeight }: {
+    interactionHint?: string
+    selectedKey?: string
     summary: string
     title: string
     kind: string
@@ -47,8 +49,8 @@ vi.mock('./EChart', () => ({
   }) => {
     const key = title === '主要商家金额' ? '砖世界'
       : title === '记录类型分布' ? 'issue'
-        : title === '资金构成' ? 'expense' : 'paid'
-    return <figure data-chart-kind={kind} data-scroll-content-height={scrollableContentHeight} data-scroll-max-height={scrollableMaxHeight}><h3>{title}</h3>{summary}<button type="button" aria-label={`${title}测试数据项`} onMouseEnter={() => onDataHover?.({ key, clientX: 100, clientY: 100, anchorRect: { left: 96, top: 96, right: 104, bottom: 104, width: 8, height: 8 } })} onMouseLeave={onDataLeave} onClick={() => onDataClick?.(key)}>数据项</button></figure>
+        : title === '记录时间趋势' ? '2026-06' : title === '问题状态分布' ? 'pending' : title === '问题严重程度' ? 'high' : title === '资金构成' ? 'expense' : 'paid'
+    return <figure data-chart-kind={kind} data-scroll-content-height={scrollableContentHeight} data-scroll-max-height={scrollableMaxHeight}><h3>{title}</h3>{interactionHint && <span>{interactionHint}</span>}<span data-selected-key={selectedKey}>{summary}</span><button type="button" aria-label={`${title}测试数据项`} onMouseEnter={() => onDataHover?.({ key, clientX: 100, clientY: 100, anchorRect: { left: 96, top: 96, right: 104, bottom: 104, width: 8, height: 8 } })} onMouseLeave={onDataLeave} onClick={() => onDataClick?.(key)}>数据项</button></figure>
   },
 }))
 
@@ -128,18 +130,18 @@ beforeEach(() => {
   vi.mocked(api.getIssueBoard).mockResolvedValue({
     total: 1,
     columns: [
-      { status: 'open', label: '发现', items: [{ ...record, id: 'issue-1', record_type: 'issue', title: '地砖破裂', status: 'open', phenomenon: '小破裂' }] },
+      { status: 'pending', label: '待处理', items: [{ ...record, id: 'issue-1', record_type: 'issue', title: '地砖破裂', status: 'pending', phenomenon: '小破裂' }] },
       { status: 'in_progress', label: '处理中', items: [] },
-      { status: 'waiting', label: '等待', items: [] },
-      { status: 'resolved', label: '已解决', items: [] },
-      { status: 'closed', label: '已关闭', items: [] },
+
+
+      { status: 'done', label: '已完成', items: [] },
     ],
     analytics: {
-      status_distribution: [{ key: 'open', label: '待处理', value: 1 }],
+      status_distribution: [{ key: 'pending', label: '待处理', value: 1 }],
       space_distribution: [], severity_distribution: [],
     },
   })
-  vi.mocked(api.updateRecord).mockResolvedValue({ ...record, record_type: 'issue', status: 'waiting' })
+  vi.mocked(api.updateRecord).mockResolvedValue({ ...record, record_type: 'issue', status: 'in_progress' })
   vi.mocked(api.deleteRecord).mockResolvedValue(undefined)
   vi.mocked(api.searchRecords).mockResolvedValue({
     query: '现场', counts: { sources: 1, records: 1, materials: 0, vendors: 0, spaces: 0 },
@@ -160,6 +162,107 @@ beforeEach(() => {
 })
 
 describe('CoreViews', () => {
+  it('问题图表按交集请求，空间草稿不生效，分别清除与全部清除保留已应用空间', async () => {
+    vi.mocked(api.listSpaces).mockResolvedValue([{ id: 'room-1', name: '主卧', kind: 'room', parent_id: null }])
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '问题' }))
+    await screen.findByText('地砖破裂')
+    fireEvent.change(screen.getByLabelText('空间'), { target: { value: 'room-1' } })
+    fireEvent.click(screen.getByRole('button', { name: '问题状态分布测试数据项' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: '', status: 'pending', severity: '' }))
+    fireEvent.click(screen.getByRole('button', { name: '问题严重程度测试数据项' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: '', status: 'pending', severity: 'high' }))
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: 'room-1', status: 'pending', severity: 'high' }))
+    const select = screen.getByLabelText('处理状态')
+    expect(within(select).getAllByRole('option')).toHaveLength(3)
+    fireEvent.change(select, { target: { value: 'in_progress' } })
+    await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('issue-1', { record_type: 'issue', status: 'in_progress' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: 'room-1', status: 'pending', severity: 'high' }))
+    fireEvent.click(screen.getByRole('button', { name: '状态：待处理，点击取消' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: 'room-1', status: '', severity: 'high' }))
+    fireEvent.click(screen.getByRole('button', { name: '严重程度：高，点击取消' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: 'room-1', status: '', severity: '' }))
+    fireEvent.click(screen.getByRole('button', { name: '问题严重程度测试数据项' }))
+    fireEvent.click(screen.getByRole('button', { name: '清除全部图表筛选' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: 'room-1', status: '', severity: '' }))
+  })
+
+  it('问题筛选空结果仍可清除，迟到的旧响应不能覆盖最新结果', async () => {
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '问题' }))
+    await screen.findByText('地砖破裂')
+    const initial = await vi.mocked(api.getIssueBoard).mock.results.at(-1)!.value
+    let resolveOld!: (value: api.IssueBoardResponse) => void
+    vi.mocked(api.getIssueBoard).mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: '问题状态分布测试数据项' }))
+    const empty = { total: 0, columns: initial.columns.map((column: api.IssueBoardResponse['columns'][number]) => ({ ...column, items: [] })), analytics: { status_distribution: [], space_distribution: [], severity_distribution: [] } }
+    vi.mocked(api.getIssueBoard).mockResolvedValueOnce(empty)
+    fireEvent.click(screen.getByRole('button', { name: '问题严重程度测试数据项' }))
+    await waitFor(() => expect(screen.queryByText('地砖破裂')).toBeNull())
+    await act(async () => resolveOld(initial))
+    expect(screen.queryByText('地砖破裂')).toBeNull()
+    expect(screen.getByRole('button', { name: '严重程度：高，点击取消' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '清除全部图表筛选' }))
+    expect(await screen.findByText('地砖破裂')).toBeTruthy()
+  })
+
+  it('月份与类型组合使用已应用条件，手动日期替换并可独立清除', async () => {
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    await screen.findByText('现场查看')
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '草稿' } })
+    fireEvent.change(screen.getByLabelText('记录类型'), { target: { value: 'ledger' } })
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2025-01-01' } })
+    expect(screen.queryByRole('button', { name: /当前日期/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '记录时间趋势测试数据项' }))
+    await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ q: '', record_type: '', date_from: '2026-06-01', date_to: '2026-06-30' })))
+    fireEvent.click(screen.getByRole('button', { name: '记录类型分布测试数据项' }))
+    await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ q: '', record_type: 'issue', date_from: '2026-06-01', date_to: '2026-06-30' })))
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2024-02-02' } })
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2024-02-29' } })
+    expect(screen.getByRole('button', { name: '当前日期：2026-06-01 至 2026-06-30，点击取消' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
+    await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ q: '草稿', record_type: 'issue', date_from: '2024-02-02', date_to: '2024-02-29' })))
+    expect(screen.getByRole('heading', { name: '记录时间趋势' }).closest('figure')!.querySelector('[data-selected-key]')?.getAttribute('data-selected-key')).toBe('')
+    fireEvent.click(screen.getByRole('button', { name: /当前日期：2024/ }))
+    await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ q: '草稿', record_type: 'issue', date_from: '', date_to: '' })))
+  })
+
+  it('时间线应用月份后恢复首批十条，旧请求不能覆盖新结果', async () => {
+    const many = { total: 12, groups: [{ date_key: '2026-06', label: '2026年6月', items: Array.from({ length: 12 }, (_, index) => ({ record: { ...record, id: `batch-${index}`, title: `批次记录${index + 1}` }, related_records: [] })) }], analytics }
+    vi.mocked(api.getTimeline).mockResolvedValue(many)
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    await screen.findByText('批次记录10')
+    fireEvent.click(screen.getByRole('button', { name: '查看更多' }))
+    expect(screen.getByText('批次记录12')).toBeTruthy()
+    let resolveOld!: (value: api.TimelineResponse) => void
+    vi.mocked(api.getTimeline).mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: '记录时间趋势测试数据项' }))
+    expect(screen.queryByText('批次记录12')).toBeNull()
+    vi.mocked(api.getTimeline).mockResolvedValueOnce({ total: 0, groups: [], analytics: { ...analytics, total: 0 } })
+    fireEvent.click(screen.getByRole('button', { name: '记录类型分布测试数据项' }))
+    await waitFor(() => expect(screen.queryByText('批次记录1')).toBeNull())
+    await act(async () => resolveOld(many))
+    expect(screen.queryByText('批次记录1')).toBeNull()
+    expect(screen.getByRole('button', { name: /当前日期/ })).toBeTruthy()
+  })
+
+  it('无需加载更多即可回顶，减少动态效果时直接定位页面零点', async () => {
+    const scrollYSpy = vi.spyOn(window, 'scrollY', 'get').mockReturnValue(321)
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }))
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    fireEvent.click(await screen.findByRole('button', { name: '回到顶部' }))
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: 'instant' })
+    scrollYSpy.mockReturnValue(320)
+    fireEvent.scroll(window)
+    expect(screen.queryByRole('button', { name: '回到顶部' })).toBeNull()
+    scrollYSpy.mockRestore(); scrollTo.mockRestore()
+  })
+
   it('概览阶段分布同时展示图表和阶段明细', async () => {
     vi.mocked(api.getOverview).mockResolvedValueOnce({
       as_of_date: '2026-07-01', horizon_date: '2026-07-08',
@@ -337,23 +440,17 @@ describe('CoreViews', () => {
 
     expect(await screen.findByText('时间线记录 10')).toBeTruthy()
     expect(screen.queryByText('时间线记录 11')).toBeNull()
-    const timelineList = document.querySelector('.timeline-list') as HTMLDivElement
-    const scrollIntoView = vi.fn()
-    timelineList.scrollIntoView = scrollIntoView
-    const scrollYSpy = vi.spyOn(window, 'scrollY', 'get').mockReturnValue(200)
-    const rectSpy = vi.spyOn(timelineList, 'getBoundingClientRect').mockReturnValue({
-      x: 0, y: -100, left: 0, top: -100, right: 800, bottom: 600,
-      width: 800, height: 700, toJSON: () => ({}),
-    })
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    const scrollYSpy = vi.spyOn(window, 'scrollY', 'get').mockReturnValue(500)
     fireEvent.click(screen.getByRole('button', { name: '查看更多' }))
     expect(await screen.findByText('时间线记录 12')).toBeTruthy()
     expect(screen.queryByRole('button', { name: '查看更多' })).toBeNull()
     fireEvent.scroll(window)
     const backToTop = await screen.findByRole('button', { name: '回到顶部' })
     fireEvent.click(backToTop)
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: 'smooth' })
     scrollYSpy.mockRestore()
-    rectSpy.mockRestore()
+    scrollTo.mockRestore()
   })
 
   it('点击记录类型分布后立即筛选时间线，取消后恢复全部记录', async () => {
@@ -555,6 +652,7 @@ describe('CoreViews', () => {
     fireEvent.click(screen.getByRole('button', { name: '账本' }))
 
     const vendorBar = await screen.findByRole('button', { name: '主要商家金额测试数据项' })
+    expect(screen.getAllByText('点击图形查看明细记录')).toHaveLength(2)
     fireEvent.mouseEnter(vendorBar)
     const preview = await screen.findByLabelText('砖世界明细预览')
     expect(within(preview).getByText('占比：100.0%')).toBeTruthy()
@@ -601,13 +699,13 @@ describe('CoreViews', () => {
     fireEvent.click(screen.getByRole('button', { name: '问题' }))
     const statusSelect = await screen.findByLabelText('处理状态')
     expect(document.querySelector('.issue-page-header .issue-filter-bar')).toBeTruthy()
-    fireEvent.change(statusSelect, { target: { value: 'waiting' } })
+    fireEvent.change(statusSelect, { target: { value: 'in_progress' } })
 
     await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith(
-      'issue-1', { record_type: 'issue', status: 'waiting' },
+      'issue-1', { record_type: 'issue', status: 'in_progress' },
     ))
     const columns = document.querySelectorAll('.issue-column')
-    expect(columns).toHaveLength(5)
+    expect(columns).toHaveLength(3)
     columns.forEach((column) => expect(column.querySelector('.issue-column__body')).toBeTruthy())
   })
 

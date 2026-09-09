@@ -52,3 +52,14 @@ export function beijingToday(): string {
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
   return `${values.year}-${values.month}-${values.day}`
 }
+
+export function monthDateRange(monthKey: string): { date_from: string; date_to: string } {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(monthKey)
+  if (!match) throw new Error('月份格式无效')
+  const year = Number(match[1])
+  const month = Number(match[2])
+  // 按公历计算月底，不受浏览器时区和夏令时影响。
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  const lastDay = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
+  return { date_from: `${monthKey}-01`, date_to: `${monthKey}-${lastDay}` }
+}

@@ -35,6 +35,7 @@ export interface EChartProps {
   description?: string
   kind: 'line' | 'bar' | 'donut'
   selectedKey?: string
+  interactionHint?: string
   onDataHover?: (event: ChartDataEvent) => void
   onDataLeave?: () => void
   scrollableContentHeight?: number
@@ -65,6 +66,7 @@ export function EChart({
   description,
   kind,
   selectedKey,
+  interactionHint,
   onDataHover,
   onDataLeave,
   scrollableContentHeight,
@@ -140,7 +142,7 @@ export function EChart({
   } as CSSProperties : undefined
 
   return <figure className={`chart-card${onDataClick ? ' chart-card--interactive' : ''}${selectedKey ? ' is-filtered' : ''}`} data-chart-kind={kind}>
-    <header className="chart-card__header"><div><h3>{title}</h3>{description && <p>{description}</p>}</div>{onDataClick && <span>{selectedKey ? '已应用图表筛选' : '点击图形可筛选'}</span>}</header>
+    <header className="chart-card__header"><div><h3>{title}</h3>{description && <p>{description}</p>}</div>{onDataClick && <span>{interactionHint ?? (selectedKey ? '已应用图表筛选' : '点击图形可筛选')}</span>}</header>
     <div className={scrollable ? 'chart-scroll-viewport' : undefined} style={viewportStyle}>
       <div ref={containerRef} className={`chart-canvas${scrollable ? ' chart-canvas--scroll-content' : ''}`} aria-hidden="true" />
     </div>

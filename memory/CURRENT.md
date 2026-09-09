@@ -1,45 +1,40 @@
 # 当前任务
 
-## 2026-09-08 手机和平板 UI 修复
+## 2026-09-09 图表筛选联动与时间线交互
 
-- `frontend/src/styles/components.css`、`frontend/src/styles/responsive.css` 及相关项目记忆已提交并推送至 `origin/main`；尚未部署 Ubuntu。
-- 多选 Portal 的层级被 legacy 层后续 `.multi-select-options` 规则降为 12，低于记录抽屉 40；在新样式层统一恢复菜单层级。
-- 字段和手机表单轨道使用 `minmax(0, 1fr)`，日期控件取消原生外观并保留日期输入功能，降低固有宽度撑开候选卡的风险。
-- 平板金额卡提前改为两列，筛选区、图表和概览阶段面板补充中等宽度布局。
-- 86 项前端测试及 `npm run build` 通过，保留既有 EChart 分块体积提示。
-- 本地浏览器使用真实 RecordEditFields 与模拟布局验证 375/768/1024/1180/1280 宽度，无页面横向溢出，日期框未超出字段；单选、多选可展开并更新，菜单点击命中通过。临时验证文件已清理。
-- 仍需部署后在用户原手机、平板浏览器复测；不能将 Chromium 尺寸模拟等同于真实 iOS/WebKit 验收。
+- 已完成本地实现、验证、提交并推送至 `origin/main`，尚未部署 Ubuntu；运行镜像仍以上次部署记录为准。
+- 问题看板接口新增可选 `status`、`severity`，与空间取交集；全部统计和卡片同源，仍返回三种状态列。前端支持两张图组合筛选和分别/全部清除。
+- 时间线点击月份应用整月范围；区分草稿与已应用条件，迟到请求不能覆盖新结果。折线数据点保留原始月份 key。
+- 账本交互提示为“点击图形查看明细记录”；时间线操作改为统一白底蓝色小圆角，回顶目标为页面 0，保留已加载记录。
+- 前端 100 项测试、类型检查、生产构建通过；后端视图 9 项测试通过，包含筛选交集及闰年整月边界。构建仍有既有 EChart 大分块提示。
+- 浏览器使用真实组件与模拟数据验证月份点击、问题图表交集、账本柱图打开明细、返回顶部及手机/平板宽度；模拟不等同于真实手机浏览器验收。临时页面已清理。
 
-## 上次部署记录（2026-08-26）
+## 2026-09-08 Ubuntu Docker 更新
 
-## 状态
+### 状态
 
-- 任务：修复手机端原生日期/时间控件越出父组件的问题，更新 GitHub 并部署 Ubuntu Docker 服务。
-- 状态：提交、推送、镜像构建、真实数据备份、容器切换和局域网终验均已完成。
-- 日期：2026-08-26。
+- Ubuntu 仓库已快进到 `origin/main` 的提交 `bc1115e92e8e47dbe4fb81944d6abcb57f6b7b31`，工作树干净。
+- 已构建并部署镜像 `homebuild-log:bc1115e92e8e`；容器为 `healthy`、运行中，重启策略为 `unless-stopped`。
+- 服务继续只绑定有线局域网地址 `192.168.1.17:8000`；Ubuntu 本机和同网段 Windows 首页均返回 HTTP 200，健康接口全部为 `ok`。
 
-## 发布结果
+### 构建与网络
 
-- 本地与 `origin/main` 比对无分叉后，将 5 个预期文件以提交 `1895a5f9c11b`（`修复手机界面BUG`）推送到 GitHub。
-- `npm run lint`、10 个测试文件/86 项测试和 `npm run build` 均通过；仅保留既有 EChart 分块超过 500 kB 警告。
-- 手机原生控件约束覆盖 `date`、`time`、`datetime-local`、`month`、`week` 及 WebKit 内部编辑区；仍需在原问题手机浏览器复测。
+- 一次性临时 Dockerfile 使用 DaoCloud 的 Node/Python 基础镜像、npmmirror npm 源和清华 PyPI 源，未修改仓库中的 Dockerfile。
+- Ubuntu 直连 GitHub 本轮不可用，因此仅在 `git pull --ff-only` 期间临时启动 Mihomo；构建使用国内源，结束后 Mihomo 为 `inactive`，7890/9090 均未监听。
+- 前端生产构建通过，仅保留既有 EChart 分块超过 500 kB 提示。
 
-## Ubuntu 部署结果
+### 数据与恢复点
 
-- `ubuntu26` 已快进到提交 `1895a5f9c11b`，并使用一次性临时 Dockerfile 构建镜像 `homebuild-log:1895a5f9c11b`。
-- 构建使用 DaoCloud、npmmirror 和清华 PyPI，国内源全部可用；未启用 Mihomo，结束时服务为 `inactive`，7890/9090 未监听。
-- 停写后备份 `.local-data` 到 `deploy/.deployment-backups/local-data-20260826T131937Z.tar.gz`，对应 SHA-256 校验通过，备份及校验文件权限为 600。
-- 新容器实际运行目标镜像，状态为 `healthy`，重启策略为 `unless-stopped`；启动日志未见迁移或应用错误。
-- SQLite 完整性为 `ok`，数据库 revision 保持 `0019_add_pitfall_logs`；65 条记录、59 条来源、16 条问题、7 条关系、1 条旧待办备份、1 条踩坑和 0 条踩坑处理记录均保留。
-- 服务继续只绑定 `192.168.1.17:8000`；Ubuntu 与同网段 Windows 的首页均返回 HTTP 200，健康接口全部为 `ok`。
+- 切换前备份为 `deploy/.deployment-backups/local-data-20260908T150619Z.tar.gz`，SHA-256 为 `34eb91e40bb976bb533f7e526c12d64e18f0fc3a755145eba57b0d20de0d9279`，校验通过，文件权限为 600。
+- SQLite 完整性为 `ok`，数据库 revision 保持 `0019_add_pitfall_logs`。
+- 更新前后计数一致：81 条记录、69 条来源、19 条问题、13 条关系、1 条旧待办备份、1 条踩坑、0 条踩坑处理记录。
 
-## 后续关注
+### 后续关注
 
-- 在出现问题的真实手机浏览器上复测日期和时间控件是否仍越出父组件。
-- 现有管理员密码未修改；若已遗失，只能执行受控密码重置，不能从 `secrets.json` 的哈希反推出明文。
+- 在原手机和平板浏览器上复测本次响应式布局及日期控件修复；桌面 Chromium 尺寸模拟不能替代真实 iOS/WebKit 验收。
 - 手机真实登录和 Ubuntu 整机重启恢复仍待验收。
 
-## 工作区状态
+### 工作区状态
 
-- 本地 `main` 与 `origin/main` 已同步，工作区干净；本轮平板界面适配尚未部署 Ubuntu。
+- 部署前本地 `main` 与 `origin/main` 同步且工作区干净；本次仅更新项目记忆文件，尚未提交。
 - `README.md` 未修改。

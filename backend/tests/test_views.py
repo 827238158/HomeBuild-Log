@@ -123,6 +123,30 @@ def test_timeline_preserves_unknown_time_and_groups_related_records() -> None:
     assert client.get("/api/v1/timeline?date_from=2026-07-01").json()["total"] == 0
 
 
+def test_timeline_month_range_includes_leap_day_and_excludes_unknown_dates() -> None:
+    client = _client()
+    source_id = _source(client, "整月筛选边界验证")
+    for index, occurred_date in enumerate(
+        ["2024-01-31", "2024-02-01", "2024-02-29", "2024-03-01", None]
+    ):
+        _record(client, source_id, {
+            "record_type": "event", "title": f"日期边界 {index}",
+            "status": "occurred", "event_kind": "shopping",
+            "occurred_date": occurred_date,
+        })
+    response = client.get("/api/v1/timeline", params={
+        "date_from": "2024-02-01", "date_to": "2024-02-29",
+    })
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["total"] == 2
+    assert [group["date_key"] for group in data["groups"]] == ["2024-02-29", "2024-02-01"]
+    assert data["analytics"]["unknown_date_count"] == 0
+    assert data["analytics"]["time_trend"] == [
+        {"key": "2024-02", "label": "2024年2月", "value": 2}
+    ]
+
+
 def test_ledger_summary_uses_direction_specific_completed_statuses() -> None:
     client = _client()
     source_id = _source(client, "付款500元，退款100元，收入50元。")
@@ -285,6 +309,77 @@ def test_issue_board_and_space_archive_project_shared_records() -> None:
     assert archive["summary"]["unclosed_issue_count"] == 2
     assert archive["summary"]["measurement_count"] == 1
     assert room["id"] in archive["descendant_ids"]
+
+
+def test_issue_board_filters_share_records_and_distributions() -> None:
+    client = _client()
+    source_id = _source(client, "问题看板筛选测试")
+    rooms = [
+        client.post("/api/v1/spaces", json={"name": name, "kind": "room"}).json()
+        for name in ("主卧", "厨房")
+    ]
+    specifications = [
+        ("pending", "high", 0),
+        ("pending", "low", 0),
+        ("in_progress", "high", 0),
+        ("done", "medium", 1),
+        ("pending", "high", 1),
+    ]
+    records = [
+        _record(
+            client,
+            source_id,
+            {
+                "record_type": "issue",
+                "title": f"筛选问题{index}",
+                "status": status,
+                "severity": severity,
+                "phenomenon": "需要处理",
+                "actual_result": "已修复" if status == "done" else None,
+                "space_ids": [rooms[room_index]["id"]],
+            },
+        )
+        for index, (status, severity, room_index) in enumerate(specifications)
+    ]
+    cases = [
+        ({}, [0, 1, 2, 3, 4]),
+        ({"status": "pending"}, [0, 1, 4]),
+        ({"severity": "high"}, [0, 2, 4]),
+        ({"space_id": rooms[0]["id"]}, [0, 1, 2]),
+        ({"status": "pending", "severity": "high"}, [0, 4]),
+        ({"status": "pending", "severity": "high", "space_id": rooms[0]["id"]}, [0]),
+        ({"status": "done", "severity": "high"}, []),
+    ]
+    for params, indices in cases:
+        response = client.get("/api/v1/issues/board", params=params)
+        assert response.status_code == 200, response.text
+        board = response.json()
+        assert [column["status"] for column in board["columns"]] == [
+            "pending", "in_progress", "done"
+        ]
+        items = [item for column in board["columns"] for item in column["items"]]
+        assert {item["id"] for item in items} == {records[index]["id"] for index in indices}
+        assert board["total"] == len(indices)
+        # 各维度的分类及数量都必须来自当前返回的记录，而不是筛选前的数据。
+        for dimension, field in (("status", "status"), ("severity", "severity")):
+            expected = {}
+            for index in indices:
+                key = records[index][field]
+                expected[key] = expected.get(key, 0) + 1
+            actual = {
+                item["key"]: item["value"]
+                for item in board["analytics"][f"{dimension}_distribution"]
+            }
+            assert actual == expected
+            assert sum(actual.values()) == board["total"]
+        expected_spaces = {}
+        for index in indices:
+            name = rooms[specifications[index][2]]["name"]
+            expected_spaces[name] = expected_spaces.get(name, 0) + 1
+        assert {
+            item["key"]: item["value"]
+            for item in board["analytics"]["space_distribution"]
+        } == expected_spaces
 
 
 def test_search_details_and_audit_target_filter_are_traceable() -> None:

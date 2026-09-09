@@ -263,16 +263,25 @@ def ledger_summary(
 
 
 @router.get("/issues/board")
-def issues_board(request: Request, user: User, space_id: str | None = None) -> dict[str, Any]:
+def issues_board(
+    request: Request,
+    user: User,
+    space_id: str | None = None,
+    status: str | None = None,
+    severity: str | None = None,
+) -> dict[str, Any]:
     db = _db(request)
     try:
         records = list_project_records(db)
         serialized = serialize_records(db, records)
+        # 卡片和所有分布共用交集筛选结果，避免图表与明细口径不一致。
         issues = [
             serialized[record.id]
             for record in records
             if record.record_type == "issue"
             and record_matches(serialized[record.id], space_id=space_id)
+            and (not status or serialized[record.id]["status"] == status)
+            and (not severity or serialized[record.id].get("severity") == severity)
         ]
         status_meta = [
             ("pending", "待处理"),

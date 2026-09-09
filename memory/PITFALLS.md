@@ -112,6 +112,10 @@
 
 ## Docker
 
+- 触发：Ubuntu 访问国内 Docker、npm 和 PyPI 镜像正常，但 `git ls-remote` 或 `git pull` 直连 GitHub 长时间无响应或超时。
+  原因：国内依赖镜像只覆盖镜像和包下载，不会改善 Ubuntu 到 GitHub 的网络路径。
+  处理：先用带超时的只读 Git 命令确认故障；仅在拉取代码期间按 workspace 指南临时启动 Mihomo，并为退出路径设置关闭清理，拉取完成后核对 Mihomo 为 `inactive`、7890/9090 未监听；Docker 构建仍优先使用国内镜像源。
+
 - 触发：远程部署脚本启用 `set -o pipefail` 后，以 `printf '%s\n' "$password" | sudo -S ...` 传入密码，脚本可能在容器已停止但备份尚未开始时无明确业务错误地提前退出。
   原因：sudo 复用认证缓存或提前关闭标准输入时，管道左侧 `printf` 可能收到 SIGPIPE；`pipefail` 将这个非零状态误判为 sudo 操作失败。
   处理：需要在受控自动化中从本机文件隐式读取 sudo 密码时，使用 here-string（`sudo -S -p '' <命令> <<< "$password"`）或其他不经过管道的标准输入方式；停容器后若脚本中断，先只读核对 `.env`、数据目录、备份和容器状态，再从明确断点续跑，不要盲目重执行整段部署。

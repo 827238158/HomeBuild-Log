@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Select } from './Select'
+import { monthDateRange } from './time'
 
 import { AiAnalyticsView, OverviewView, RecordsAnalyticsView } from './AnalyticsViews'
 import { defaultPayload, payloadForSave, RecordEditFields, type RecordType } from './DomainWorkspace'
@@ -88,6 +89,7 @@ function AnalyticsChart({
   title, rows, onClick, unit = '项', kind, description, selectedKey, onHover, onLeave, disableTooltip = false,
   verticalScrollAfter,
   itemColors,
+  interactionHint,
 }: {
   title: string
   rows: DistributionItem[]
@@ -101,13 +103,14 @@ function AnalyticsChart({
   disableTooltip?: boolean
   verticalScrollAfter?: number
   itemColors?: Record<string, string>
+  interactionHint?: string
 }) {
   const option = kind === 'line' ? lineOption(rows, unit)
     : kind === 'donut' ? donutOption(rows, unit, !disableTooltip)
     : horizontalBarOption(rows, unit, false, !disableTooltip, itemColors)
   // 类目超过可读阈值后增加真实画布高度，由共享图表容器负责限高滚动。
   const scrollable = verticalScrollAfter !== undefined && rows.length > verticalScrollAfter
-  return <EChart title={title} description={description} kind={kind} option={option} summary={chartSummary(title, rows, unit)} onDataClick={onClick} onDataHover={onHover} onDataLeave={onLeave} selectedKey={selectedKey} scrollableContentHeight={scrollable ? Math.max(290, rows.length * 42) : undefined} scrollableMaxHeight={scrollable ? 360 : undefined} />
+  return <EChart title={title} description={description} kind={kind} option={option} summary={chartSummary(title, rows, unit)} onDataClick={onClick} onDataHover={onHover} onDataLeave={onLeave} selectedKey={selectedKey} interactionHint={interactionHint} scrollableContentHeight={scrollable ? Math.max(290, rows.length * 42) : undefined} scrollableMaxHeight={scrollable ? 360 : undefined} />
 }
 
 function LoadState({ loading, error, empty }: { loading: boolean; error: string; empty?: boolean }) {
@@ -156,13 +159,15 @@ function TimelineView({ onOpen }: { onOpen: (id: string) => void }) {
   const [stages, setStages] = useState<NamedEntity[]>([])
   const [visibleCount, setVisibleCount] = useState(timelineBatchSize)
   const [showBackToTop, setShowBackToTop] = useState(false)
-  const timelineListRef = useRef<HTMLDivElement>(null)
+  // 输入框只编辑草稿；请求和图表标签始终使用已应用条件。
+  const [applied, setApplied] = useState({ q: '', record_type: '', space_id: '', stage_id: '', date_from: '', date_to: '' })
+  const [selectedMonth, setSelectedMonth] = useState('')
 
   useEffect(() => {
     let active = true
     setLoading(true)
     Promise.all([
-      getTimeline({ q, record_type: recordType, space_id: spaceId, stage_id: stageId, date_from: dateFrom, date_to: dateTo }),
+      getTimeline(applied),
       listSpaces(), listEntities('stages'),
     ]).then(([result, spaceRows, stageRows]) => {
       if (!active) return
@@ -170,16 +175,27 @@ function TimelineView({ onOpen }: { onOpen: (id: string) => void }) {
     }).catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '时间线加载失败'))
       .finally(() => active && setLoading(false))
     return () => { active = false }
-  }, [reload])
-
-  useEffect(() => {
-    setVisibleCount(timelineBatchSize)
-  }, [q, recordType, spaceId, stageId, dateFrom, dateTo])
+  }, [reload, applied])
 
   const applyRecordTypeImmediately = (nextRecordType: string) => {
     // 图表筛选和取消操作需要立即重新请求，不再等待“应用筛选”按钮。
     setRecordType(nextRecordType)
     setVisibleCount(timelineBatchSize)
+    setApplied((current) => ({ ...current, record_type: nextRecordType }))
+  }
+
+  const applyMonth = (month: string) => {
+    if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return
+    const range = month ? monthDateRange(month) : { date_from: '', date_to: '' }
+    setDateFrom(range.date_from); setDateTo(range.date_to); setSelectedMonth(month)
+    setVisibleCount(timelineBatchSize)
+    setApplied((current) => ({ ...current, ...range }))
+  }
+
+  const applyForm = () => {
+    setSelectedMonth('')
+    setVisibleCount(timelineBatchSize)
+    setApplied({ q, record_type: recordType, space_id: spaceId, stage_id: stageId, date_from: dateFrom, date_to: dateTo })
     setReload((value) => value + 1)
   }
 
@@ -195,19 +211,8 @@ function TimelineView({ onOpen }: { onOpen: (id: string) => void }) {
       return { ...group, items }
     }).filter((group) => group.items.length > 0)
   }, [data, visibleCount])
-  const expanded = visibleCount > timelineBatchSize
-
   useEffect(() => {
-    if (!expanded) {
-      setShowBackToTop(false)
-      return
-    }
-    const update = () => {
-      const node = timelineListRef.current
-      if (!node) return setShowBackToTop(false)
-      const listTop = node.getBoundingClientRect().top + window.scrollY
-      setShowBackToTop(window.scrollY > listTop + 24)
-    }
+    const update = () => setShowBackToTop(window.scrollY > 320)
     update()
     window.addEventListener('scroll', update, { passive: true })
     window.addEventListener('resize', update)
@@ -215,16 +220,17 @@ function TimelineView({ onOpen }: { onOpen: (id: string) => void }) {
       window.removeEventListener('scroll', update)
       window.removeEventListener('resize', update)
     }
-  }, [expanded])
+  }, [])
 
   return <section className="view-panel"><header><p className="eyebrow">阶段 2B</p><h2>装修时间线</h2><p>按真实发生日期查看事件和关联事实，未知时间不会被伪装。</p></header>
-    <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} /></label><label className="field-stack"><span>记录类型</span><Select value={recordType} onChange={(event) => setRecordType(event.target.value)}><option value="">全部类型</option>{Object.entries(recordTypeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label><ReferenceFilters spaces={spaces} stages={stages} spaceId={spaceId} stageId={stageId} onSpace={setSpaceId} onStage={setStageId} /><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => setReload((value) => value + 1)}>应用筛选</button></div>
+    <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} /></label><label className="field-stack"><span>记录类型</span><Select value={recordType} onChange={(event) => setRecordType(event.target.value)}><option value="">全部类型</option>{Object.entries(recordTypeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label><ReferenceFilters spaces={spaces} stages={stages} spaceId={spaceId} stageId={stageId} onSpace={setSpaceId} onStage={setStageId} /><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={applyForm}>应用筛选</button></div>
     <LoadState loading={loading} error={error} empty={data?.total === 0} />
-    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="记录时间趋势" description="按业务发生日期观察记录变化" kind="line" rows={data.analytics.time_trend} /><AnalyticsChart title="记录类型分布" description="点击类型可筛选下方时间线" kind="donut" rows={data.analytics.type_distribution} onClick={applyRecordTypeImmediately} selectedKey={recordType} /></div>}
-    {recordType && <button type="button" className="clear-filter" onClick={() => applyRecordTypeImmediately('')}>当前按记录类型筛选，点击取消</button>}
-    <div ref={timelineListRef} className="timeline-list">{visibleGroups.map((group) => <section className="timeline-group" key={group.date_key}><h3>{group.label}</h3><div className="timeline-day-items">{group.items.map((item) => <article className="timeline-item" key={item.record.id}><RecordButton record={item.record} onOpen={onOpen} />{item.related_records.length > 0 && <div className="related-strip"><span>关联事实</span>{item.related_records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div>}</article>)}</div></section>)}</div>
+    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="记录时间趋势" description="点击月份筛选该月记录" kind="line" rows={data.analytics.time_trend} onClick={applyMonth} selectedKey={selectedMonth} /><AnalyticsChart title="记录类型分布" description="点击类型可筛选下方时间线" kind="donut" rows={data.analytics.type_distribution} onClick={applyRecordTypeImmediately} selectedKey={applied.record_type} /></div>}
+    {applied.record_type && <button type="button" className="clear-filter" onClick={() => applyRecordTypeImmediately('')}>当前按记录类型筛选，点击取消</button>}
+    {(applied.date_from || applied.date_to) && <button type="button" className="clear-filter" onClick={() => applyMonth('')}>当前日期：{applied.date_from || '不限'} 至 {applied.date_to || '不限'}，点击取消</button>}
+    <div className="timeline-list">{visibleGroups.map((group) => <section className="timeline-group" key={group.date_key}><h3>{group.label}</h3><div className="timeline-day-items">{group.items.map((item) => <article className="timeline-item" key={item.record.id}><RecordButton record={item.record} onOpen={onOpen} />{item.related_records.length > 0 && <div className="related-strip"><span>关联事实</span>{item.related_records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div>}</article>)}</div></section>)}</div>
     {visibleCount < totalTimelineItems && <button type="button" className="timeline-load-more" onClick={() => setVisibleCount((count) => Math.min(count + timelineBatchSize, totalTimelineItems))}>查看更多</button>}
-    {showBackToTop && <button type="button" className="timeline-back-to-top" aria-label="回到顶部" onClick={() => timelineListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>↑</button>}
+    {showBackToTop && <button type="button" className="timeline-back-to-top" aria-label="回到顶部" onClick={() => window.scrollTo({ top: 0, left: 0, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg></button>}
   </section>
 }
 
@@ -477,7 +483,7 @@ function LedgerView({ onOpen, detailOpen }: { onOpen: (id: string) => void; deta
       ['card:income', 'summary-card--success', '已入账收入'],
       ['card:net-expense', '', '付款减退款与收入'],
     ].map(([id, variant, note]) => { const group = groups.get(id)!; return <button className={`summary-card summary-card--interactive ${variant}`} type="button" key={id} {...cardHandlers(group)}><span>{group.title}</span><strong>{formatMoney(group.amountMinor)}</strong>{note && <small>{note}</small>}</button> })}</div></>}
-    {data && (data.analytics.payment_composition.length > 0 || data.analytics.vendor_distribution.length > 0) && <div className="chart-grid"><AnalyticsChart title="资金构成" description="悬停预览，点击查看完整明细" kind="donut" unit="元" rows={data.analytics.payment_composition.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('composition')} onLeave={scheduleClose} onClick={chartClick('composition')} disableTooltip /><AnalyticsChart title="主要商家金额" description="悬停预览，点击查看完整明细；支出为正，退款与收入为负" kind="bar" unit="元" rows={data.analytics.vendor_distribution.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('vendor')} onLeave={scheduleClose} onClick={chartClick('vendor')} disableTooltip verticalScrollAfter={8} /></div>}
+    {data && (data.analytics.payment_composition.length > 0 || data.analytics.vendor_distribution.length > 0) && <div className="chart-grid"><AnalyticsChart title="资金构成" interactionHint="点击图形查看明细记录" description="悬停预览，点击查看完整明细" kind="donut" unit="元" rows={data.analytics.payment_composition.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('composition')} onLeave={scheduleClose} onClick={chartClick('composition')} disableTooltip /><AnalyticsChart title="主要商家金额" interactionHint="点击图形查看明细记录" description="悬停预览，点击查看完整明细；支出为正，退款与收入为负" kind="bar" unit="元" rows={data.analytics.vendor_distribution.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('vendor')} onLeave={scheduleClose} onClick={chartClick('vendor')} disableTooltip verticalScrollAfter={8} /></div>}
     {monthlyNetExpense.length > 0 && <div className="chart-grid chart-grid--single"><AnalyticsChart title="每月净支出趋势" description="按月统计付款减退款与收入后的净支出" kind="line" unit="元" rows={monthlyNetExpense} /></div>}
     {preview && <LedgerDetailPreview state={preview} onEnter={cancelClose} onLeave={scheduleClose} onViewAll={() => openGroup(preview.group)} />}
     {selectedGroup && <LedgerDetailPanel group={selectedGroup} obscured={detailOpen} onClose={() => setSelectedGroup(null)} onOpenRecord={onOpen} />}
@@ -491,16 +497,19 @@ function IssuesView({ onOpen }: { onOpen: (id: string) => void }) {
   const [reload, setReload] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [applied, setApplied] = useState({ space_id: '', status: '', severity: '' })
+  const statusLabels: Record<string, string> = { pending: '待处理', in_progress: '处理中', done: '已完成' }
+  const severityLabels: Record<string, string> = { low: '低', medium: '中', high: '高' }
+  const applyChart = (field: 'status' | 'severity', value: string) => setApplied((current) => ({ ...current, [field]: value }))
   useEffect(() => {
     let active = true
     setLoading(true)
-    Promise.all([getIssueBoard({ space_id: spaceId }), listSpaces()])
+    Promise.all([getIssueBoard(applied), listSpaces()])
       .then(([result, rows]) => { if (active) { setData(result); setSpaces(rows); setError('') } })
       .catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '问题看板加载失败'))
       .finally(() => active && setLoading(false))
     return () => { active = false }
-  }, [reload])
+  }, [reload, applied])
   const changeStatus = async (record: ProjectionRecord, status: string) => {
     try {
       const payload: Record<string, unknown> = { record_type: 'issue', status }
@@ -516,11 +525,13 @@ function IssuesView({ onOpen }: { onOpen: (id: string) => void }) {
     }
   }
   return <section className="view-panel"><div className="issue-page-header"><header><p className="eyebrow">统一跟踪处理事项</p><h2>问题看板</h2><p>待办、普通问题和施工问题统一在这里处理；完成时登记结果和日期。</p></header>
-    <div className="filter-grid issue-filter-bar"><label className="field-stack"><span>空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><button className="filter-button" type="button" onClick={() => setReload((value) => value + 1)}>应用筛选</button></div></div>
+    <div className="filter-grid issue-filter-bar"><label className="field-stack"><span>空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><button className="filter-button" type="button" onClick={() => { setApplied((current) => ({ ...current, space_id: spaceId })); setReload((value) => value + 1) }}>应用筛选</button></div></div>
     <LoadState loading={loading} error={error} empty={data?.total === 0} />
-    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="问题状态分布" description="点击状态可聚焦对应处理列" kind="donut" rows={data.analytics.status_distribution} onClick={setStatusFilter} selectedKey={statusFilter} /><AnalyticsChart title="问题严重程度" description="按问题数量比较风险等级" kind="bar" rows={data.analytics.severity_distribution} itemColors={{ high: chartPalette.risk }} /></div>}
-    {statusFilter && <button type="button" className="clear-filter" onClick={() => setStatusFilter('')}>当前按问题状态筛选，点击返回</button>}
-    <div className="issue-board">{data?.columns.filter((column) => !statusFilter || column.status === statusFilter).map((column) => <section className="issue-column" key={column.status}><h3>{column.label}<span>{column.items.length}</span></h3><div className="issue-column__body">{column.items.length === 0 && <p className="muted">暂无</p>}{column.items.map((record) => <article className="issue-card" key={record.id} data-severity={record.severity}><button type="button" className="title-button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong></button><p>{record.phenomenon}</p>{record.spaces.length > 0 && <small>{record.spaces.map((item) => item.name).join(' · ')}</small>}<label className="field-stack"><span>处理状态</span><Select value={record.status} onChange={(event) => void changeStatus(record, event.target.value)}>{data.columns.map((item) => <option key={item.status} value={item.status}>{item.label}</option>)}</Select></label></article>)}</div></section>)}</div>
+    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="问题状态分布" description="点击状态同步筛选图表与记录" kind="donut" rows={data.analytics.status_distribution} onClick={(key) => applyChart('status', key)} selectedKey={applied.status} /><AnalyticsChart title="问题严重程度" description="点击严重程度同步筛选图表与记录" kind="bar" rows={data.analytics.severity_distribution} onClick={(key) => applyChart('severity', key)} selectedKey={applied.severity} itemColors={{ high: chartPalette.risk }} /></div>}
+    {applied.status && <button type="button" className="clear-filter" onClick={() => applyChart('status', '')}>状态：{statusLabels[applied.status] || applied.status}，点击取消</button>}
+    {applied.severity && <button type="button" className="clear-filter" onClick={() => applyChart('severity', '')}>严重程度：{severityLabels[applied.severity] || applied.severity}，点击取消</button>}
+    {(applied.status || applied.severity) && <button type="button" className="clear-filter" onClick={() => setApplied((current) => ({ ...current, status: '', severity: '' }))}>清除全部图表筛选</button>}
+    <div className="issue-board">{data?.columns.filter((column) => !applied.status || column.status === applied.status).map((column) => <section className="issue-column" key={column.status}><h3>{column.label}<span>{column.items.length}</span></h3><div className="issue-column__body">{column.items.length === 0 && <p className="muted">暂无</p>}{column.items.map((record) => <article className="issue-card" key={record.id} data-severity={record.severity}><button type="button" className="title-button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong></button><p>{record.phenomenon}</p>{record.spaces.length > 0 && <small>{record.spaces.map((item) => item.name).join(' · ')}</small>}<label className="field-stack"><span>处理状态</span><Select value={record.status} onChange={(event) => void changeStatus(record, event.target.value)}>{data.columns.map((item) => <option key={item.status} value={item.status}>{item.label}</option>)}</Select></label></article>)}</div></section>)}</div>
   </section>
 }
 

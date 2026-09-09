@@ -48,7 +48,8 @@ export function lineOption(rows: DistributionItem[], unit = '项'): EChartsCoreO
     },
     series: [{
       type: 'line', smooth: rows.length >= 4, symbol: 'circle', symbolSize: 7,
-      data: rows.map((item) => item.value), lineStyle: { width: 3 },
+      // 保留原始标识供点击事件使用，避免用本地化月份文案构造查询条件。
+      data: rows.map((item) => ({ key: item.key, value: item.value })), lineStyle: { width: 3 },
       itemStyle: { color: chartPalette.primary },
       areaStyle: { color: 'rgba(23, 105, 194, 0.08)' },
       label: { show: rows.length <= 8, position: 'top', color: chartPalette.text, formatter: `{c}${unit}` },

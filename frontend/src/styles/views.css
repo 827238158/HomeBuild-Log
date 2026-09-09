@@ -18,6 +18,50 @@
   font-weight: 650;
 }
 
+/* 时间线操作沿用主色控件，覆盖旧版棕色胶囊与圆形按钮。 */
+.timeline-load-more,
+.timeline-back-to-top {
+  min-height: 44px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.timeline-load-more {
+  max-width: 100%;
+}
+
+.timeline-back-to-top {
+  width: 44px;
+  height: 44px;
+  box-shadow: var(--shadow-sm);
+}
+
+.timeline-back-to-top svg {
+  width: 20px;
+  height: 20px;
+}
+
+.timeline-load-more:hover,
+.timeline-back-to-top:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+  box-shadow: none;
+}
+
+.timeline-load-more:focus-visible,
+.timeline-back-to-top:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  box-shadow: none;
+}
+
 .run-table,
 .run-row {
   border-color: var(--border);
