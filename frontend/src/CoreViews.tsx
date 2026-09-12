@@ -143,7 +143,7 @@ function ReferenceFilters({
   </>
 }
 
-function TimelineView({ onOpen }: { onOpen: (id: string) => void }) {
+function TimelineView({ onOpen, refreshRevision }: { onOpen: (id: string) => void; refreshRevision: number }) {
   const timelineBatchSize = 10
   const [data, setData] = useState<TimelineResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -171,11 +171,11 @@ function TimelineView({ onOpen }: { onOpen: (id: string) => void }) {
       listSpaces(), listEntities('stages'),
     ]).then(([result, spaceRows, stageRows]) => {
       if (!active) return
-      setData(result); setSpaces(spaceRows); setStages(stageRows); setError(''); setVisibleCount(timelineBatchSize)
+      setData(result); setSpaces(spaceRows); setStages(stageRows); setError('')
     }).catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '时间线加载失败'))
       .finally(() => active && setLoading(false))
     return () => { active = false }
-  }, [reload, applied])
+  }, [reload, applied, refreshRevision])
 
   const applyRecordTypeImmediately = (nextRecordType: string) => {
     // 图表筛选和取消操作需要立即重新请求，不再等待“应用筛选”按钮。
@@ -362,7 +362,7 @@ function LedgerDetailPanel({
   </>, document.body)
 }
 
-function LedgerView({ onOpen, detailOpen }: { onOpen: (id: string) => void; detailOpen: boolean }) {
+function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: string) => void; detailOpen: boolean; refreshRevision: number }) {
   const [data, setData] = useState<LedgerResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -381,7 +381,7 @@ function LedgerView({ onOpen, detailOpen }: { onOpen: (id: string) => void; deta
       .catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '账本加载失败'))
       .finally(() => active && setLoading(false))
     return () => { active = false }
-  }, [reload])
+  }, [reload, refreshRevision])
   const hasSelectedGroup = selectedGroup !== null
   useEffect(() => {
     if (!hasSelectedGroup) return
@@ -490,7 +490,7 @@ function LedgerView({ onOpen, detailOpen }: { onOpen: (id: string) => void; deta
   </section>
 }
 
-function IssuesView({ onOpen }: { onOpen: (id: string) => void }) {
+function IssuesView({ onOpen, refreshRevision }: { onOpen: (id: string) => void; refreshRevision: number }) {
   const [data, setData] = useState<IssueBoardResponse | null>(null)
   const [spaces, setSpaces] = useState<SpaceEntry[]>([])
   const [spaceId, setSpaceId] = useState('')
@@ -509,7 +509,7 @@ function IssuesView({ onOpen }: { onOpen: (id: string) => void }) {
       .catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '问题看板加载失败'))
       .finally(() => active && setLoading(false))
     return () => { active = false }
-  }, [reload, applied])
+  }, [reload, applied, refreshRevision])
   const changeStatus = async (record: ProjectionRecord, status: string) => {
     try {
       const payload: Record<string, unknown> = { record_type: 'issue', status }
@@ -535,7 +535,7 @@ function IssuesView({ onOpen }: { onOpen: (id: string) => void }) {
   </section>
 }
 
-function SpacesView({ onOpen }: { onOpen: (id: string) => void }) {
+function SpacesView({ onOpen, refreshRevision }: { onOpen: (id: string) => void; refreshRevision: number }) {
   const [spaces, setSpaces] = useState<SpaceEntry[]>([])
   const [spaceId, setSpaceId] = useState('')
   const [data, setData] = useState<SpaceArchiveResponse | null>(null)
@@ -560,27 +560,30 @@ function SpacesView({ onOpen }: { onOpen: (id: string) => void }) {
       .catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '空间档案加载失败'))
       .finally(() => active && setLoading(false))
     return () => { active = false }
-  }, [spaceId])
-  return <section className="view-panel"><header><p className="eyebrow">房屋 → 房间 → 局部</p><h2>空间档案</h2><p>父空间自动聚合后代空间的同一批正式记录。</p></header>
+  }, [spaceId, refreshRevision])
+  return <section className="view-panel"><header><p className="eyebrow">房屋 → 房间 → 局部</p><h2>空间档案</h2><p>汇总父级公共记录、当前空间及全部下级空间。</p></header>
     <label className="field-stack space-picker"><span>选择空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">请选择空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name} · {spaceKindLabels[item.kind] || '其他空间'}</option>)}</Select></label>
     <LoadState loading={loading} error={error} empty={!loading && spaces.length === 0} />
-    {data && <><p className="breadcrumbs">{data.breadcrumbs.map((item) => item.name).join(' / ')}</p><div className="space-overview"><div><span className="record-type-tag">当前空间</span><h3>{data.space.name}</h3><p>汇总当前空间及下级空间的正式记录</p></div><dl><div><dt>记录</dt><dd>{data.summary.record_count}</dd></div><div><dt>未关闭问题</dt><dd>{data.summary.unclosed_issue_count}</dd></div><div><dt>尺寸</dt><dd>{data.summary.measurement_count}</dd></div><div><dt>材料</dt><dd>{data.summary.material_count}</dd></div><div><dt>净支出</dt><dd>{formatMoney(data.analytics.expense_minor - data.analytics.refund_minor - data.analytics.income_minor)}</dd></div></dl></div>{data.analytics.type_distribution.length > 0 && <div className="chart-grid"><AnalyticsChart title="空间记录类型" description="点击类型可筛选下方记录" kind="donut" rows={data.analytics.type_distribution} onClick={setTypeFilter} selectedKey={typeFilter} /><AnalyticsChart title="空间问题状态" description="查看该空间问题的处理进度" kind="bar" rows={data.analytics.issue_status_distribution} /></div>}{typeFilter && <button type="button" className="clear-filter" onClick={() => setTypeFilter('')}>当前按记录类型筛选，点击取消</button>}{Object.entries(data.records_by_type).filter(([type]) => !typeFilter || type === typeFilter).map(([type, records]) => <section className="projection-section" key={type}><h3>{recordTypeLabels[type] || '未知类型'}</h3><div className="card-grid">{records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div></section>)}</>}
+    {data && <><p className="breadcrumbs">{data.breadcrumbs.map((item) => item.name).join(' / ')}</p><div className="space-overview"><div><span className="record-type-tag">当前空间</span><h3>{data.space.name}</h3><p>汇总父级、本级及下级空间的正式记录</p></div><dl><div><dt>记录</dt><dd>{data.summary.record_count}</dd></div><div><dt>未关闭问题</dt><dd>{data.summary.unclosed_issue_count}</dd></div><div><dt>尺寸</dt><dd>{data.summary.measurement_count}</dd></div><div><dt>材料</dt><dd>{data.summary.material_count}</dd></div><div><dt>净支出</dt><dd>{formatMoney(data.analytics.net_expense_minor)}</dd></div></dl></div>{data.analytics.type_distribution.length > 0 && <div className="chart-grid"><AnalyticsChart title="空间记录类型" description="点击类型可筛选下方记录" kind="donut" rows={data.analytics.type_distribution} onClick={setTypeFilter} selectedKey={typeFilter} /><AnalyticsChart title="空间问题状态" description="查看该空间问题的处理进度" kind="bar" rows={data.analytics.issue_status_distribution} /></div>}{typeFilter && <button type="button" className="clear-filter" onClick={() => setTypeFilter('')}>当前按记录类型筛选，点击取消</button>}{Object.entries(data.records_by_type).filter(([type]) => !typeFilter || type === typeFilter).map(([type, records]) => <section className="projection-section" key={type}><h3>{recordTypeLabels[type] || '未知类型'}</h3><div className="card-grid">{records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div></section>)}</>}
   </section>
 }
 
-function SearchView({ onOpen }: { onOpen: (id: string) => void }) {
+function SearchView({ onOpen, refreshRevision }: { onOpen: (id: string) => void; refreshRevision: number }) {
   const [q, setQ] = useState('')
   const [recordType, setRecordType] = useState('')
   const [status, setStatus] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [data, setData] = useState<SearchResponse | null>(null)
+  const submittedParams = useRef<Record<string, string> | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const runSearch = async () => {
+    const params = { q, record_type: recordType, status, date_from: dateFrom, date_to: dateTo }
+    submittedParams.current = params
     setLoading(true)
     try {
-      setData(await searchRecords({ q, record_type: recordType, status, date_from: dateFrom, date_to: dateTo }))
+      setData(await searchRecords(params))
       setError('')
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : '搜索失败')
@@ -588,6 +591,16 @@ function SearchView({ onOpen }: { onOpen: (id: string) => void }) {
       setLoading(false)
     }
   }
+  useEffect(() => {
+    if (!submittedParams.current || refreshRevision === 0) return
+    let active = true
+    setLoading(true)
+    searchRecords(submittedParams.current)
+      .then((result) => { if (active) { setData(result); setError('') } })
+      .catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '搜索失败'))
+      .finally(() => active && setLoading(false))
+    return () => { active = false }
+  }, [refreshRevision])
   const total = useMemo(() => data ? Object.values(data.counts).reduce((sum, count) => sum + count, 0) : null, [data])
   return <section className="view-panel"><header><p className="eyebrow">基础搜索</p><h2>查找装修事实</h2><p>搜索原始来源、正式记录、材料、商家和空间；结果保持来源追溯。</p></header>
     <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void runSearch() }} placeholder="例如：花砖、主卧、门套" /></label><label className="field-stack"><span>记录类型</span><Select value={recordType} onChange={(event) => { setRecordType(event.target.value); setStatus('') }}><option value="">全部类型</option>{Object.entries(recordTypeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label><label className="field-stack"><span>状态</span><Select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option>{statusesForRecordType(recordType).map((value) => <option key={value} value={value}>{recordStatusLabel(recordType, value)}</option>)}</Select></label><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => void runSearch()}>搜索</button></div>
@@ -748,7 +761,7 @@ export function CoreViews({ children, onLogout }: { children: ReactNode; onLogou
     {navOpen && <button type="button" className="nav-backdrop" aria-label="关闭导航" onClick={() => setNavOpen(false)} />}
     <div className="workspace-main">
       <header className="workspace-topbar"><button type="button" className="menu-button" aria-label="打开导航" aria-expanded={navOpen} onClick={() => setNavOpen((value) => !value)}>☰</button><div><small>HomeBuild Log</small><strong>{currentLabel}</strong></div><span><span className="service-dot" />服务正常</span></header>
-      <main className="workspace-content" key={`${view}-${viewRevision}`}>{view === 'overview' && <OverviewView onOpen={setDetailId} />}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={setDetailId} />}{view === 'ledger' && <LedgerView onOpen={setDetailId} detailOpen={Boolean(detailId)} />}{view === 'issues' && <IssuesView onOpen={setDetailId} />}{view === 'pitfalls' && <PitfallsView />}{view === 'spaces' && <SpacesView onOpen={setDetailId} />}{view === 'records' && <RecordsAnalyticsView onOpen={setDetailId} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={setDetailId} />}</main>
+      <main className="workspace-content">{view === 'overview' && <OverviewView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'ledger' && <LedgerView onOpen={setDetailId} detailOpen={Boolean(detailId)} refreshRevision={viewRevision} />}{view === 'issues' && <IssuesView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'pitfalls' && <PitfallsView />}{view === 'spaces' && <SpacesView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'records' && <RecordsAnalyticsView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={setDetailId} refreshRevision={viewRevision} />}</main>
     </div>
     {detailId && <RecordDetail recordId={detailId} onClose={() => setDetailId('')} onChanged={() => setViewRevision((value) => value + 1)} />}
   </div>

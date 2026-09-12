@@ -116,6 +116,18 @@
   原因：国内依赖镜像只覆盖镜像和包下载，不会改善 Ubuntu 到 GitHub 的网络路径。
   处理：先用带超时的只读 Git 命令确认故障；仅在拉取代码期间按 workspace 指南临时启动 Mihomo，并为退出路径设置关闭清理，拉取完成后核对 Mihomo 为 `inactive`、7890/9090 未监听；Docker 构建仍优先使用国内镜像源。
 
+- 触发：通过非交互 SSH 执行 `source ~/.bashrc` 后，仍提示 `mihomo_on: 未找到命令`。
+  原因：Ubuntu 的 `.bashrc` 在检测到非交互 shell 时于代理函数定义前直接 `return`，因此后续函数不会被加载。
+  处理：自动化任务使用指南函数的等价操作：显式 `systemctl start/stop mihomo`、设置或清理代理环境变量，并在退出钩子中复核服务和 7890/9090 端口；不要反复 `source ~/.bashrc`。
+
+- 触发：Ubuntu 的 GitHub 直连超时，Mihomo 下 HTTPS 拉取又报 GnuTLS 握手被异常终止，无法从服务器直接更新仓库。
+  原因：代理可启动不代表 GitHub HTTPS 链路稳定；继续重试可能只会重复消耗时间和代理流量。
+  处理：仅在本地 `main` 与 GitHub `origin/main` 提交完全一致且工作树干净时，创建并校验包含 `origin/main` 的完整 Git bundle，经 SSH 传到服务器；服务器再次 `git bundle verify` 后只允许 `git fetch` 加 `git merge --ff-only`，完成后删除两端临时 bundle。校验不一致或无法 fast-forward 时必须停止并请用户处理。
+
+- 触发：部署开始时执行过 `sudo -v`，但后续特权命令仍突然报 `sudo: interactive authentication is required`，可能已停止旧容器。
+  原因：该 Ubuntu 的 sudo 认证缓存不能保证覆盖整段非交互部署，不能把一次 `sudo -v` 当成长脚本的持久在线授权。
+  处理：从 workspace 文件只在内存中读取密码，每条独立 sudo 命令均使用 `sudo -S -p '' ... <<< "$password"`，或在边界清晰时执行单个受控 root shell；若容器已停止，先确认 `.env` 未切换并恢复旧容器健康，再从明确断点续跑。
+
 - 触发：远程部署脚本启用 `set -o pipefail` 后，以 `printf '%s\n' "$password" | sudo -S ...` 传入密码，脚本可能在容器已停止但备份尚未开始时无明确业务错误地提前退出。
   原因：sudo 复用认证缓存或提前关闭标准输入时，管道左侧 `printf` 可能收到 SIGPIPE；`pipefail` 将这个非零状态误判为 sudo 操作失败。
   处理：需要在受控自动化中从本机文件隐式读取 sudo 密码时，使用 here-string（`sudo -S -p '' <命令> <<< "$password"`）或其他不经过管道的标准输入方式；停容器后若脚本中断，先只读核对 `.env`、数据目录、备份和容器状态，再从明确断点续跑，不要盲目重执行整段部署。

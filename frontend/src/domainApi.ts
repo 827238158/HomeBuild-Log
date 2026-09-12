@@ -143,6 +143,7 @@ export interface SpaceArchiveResponse {
     expense_minor: number
     refund_minor: number
     income_minor: number
+    net_expense_minor: number
   }
 }
 

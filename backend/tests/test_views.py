@@ -311,6 +311,82 @@ def test_issue_board_and_space_archive_project_shared_records() -> None:
     assert room["id"] in archive["descendant_ids"]
 
 
+def test_space_archive_combines_ancestors_and_descendants_and_root_matches_ledger() -> None:
+    client = _client()
+    source_id = _source(client, "空间账目聚合测试。")
+    house = client.post("/api/v1/spaces", json={"name": "整套房屋", "kind": "house"}).json()
+    room = client.post(
+        "/api/v1/spaces",
+        json={"name": "书房", "kind": "room", "parent_id": house["id"]},
+    ).json()
+    component = client.post(
+        "/api/v1/spaces",
+        json={"name": "书柜", "kind": "component", "parent_id": room["id"]},
+    ).json()
+    sibling = client.post(
+        "/api/v1/spaces",
+        json={"name": "主卧", "kind": "room", "parent_id": house["id"]},
+    ).json()
+
+    def ledger(
+        title: str,
+        kind: str,
+        status: str,
+        direction: str,
+        amount: int,
+        space_ids: list[str],
+    ) -> dict:
+        return _record(client, source_id, {
+            "record_type": "ledger", "ledger_kind": kind, "title": title,
+            "status": status, "direction": direction, "payment_kind": "other",
+            "amount_minor": amount, "space_ids": space_ids,
+        })
+
+    ledger("全屋付款", "payment", "paid", "expense", 10000, [house["id"]])
+    ledger("书房付款", "payment", "paid", "expense", 20000, [room["id"]])
+    ledger("书柜退款", "refund", "posted", "refund", 5000, [component["id"]])
+    ledger("主卧付款", "payment", "paid", "expense", 90000, [sibling["id"]])
+    ledger("未分配收入", "income", "posted", "income", 3000, [])
+    shared = ledger(
+        "全屋与书房共同付款",
+        "payment",
+        "paid",
+        "expense",
+        7000,
+        [house["id"], room["id"]],
+    )
+    ledger("书房计划付款", "payment", "planned", "expense", 8000, [room["id"]])
+
+    ledger_totals = client.get("/api/v1/ledger/summary").json()["totals"]
+    root_archive = client.get(f"/api/v1/spaces/{house['id']}/archive").json()
+    assert root_archive["summary"]["record_count"] == 7
+    assert root_archive["analytics"]["net_expense_minor"] == ledger_totals["net_expense_minor"]
+    root_totals = {key: root_archive["analytics"][key] for key in ledger_totals}
+    assert root_totals == {
+        "expense_minor": 127000,
+        "refund_minor": 5000,
+        "income_minor": 3000,
+        "net_expense_minor": 119000,
+    }
+
+    room_archive = client.get(f"/api/v1/spaces/{room['id']}/archive").json()
+    room_ledgers = room_archive["records_by_type"]["ledger"]
+    assert len(room_ledgers) == 5
+    assert sum(item["id"] == shared["id"] for item in room_ledgers) == 1
+    room_titles = {item["title"] for item in room_ledgers}
+    assert room_titles.isdisjoint({"主卧付款", "未分配收入"})
+    room_totals = {
+        key: room_archive["analytics"][key]
+        for key in ("expense_minor", "refund_minor", "income_minor", "net_expense_minor")
+    }
+    assert room_totals == {
+        "expense_minor": 37000,
+        "refund_minor": 5000,
+        "income_minor": 0,
+        "net_expense_minor": 32000,
+    }
+
+
 def test_issue_board_filters_share_records_and_distributions() -> None:
     client = _client()
     source_id = _source(client, "问题看板筛选测试")

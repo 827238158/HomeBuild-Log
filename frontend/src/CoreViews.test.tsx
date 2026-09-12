@@ -453,6 +453,37 @@ describe('CoreViews', () => {
     scrollTo.mockRestore()
   })
 
+  it('保存时间线记录后刷新数据但保留已加载批次', async () => {
+    const records = Array.from({ length: 12 }, (_, index) => ({
+      ...record,
+      id: `event-${index + 1}`,
+      title: `编辑刷新记录 ${index + 1}`,
+    }))
+    vi.mocked(api.getTimeline).mockResolvedValue({
+      total: 12,
+      groups: [{
+        date_key: '2026-06', label: '2026年6月',
+        items: records.map((item) => ({ record: item, related_records: [] })),
+      }],
+      analytics: { ...analytics, total: 12 },
+    })
+    const callsBeforeOpen = vi.mocked(api.getTimeline).mock.calls.length
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    await screen.findByText('编辑刷新记录 10')
+    fireEvent.click(screen.getByRole('button', { name: '查看更多' }))
+    expect(await screen.findByText('编辑刷新记录 12')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('编辑刷新记录 1').closest('button')!)
+    const detail = await screen.findByLabelText('记录详情')
+    fireEvent.click(within(detail).getByRole('button', { name: '修改记录' }))
+    fireEvent.click(within(detail).getByRole('button', { name: '保存修改' }))
+
+    await waitFor(() => expect(vi.mocked(api.getTimeline).mock.calls.length).toBeGreaterThan(callsBeforeOpen + 1))
+    expect(screen.getByText('编辑刷新记录 12')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '查看更多' })).toBeNull()
+  })
+
   it('点击记录类型分布后立即筛选时间线，取消后恢复全部记录', async () => {
     const issueRecord = {
       ...record,

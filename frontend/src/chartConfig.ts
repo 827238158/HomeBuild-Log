@@ -97,8 +97,26 @@ export function horizontalBarOption(
   }
 }
 
+export function compactChartValue(value: number, unit = '项') {
+  const absolute = Math.abs(value)
+  const compact = (divisor: number, suffix: string) => {
+    const scaled = value / divisor
+    const scaledAbsolute = Math.abs(scaled)
+    const decimals = scaledAbsolute >= 100 ? 0 : scaledAbsolute >= 10 ? 1 : 2
+    const factor = 10 ** decimals
+    // 中心文案只做紧凑展示，截断可避免 9999.99 万被四舍五入为 10000 万。
+    const truncated = Math.trunc(scaled * factor) / factor
+    return `${truncated}${suffix}${unit}`
+  }
+  if (absolute >= 100_000_000) return compact(100_000_000, '亿')
+  if (absolute >= 10_000) return compact(10_000, '万')
+  return `${new Intl.NumberFormat('zh-CN', { useGrouping: false, maximumFractionDigits: 2 }).format(value)}${unit}`
+}
+
 export function donutOption(rows: DistributionItem[], unit = '项', showTooltip = true): EChartsCoreOption {
   const total = rows.reduce((sum, item) => sum + item.value, 0)
+  const centerText = compactChartValue(total, unit)
+  const centerFontSize = centerText.length <= 6 ? 22 : centerText.length <= 8 ? 18 : 15
   return {
     color: chartCategoryColors,
     tooltip: showTooltip
@@ -107,7 +125,7 @@ export function donutOption(rows: DistributionItem[], unit = '项', showTooltip 
     legend: { bottom: 0, type: 'scroll', textStyle: { color: '#667085' }, icon: 'circle' },
     graphic: [{
       type: 'text', left: 'center', top: '40%',
-      style: { text: `${total}${unit}`, fill: chartPalette.text, fontSize: 22, fontWeight: 700, textAlign: 'center' },
+      style: { text: centerText, fill: chartPalette.text, fontSize: centerFontSize, fontWeight: 700, textAlign: 'center' },
     }],
     series: [{
       type: 'pie', radius: ['48%', '70%'], center: ['50%', '43%'],

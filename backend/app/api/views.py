@@ -50,6 +50,36 @@ def _relations(db: Session) -> list[RecordRelation]:
     )
 
 
+def _ledger_totals(records: list[dict[str, Any]]) -> tuple[dict[str, int], list[dict[str, Any]]]:
+    non_cny = [item for item in records if item.get("currency", "CNY") != "CNY"]
+    if non_cny:
+        raise HTTPException(
+            status_code=409,
+            detail="检测到非人民币历史记录，请先核对数据后再查看账本。",
+        )
+
+    totals = {
+        "expense_minor": 0,
+        "refund_minor": 0,
+        "income_minor": 0,
+        "net_expense_minor": 0,
+    }
+    direction_fields = {
+        "expense": "expense_minor",
+        "refund": "refund_minor",
+        "income": "income_minor",
+    }
+    effective = [record for record in records if is_effective_ledger(record)]
+    for record in effective:
+        field = direction_fields.get(record["direction"])
+        if field:
+            totals[field] += int(record["amount_minor"])
+    totals["net_expense_minor"] = (
+        totals["expense_minor"] - totals["refund_minor"] - totals["income_minor"]
+    )
+    return totals, effective
+
+
 def _filtered_records(
     db: Session,
     *,
@@ -195,32 +225,7 @@ def ledger_summary(
                 or serialized[record.id].get("vendor_id") == vendor_id
             )
         ]
-        non_cny = [item for item in selected if item.get("currency", "CNY") != "CNY"]
-        if non_cny:
-            raise HTTPException(
-                status_code=409,
-                detail="检测到非人民币历史记录，请先核对数据后再查看账本。",
-            )
-        totals: dict[str, int] = {
-            "expense_minor": 0,
-            "refund_minor": 0,
-            "income_minor": 0,
-            "net_expense_minor": 0,
-        }
-
-        _DIRECTION_FIELD: dict[str, str] = {
-            "expense": "expense_minor",
-            "refund": "refund_minor",
-            "income": "income_minor",
-        }
-        effective_ledgers = [ledger for ledger in selected if is_effective_ledger(ledger)]
-        for ledger in effective_ledgers:
-            field = _DIRECTION_FIELD.get(ledger["direction"])
-            if field:
-                totals[field] += int(ledger["amount_minor"])
-        totals["net_expense_minor"] = (
-            totals["expense_minor"] - totals["refund_minor"] - totals["income_minor"]
-        )
+        totals, effective_ledgers = _ledger_totals(selected)
 
         vendor_amounts: dict[str, int] = defaultdict(int)
         for ledger in effective_ledgers:
@@ -349,12 +354,24 @@ def space_archive(space_id: str, request: Request, user: User) -> dict[str, Any]
             descendant_ids.add(current)
             pending.extend(child_ids.get(current, []))
 
+        breadcrumbs: list[dict[str, str]] = []
+        ancestor_ids: set[str] = set()
+        cursor: Space | None = selected
+        while cursor is not None:
+            breadcrumbs.append({"id": cursor.id, "name": cursor.name})
+            ancestor_ids.add(cursor.id)
+            cursor = by_id.get(cursor.parent_id) if cursor.parent_id else None
+        breadcrumbs.reverse()
+
         records = list_project_records(db)
         serialized = serialize_records(db, records)
+        # 根空间代表整个项目；子空间同时继承父级公共记录并聚合全部下级记录。
+        is_root = selected.kind == "house" and selected.parent_id is None
+        scope_ids = ancestor_ids | descendant_ids
         matched = [
             serialized[record.id]
             for record in records
-            if descendant_ids.intersection(serialized[record.id]["space_ids"])
+            if is_root or scope_ids.intersection(serialized[record.id]["space_ids"])
         ]
         grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for record in matched:
@@ -364,12 +381,9 @@ def space_archive(space_id: str, request: Request, user: User) -> dict[str, Any]
             for record in matched
             for material in record["materials"]
         }
-        breadcrumbs: list[dict[str, str]] = []
-        cursor: Space | None = selected
-        while cursor is not None:
-            breadcrumbs.append({"id": cursor.id, "name": cursor.name})
-            cursor = by_id.get(cursor.parent_id) if cursor.parent_id else None
-        breadcrumbs.reverse()
+        ledger_totals, _ = _ledger_totals(
+            [record for record in matched if record["record_type"] == "ledger"]
+        )
         return {
             "space": {
                 "id": selected.id,
@@ -412,30 +426,7 @@ def space_archive(space_id: str, request: Request, user: User) -> dict[str, Any]
                     ),
                     STATUS_LABELS,
                 ),
-                "expense_minor": sum(
-                    int(record.get("amount_minor") or 0)
-                    for record in matched
-                    if record["record_type"] == "ledger"
-                    and is_effective_ledger(record)
-                    and record.get("direction") == "expense"
-                    and record.get("currency", "CNY") == "CNY"
-                ),
-                "refund_minor": sum(
-                    int(record.get("amount_minor") or 0)
-                    for record in matched
-                    if record["record_type"] == "ledger"
-                    and is_effective_ledger(record)
-                    and record.get("direction") == "refund"
-                    and record.get("currency", "CNY") == "CNY"
-                ),
-                "income_minor": sum(
-                    int(record.get("amount_minor") or 0)
-                    for record in matched
-                    if record["record_type"] == "ledger"
-                    and is_effective_ledger(record)
-                    and record.get("direction") == "income"
-                    and record.get("currency", "CNY") == "CNY"
-                ),
+                **ledger_totals,
             },
         }
     finally:

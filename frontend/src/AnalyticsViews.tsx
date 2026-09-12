@@ -37,14 +37,14 @@ function RecordCard({ record, onOpen }: { record: ProjectionRecord; onOpen: (id:
   </button>
 }
 
-export function OverviewView({ onOpen }: { onOpen: (id: string) => void }) {
+export function OverviewView({ onOpen, refreshRevision }: { onOpen: (id: string) => void; refreshRevision: number }) {
   const [data, setData] = useState<OverviewResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   useEffect(() => {
     getOverview().then(setData).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '概览加载失败'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [refreshRevision])
   const stageTotal = data?.stage_distribution.reduce((sum, item) => sum + item.value, 0) ?? 0
   return <section className="view-panel"><header><p className="eyebrow">日常行动面板</p><h2>装修概览</h2><p>先看需要处理的风险，再回到最近发生的事情。</p></header>
     {loadMessage(loading, error, !loading && !data, '先录入问题、待办或采购记录，概览会自动整理风险。')}
@@ -62,7 +62,7 @@ export function OverviewView({ onOpen }: { onOpen: (id: string) => void }) {
   </section>
 }
 
-export function RecordsAnalyticsView({ onOpen }: { onOpen: (id: string) => void }) {
+export function RecordsAnalyticsView({ onOpen, refreshRevision }: { onOpen: (id: string) => void; refreshRevision: number }) {
   const [recordType, setRecordType] = useState('')
   const [status, setStatus] = useState('')
   const [spaceId, setSpaceId] = useState('')
@@ -82,7 +82,7 @@ export function RecordsAnalyticsView({ onOpen }: { onOpen: (id: string) => void 
       .then((result) => { setData(result); setError('') })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '记录分析加载失败'))
       .finally(() => setLoading(false))
-  }, [recordType, status, spaceId, stageId, dateFrom, dateTo])
+  }, [recordType, status, spaceId, stageId, dateFrom, dateTo, refreshRevision])
 
   const clear = () => { setStatus(''); setSpaceId(''); setStageId(''); setDateFrom(''); setDateTo('') }
   return <section className="view-panel"><header><p className="eyebrow">八类正式记录</p><h2>记录分析</h2><p>从分布和趋势进入同一批真实记录。</p></header>
