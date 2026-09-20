@@ -522,6 +522,8 @@ export function RecordEditFields({
 export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChanged }: Props) {
   const [sources, setSources] = useState<SourceEntry[]>([])
   const [sourceId, setSourceId] = useState('')
+  const currentSourceId = useRef(sourceId)
+  useLayoutEffect(() => { currentSourceId.current = sourceId }, [sourceId])
   const [allRecords, setAllRecords] = useState<DomainRecord[]>([])
   const [spaces, setSpaces] = useState<SpaceEntry[]>([])
   const [entities, setEntities] = useState<Record<EntityType, NamedEntity[]>>({
@@ -538,10 +540,11 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
   const [suggestions, setSuggestions] = useState<CandidateSuggestion[]>([])
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [confirming, setConfirming] = useState(false)
+  const confirmationInFlight = useRef(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [engineMode, setEngineMode] = useState<'auto' | 'ai' | 'local'>('auto')
   const [manualKeyCounter, setManualKeyCounter] = useState(1)
-  const [editingSource, setEditingSource] = useState(false)
+  const [editingSourceId, setEditingSourceId] = useState('')
   const [sourceDraft, setSourceDraft] = useState('')
   const [sourceTimeDraft, setSourceTimeDraft] = useState('')
   const [sourceBusy, setSourceBusy] = useState(false)
@@ -777,6 +780,7 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
   }
 
   const confirmSelected = async () => {
+    if (confirmationInFlight.current) return
     const selected = suggestions.filter((item) => selectedKeys.has(item.key) && !item.confirmed_record_id)
     if (!selected.length) {
       setMessage('请先勾选至少一条尚未确认的建议。')
@@ -791,8 +795,10 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
       setMessage('候选包尚未加载，请等待分析完成或只提交手工记录。')
       return
     }
+    confirmationInFlight.current = true
     setConfirming(true)
     try {
+      let confirmationMessage = '所选建议已保存为正式记录。'
       if (aiSelections.length || ignoredAiKeys.length) {
         const eligibleAiSuggestions = suggestions.filter((item) =>
           !item.key.startsWith('manual:')
@@ -816,10 +822,13 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
           ignoredAiKeys,
           [...relationPairs.values()],
         )
-        applyBundle(result.bundle, manualSelections.length > 0, true)
+        if (currentSourceId.current === sourceId) {
+          applyBundle(result.bundle, true, true)
+        }
       }
       if (manualSelections.length) {
-        await Promise.all(manualSelections.map((item) => {
+        // 等待整批结束，逐条记录成功结果，失败重试时不再提交已落库的记录。
+        const results = await Promise.allSettled(manualSelections.map((item) => {
           const payload = payloadForSave(item.record_type, item.payload)
           // 手工记录不经过后端 _fill_missing_required 兜底，标题为空时使用摘要或来源依据作为默认值。
           if (!payload.title) {
@@ -827,16 +836,26 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
           }
           return createRecord(payload)
         }))
-        setSuggestions((current) => current.filter((item) => !item.key.startsWith('manual:')))
+        const savedKeys = new Set(manualSelections
+          .filter((_, index) => results[index].status === 'fulfilled')
+          .map((item) => item.key))
+        setSuggestions((current) => current.filter((item) => !savedKeys.has(item.key)))
+        setSelectedKeys((current) => new Set([...current].filter((key) => !savedKeys.has(key))))
+        const failures = results.filter((result) => result.status === 'rejected')
+        if (failures.length) {
+          const reason: unknown = failures[0].reason
+          confirmationMessage = `已保存 ${savedKeys.size} 条手工记录；${failures.length} 条失败，已保留失败项，可修正后重试。${reason instanceof Error ? reason.message : ''}`
+        }
       }
-      setMessage('所选建议已保存为正式记录。')
+      setMessage(confirmationMessage)
       await refreshRecords()
-      await refreshSourceRows(sourceId)
+      await refreshSourceRows(currentSourceId.current)
       onSourcesChanged?.()
     } catch (error: unknown) {
       // 失败时不重置本地编辑，方便用户修正后重试。
       setMessage(error instanceof Error ? error.message : '确认失败，已保留当前编辑内容。')
     } finally {
+      confirmationInFlight.current = false
       setConfirming(false)
     }
   }
@@ -845,10 +864,12 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
     if (!selectedSource) return
     setSourceDraft(selectedSource.original_text || '')
     setSourceTimeDraft(selectedSource.reported_time_text || '')
-    setEditingSource(true)
+    setEditingSourceId(selectedSource.id)
   }
 
   const saveSourceEdit = async () => {
+    // 草稿始终属于开始编辑时的来源，切换对象后不能借用旧草稿提交。
+    if (editingSourceId !== selectedSource?.id) return
     if (!selectedSource || !sourceDraft.trim()) {
       setMessage('原始文字不能为空。')
       return
@@ -859,10 +880,10 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
         original_text: sourceDraft.trim(),
         reported_time_text: sourceTimeDraft.trim() || null,
       })
-      await refreshSourceRows(selectedSource.id)
+      await refreshSourceRows(currentSourceId.current)
       await refreshRecords(selectedSource.id)
-      applyBundle(null)
-      setEditingSource(false)
+      if (currentSourceId.current === selectedSource.id) applyBundle(null)
+      setEditingSourceId((current) => current === selectedSource.id ? '' : current)
       setMessage('原始数据已修改。旧候选已失效，已有正式记录需要复核；请按需重新分析。')
       onSourcesChanged?.()
     } catch (error: unknown) {
@@ -891,7 +912,7 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
       applyBundle(null)
       await refreshRecords(nextId)
       if (nextId) await loadSuggestions(nextId)
-      setEditingSource(false)
+      setEditingSourceId('')
       setMessage(result.file_cleanup_warnings.length
         ? `原始数据及关联记录已删除。${result.file_cleanup_warnings.join('')}`
         : '原始数据及关联记录已删除。')
@@ -990,11 +1011,11 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
             <button className="danger-button" type="button" disabled={sourceBusy} onClick={() => void deleteSelectedSource()}>删除原始数据</button>
           </div>
         </div>
-        {editingSource && <div className="source-edit-form">
+        {editingSourceId === sourceId && <div className="source-edit-form">
           <label className="field-stack"><span>原始文字</span><textarea rows={3} value={sourceDraft} onChange={(event) => setSourceDraft(event.target.value)} /></label>
           <label className="field-stack"><span>原始时间描述（可选）</span><input value={sourceTimeDraft} onChange={(event) => setSourceTimeDraft(event.target.value)} placeholder="例如：2026年6月28日下午" /></label>
           <p className="risk-notice">修改会保留审计历史、使旧候选失效，并要求复核已生成的正式记录。</p>
-          <div className="record-actions"><button type="button" disabled={sourceBusy} onClick={() => void saveSourceEdit()}>{sourceBusy ? '保存中…' : '保存修改'}</button><button type="button" onClick={() => setEditingSource(false)}>取消</button></div>
+          <div className="record-actions"><button type="button" disabled={sourceBusy} onClick={() => void saveSourceEdit()}>{sourceBusy ? '保存中…' : '保存修改'}</button><button type="button" onClick={() => setEditingSourceId('')}>取消</button></div>
         </div>}
       </section>}
 

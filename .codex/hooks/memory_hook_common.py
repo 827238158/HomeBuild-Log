@@ -3,25 +3,14 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
-
-
-MEMORY_FILES = {
-    "current": "memory/CURRENT.md",
-    "log": "memory/LOG.md",
-    "pitfalls": "memory/PITFALLS.md",
-    "runbook": "memory/RUNBOOK.md",
-    "design": "DESIGN.md",
-}
 
 
 def read_payload() -> dict[str, Any]:
@@ -69,54 +58,6 @@ def read_utf8_checked(path: Path, *, limit: int | None = None) -> tuple[str, boo
     except (OSError, UnicodeError):
         return "", False
     return (text if limit is None else text[-limit:]), True
-
-
-def hash_file(path: Path) -> str | None:
-    try:
-        data = path.read_bytes()
-    except OSError:
-        return None
-    return hashlib.sha256(data).hexdigest()
-
-
-def memory_hashes(root: Path) -> dict[str, str | None]:
-    return {name: hash_file(root / relative) for name, relative in MEMORY_FILES.items()}
-
-
-def _run_git(root: Path, *args: str) -> bytes | None:
-    try:
-        completed = subprocess.run(
-            ["git", *args],
-            cwd=root,
-            capture_output=True,
-            check=False,
-            timeout=8,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return completed.stdout if completed.returncode == 0 else None
-
-
-def workspace_digest(root: Path) -> str | None:
-    """同时覆盖已跟踪差异和未跟踪文件，用于识别本轮是否真正改动工作区。"""
-    diff = _run_git(root, "diff", "--binary", "HEAD", "--")
-    untracked = _run_git(root, "ls-files", "--others", "--exclude-standard", "-z")
-    if diff is None or untracked is None:
-        return None
-
-    digest = hashlib.sha256()
-    digest.update(diff)
-    for raw_name in sorted(name for name in untracked.split(b"\0") if name):
-        try:
-            relative = raw_name.decode("utf-8", errors="surrogateescape")
-            path = root / relative
-            data = path.read_bytes() if path.is_file() else b""
-        except OSError:
-            data = b""
-        digest.update(raw_name)
-        digest.update(b"\0")
-        digest.update(hashlib.sha256(data).digest())
-    return digest.hexdigest()
 
 
 def _safe_identifier(value: object, fallback: str) -> str:

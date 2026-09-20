@@ -1,12 +1,12 @@
 {
-  "description": "HomeBuild Log 的定向记忆检索与结束归档门禁。",
+  "description": "HomeBuild Log 的定向记忆检索与非阻断经验审计。",
   "hooks": {
     "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "D:\\Anaconda\\python.exe -X utf8 -B .codex\\hooks\\memory_router.py",
+            "command": "D:\\Anaconda\\python.exe -X utf8 -B \"G:\\BackUp\\AI+网络项目孵化\\HomeBuild Log\\.codex\\hooks\\memory_router.py\"",
             "statusMessage": "Retrieving relevant project memory",
             "timeout": 10,
             "additionalContextLimit": 6000
@@ -16,11 +16,10 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "D:\\Anaconda\\python.exe -X utf8 -B .codex\\hooks\\memory_signal_collector.py",
+            "command": "D:\\Anaconda\\python.exe -X utf8 -B \"G:\\BackUp\\AI+网络项目孵化\\HomeBuild Log\\.codex\\hooks\\memory_signal_collector.py\"",
             "statusMessage": "Collecting high-signal failure clues",
             "timeout": 5
           }
@@ -32,8 +31,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "D:\\Anaconda\\python.exe -X utf8 -B .codex\\hooks\\memory_gate.py",
-            "statusMessage": "Checking project memory updates",
+            "command": "D:\\Anaconda\\python.exe -X utf8 -B \"G:\\BackUp\\AI+网络项目孵化\\HomeBuild Log\\.codex\\hooks\\memory_gate.py\"",
+            "statusMessage": "Reviewing reusable failure clues",
             "timeout": 15
           }
         ]

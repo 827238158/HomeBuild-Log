@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
   createSource,
@@ -37,6 +37,7 @@ type ViewState =
 interface PendingUpload {
   sourceId: string
   file: File
+  attachmentVersion: number
 }
 
 export function App() {
@@ -47,6 +48,9 @@ export function App() {
   const [sources, setSources] = useState<SourceResponse[]>([])
   const [saveStatus, setSaveStatus] = useState('')
   const [attachment, setAttachment] = useState<File | null>(null)
+  const textVersion = useRef(0)
+  const attachmentVersion = useRef(0)
+  const attachmentInput = useRef<HTMLInputElement>(null)
   const [attachmentError, setAttachmentError] = useState('')
   const [pendingUpload, setPendingUpload] = useState<PendingUpload | null>(null)
   const [sourceRefreshKey, setSourceRefreshKey] = useState(0)
@@ -121,6 +125,8 @@ export function App() {
   }
 
   const handleLogout = () => {
+    textVersion.current += 1
+    attachmentVersion.current += 1
     clearToken()
     setState({ kind: 'login' })
     setPassword('')
@@ -144,22 +150,30 @@ export function App() {
   }
 
   const saveSource = async (text: string, file: File | null): Promise<SourceResponse | null> => {
+    const savedTextVersion = textVersion.current
+    const savedAttachmentVersion = attachmentVersion.current
     const entry = await createSource(text.trim())
     setSources((prev) => [entry, ...prev])
     // 仅在后端成功返回真实 ID 后切换来源，失败时保留原选择。
     setPreferredSourceId(entry.id)
     setSourceRefreshKey((value) => value + 1)
-    setSourceText('')
+    // 用编辑版本区分新草稿；即使改回同样文字，也不能清空用户的新输入。
+    if (textVersion.current === savedTextVersion) setSourceText('')
     if (file) {
       try {
         await uploadAttachment(entry.id, file)
-        setAttachment(null)
+        if (attachmentVersion.current === savedAttachmentVersion) {
+          setAttachment(null)
+          setAttachmentError('')
+          if (attachmentInput.current) attachmentInput.current.value = ''
+        }
         setPendingUpload(null)
-        setAttachmentError('')
       } catch (error: unknown) {
         // 来源已经成功保存，附件失败时保留重试上下文，避免重复创建来源。
-        setPendingUpload({ sourceId: entry.id, file })
-        setAttachmentError(error instanceof Error ? error.message : '附件上传失败')
+        setPendingUpload({ sourceId: entry.id, file, attachmentVersion: savedAttachmentVersion })
+        if (attachmentVersion.current === savedAttachmentVersion) {
+          setAttachmentError(error instanceof Error ? error.message : '附件上传失败')
+        }
         throw new Error('attachment-error')
       }
     }
@@ -183,6 +197,7 @@ export function App() {
   }
 
   const handleAttachmentChange = (file: File | null) => {
+    attachmentVersion.current += 1
     setAttachmentError('')
     setPendingUpload(null)
     if (!file) {
@@ -208,12 +223,18 @@ export function App() {
     try {
       await uploadAttachment(pendingUpload.sourceId, pendingUpload.file)
       setPendingUpload(null)
-      setAttachment(null)
-      setAttachmentError('')
+      // 重试只清理它对应的附件，不覆盖等待期间的新选择或校验错误。
+      if (attachmentVersion.current === pendingUpload.attachmentVersion) {
+        setAttachment(null)
+        setAttachmentError('')
+        if (attachmentInput.current) attachmentInput.current.value = ''
+      }
       setSaveStatus('saved')
       setTimeout(() => setSaveStatus(''), UI.toastDuration)
     } catch (error: unknown) {
-      setAttachmentError(error instanceof Error ? error.message : '附件上传失败')
+      if (attachmentVersion.current === pendingUpload.attachmentVersion) {
+        setAttachmentError(error instanceof Error ? error.message : '附件上传失败')
+      }
       setSaveStatus('attachment-error')
     }
   }
@@ -224,8 +245,8 @@ export function App() {
         <section className="capture-workspace">
           <header className="capture-workspace__header"><p className="eyebrow">快速录入</p><h2>记录装修现场</h2><p>先保存原始事实，再到下方按需进行智能拆分。</p></header>
           <div className="source-form">
-            <textarea className="source-input" placeholder="记录今天发生的事情…" value={sourceText} onChange={(e) => setSourceText(e.target.value)} rows={3} />
-            <label className="attachment-field"><span>附件（可选，单个文件）</span><input type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)} /></label>
+            <textarea className="source-input" placeholder="记录今天发生的事情…" value={sourceText} onChange={(e) => { textVersion.current += 1; setSourceText(e.target.value) }} rows={3} />
+            <label className="attachment-field"><span>附件（可选，单个文件）</span><input ref={attachmentInput} type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)} /></label>
             {attachment && <p className="attachment-name">已选择：{attachment.name}</p>}
             {attachmentError && <p className="source-error">{attachmentError}</p>}
             <div className="source-actions">

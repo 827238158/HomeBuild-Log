@@ -546,6 +546,36 @@ def test_update_detail_fields_for_all_record_types(
     assert response.json()["occurred_date"] == "2026-06-28"
 
 
+@pytest.mark.parametrize("changes", [
+    {"amount_minor": None},
+    {"amount_minor": 0},
+    {"payment_kind": None},
+    {"payment_kind": ""},
+    {"payment_kind": "   "},
+])
+def test_ledger_update_rejects_empty_required_fields_without_changing_totals(changes: dict) -> None:
+    client = _client()
+    source_id = _source(client)
+    vendor_id = client.post("/api/v1/vendors", json={"name": "交易对象"}).json()["id"]
+    response = client.post("/api/v1/records", json={
+        **_common(source_id, "ledger", "paid"),
+        "ledger_kind": "payment", "direction": "expense", "vendor_id": vendor_id,
+        "payment_kind": "deposit", "amount_minor": 50000,
+    })
+    assert response.status_code == 201, response.text
+    record_id = response.json()["id"]
+    rejected = client.patch(f"/api/v1/records/{record_id}", json={
+        "record_type": "ledger", **changes,
+    })
+    assert rejected.status_code == 422, rejected.text
+    saved = client.get(f"/api/v1/records/{record_id}").json()
+    assert saved["amount_minor"] == 50000
+    assert saved["payment_kind"] == "deposit"
+    summary = client.get("/api/v1/ledger/summary")
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["totals"]["expense_minor"] == 50000
+
+
 def test_record_requires_source_and_rejects_invalid_measurement() -> None:
     client = _client()
     without_source = client.post(
@@ -800,6 +830,41 @@ def test_local_suggestions_resolve_dates_against_capture_date(text: str, expecte
     event = next(item for item in bundle["suggestions"] if item["record_type"] == "event")
     assert event["payload"]["occurred_date"] == expected
     assert event["payload"]["original_time_text"]
+
+
+@pytest.mark.parametrize(("captured_at", "text", "expected"), [
+    ("2026-07-01T16:00:00+00:00", "今天完成了水电施工", "2026-07-02"),
+    ("2026-07-01T23:59:59+00:00", "昨天完成了水电施工", "2026-07-01"),
+    ("2026-07-02T00:00:00+00:00", "昨天完成了水电施工", "2026-07-01"),
+    ("2026-07-02T02:00:00+08:00", "昨天完成了水电施工", "2026-07-01"),
+])
+def test_local_suggestions_use_beijing_date_for_utc_capture(
+    captured_at: str, text: str, expected: str,
+) -> None:
+    bundle = suggest_from_text("source-date", text, datetime.fromisoformat(captured_at))
+    event = next(item for item in bundle["suggestions"] if item["record_type"] == "event")
+    assert event["payload"]["occurred_date"] == expected
+
+
+def test_local_extraction_uses_persisted_capture_date_in_both_endpoints() -> None:
+    from sqlalchemy.orm import Session
+
+    from app.models import SourceEntry
+
+    client = _client()
+    source_id = _source(client, "昨天完成了水电施工")
+    # 经数据库保存再读取，覆盖真实 UTC 时间及历史来源重新提取的路径。
+    with Session(client.app.state.engine) as db:
+        source = db.get(SourceEntry, source_id)
+        source.captured_at = datetime.fromisoformat("2026-07-01T18:00:00+00:00")
+        db.commit()
+    local = client.get(f"/api/v1/sources/{source_id}/suggestions")
+    assert local.status_code == 200, local.text
+    extraction = client.post(f"/api/v1/sources/{source_id}/extractions?engine=local")
+    assert extraction.status_code == 201, extraction.text
+    for bundle in (local.json(), extraction.json()):
+        event = next(item for item in bundle["suggestions"] if item["record_type"] == "event")
+        assert event["payload"]["occurred_date"] == "2026-07-01"
 
 
 def test_local_suggestions_leave_ambiguous_date_empty() -> None:

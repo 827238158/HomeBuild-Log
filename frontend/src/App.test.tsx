@@ -25,6 +25,59 @@ afterEach(() => {
 })
 
 describe('App', () => {
+  it.each(['新草稿', '原草稿'])('保存返回时保留等待期间编辑的文字：%s', async (nextText) => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    let complete!: (value: unknown) => void
+    const pending = new Promise((resolve) => { complete = resolve })
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') return pending
+      return Promise.resolve({ ok: true, json: async () => String(input).endsWith('/sources') ? [] : { status: 'ok' } })
+    }))
+    render(<App />)
+    const input = await screen.findByPlaceholderText('记录今天发生的事情…')
+    fireEvent.change(input, { target: { value: '原草稿' } })
+    fireEvent.click(screen.getByText('保存记录'))
+    fireEvent.change(input, { target: { value: '中间编辑' } })
+    fireEvent.change(input, { target: { value: nextText } })
+    await act(async () => complete({ ok: true, json: async () => ({ id: 'saved', original_text: '原草稿', captured_at: '2026-09-21T00:00:00Z' }) }))
+    expect((input as HTMLTextAreaElement).value).toBe(nextText)
+    expect(await screen.findByText('已保存')).toBeTruthy()
+  })
+
+  it.each([false, true])('附件请求完成时保留新选择（重试：%s）', async (retry) => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    let complete!: (value: unknown) => void
+    const pending = new Promise((resolve) => { complete = resolve })
+    let attempts = 0
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/attachments')) {
+        attempts += 1
+        if (retry && attempts === 1) return Promise.resolve({ ok: false, json: async () => ({ detail: '上传失败' }) })
+        return pending
+      }
+      return Promise.resolve({ ok: true, json: async () => init?.method === 'POST'
+        ? { id: 'saved', original_text: '旧来源', captured_at: '2026-09-21T00:00:00Z' }
+        : String(input).endsWith('/sources') ? [] : { status: 'ok' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<App />)
+    const input = await screen.findByPlaceholderText('记录今天发生的事情…')
+    const fileInput = screen.getByLabelText(/附件/)
+    fireEvent.change(input, { target: { value: '旧来源' } })
+    fireEvent.change(fileInput, { target: { files: [new File(['old'], 'old.png', { type: 'image/png' })] } })
+    await act(async () => fireEvent.click(screen.getByText('保存记录')))
+    if (retry) fireEvent.click(await screen.findByText('来源已保存，重试附件'))
+    fireEvent.change(input, { target: { value: '下一条来源' } })
+    fireEvent.change(fileInput, { target: { files: [new File(['new'], 'new.png', { type: 'image/png' })] } })
+    await act(async () => complete({ ok: true, json: async () => ({ id: 'attachment' }) }))
+    expect(await screen.findByText('已保存')).toBeTruthy()
+    expect(screen.getByText('已选择：new.png')).toBeTruthy()
+    expect((input as HTMLTextAreaElement).value).toBe('下一条来源')
+    const uploads = fetchMock.mock.calls.filter(([url]) => String(url).includes('/attachments'))
+    expect(uploads).toHaveLength(retry ? 2 : 1)
+    for (const [, init] of uploads) expect(((init?.body as FormData).get('file') as File).name).toBe('old.png')
+  })
+
   it('最近记录最多显示三条，关闭后持久隐藏且不补位', async () => {
     sessionStorage.setItem('homebuild-log-token', 'test-token')
     const rows = ['第一条', '第二条', '第三条', '第四条'].map((original_text, index) => ({

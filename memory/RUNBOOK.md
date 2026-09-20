@@ -72,7 +72,7 @@ $env:MIMO_API_KEY = "你的 MiMo Key"
 
 ## Docker 部署
 
-Ubuntu 26.04、8G 笔记本上的单应用 Docker Compose 是当前已验证空数据运行基线：
+部署形态为 Ubuntu 26.04、8G 笔记本上的单应用 Docker Compose；最近确认的运行状态、镜像和待验收事项只维护在 `memory/CURRENT.md`：
 
 - 当前 Ubuntu 验证目录：`/home/pawel/workspace/HomeBuild-Log`。
 - Compose 文件：`deploy/compose.yaml`。
@@ -97,14 +97,24 @@ Windows 生成离线包：
 
 当前电脑未安装 Docker 或 WSL 时，不要声称镜像已构建或 Ubuntu 已验收。
 
-### Ubuntu 26.04 源码构建与空数据验证
+### 源码更新的默认路径
 
-当前验证机访问 Docker Hub 需要临时启动 Mihomo。Buildx 客户端和构建步骤必须同时设置代理；npm 域名保持直连：
+- 先核对目标提交、工作树和迁移差异，再选择数据恢复方案；过去某次未创建恢复点不代表以后默认跳过备份。
+- GitHub 先做有超时的连通性检查；直连失败才使用临时代理。代理也失败时，按 PITFALLS 的 Git bundle 条目处理。
+- 构建优先使用 DaoCloud 基础镜像、npmmirror 与清华 PyPI。最近部署使用一次性临时 Dockerfile；仓库 Dockerfile 尚未内置这些替换，不能直接把普通 `docker build` 当作国内源构建。
+- 临时 Dockerfile 应以本次仓库 Dockerfile 为基础，只替换镜像/包源；版本、构建阶段与应用内容保持一致。镜像标签取目标提交的短 SHA，并传入 `APP_VERSION`。具体替换命令需要核对本次 Dockerfile 后生成。
+- 镜像构建完成后再按已确认的恢复方案切换 Compose；验证容器目标标签、健康、数据库 revision、数据完整性及访问情况，结束时清理临时代理。
+- `deploy/upgrade.sh` 面向含 `SHA256SUMS` 的离线镜像包，不能直接用于只有源码构建镜像的更新。
+
+### Docker Hub 代理构建备选
+
+仅当确实需要通过代理访问 Docker Hub 时使用下面的命令。它是构建备选，不包含真实数据容器切换；`mihomo_on/off` 仅适用于已加载这些函数的交互 shell，非交互 SSH 见 PITFALLS。Buildx 客户端和构建步骤均需代理：
 
 ```bash
 source ~/.bashrc
 mihomo_on
 cd /home/pawel/workspace/HomeBuild-Log
+target_tag="$(git rev-parse --short=12 HEAD)"
 sudo env \
   HTTP_PROXY=http://127.0.0.1:7890 \
   HTTPS_PROXY=http://127.0.0.1:7890 \
@@ -114,11 +124,14 @@ sudo env \
   --build-arg HTTP_PROXY=http://127.0.0.1:7890 \
   --build-arg HTTPS_PROXY=http://127.0.0.1:7890 \
   --build-arg NO_PROXY=localhost,127.0.0.1,registry.npmjs.org,.npmjs.org \
-  --tag homebuild-log:4a-20260715 .
+  --build-arg APP_VERSION="$target_tag" \
+  --tag "homebuild-log:$target_tag" .
 mihomo_off
 ```
 
-首次创建空数据容器：
+### 首次空数据初始化
+
+仅新环境执行；已有真实数据时使用更新流程：
 
 ```bash
 cd /home/pawel/workspace/HomeBuild-Log/deploy
@@ -130,7 +143,7 @@ sudo docker compose --env-file .env up --detach
 sudo sh ./verify.sh
 ```
 
-默认配置访问 `http://127.0.0.1:8000`。真实数据部署机当前按 `deploy/README-LAN.md` 只绑定 `192.168.1.17:8000`；Windows 同网段直连、容器健康、前端首页、SQLite/存储和容器重启持久化已验证，手机实机登录、整机重启和机械硬盘数据目录仍待验证。
+默认配置访问 `http://127.0.0.1:8000`；局域网绑定配置见 `deploy/README-LAN.md`，最近验收状态见 `memory/CURRENT.md`。
 
 ## 迁移规则
 
@@ -143,13 +156,15 @@ sudo sh ./verify.sh
 
 - 不要把密钥、令牌、完整票据、个人联系方式或原始敏感内容写入日志和 Markdown。
 - Compose 默认只允许 Ubuntu 本机访问；真实数据部署机已显式绑定 `192.168.1.17:8000`，不要改为 `0.0.0.0`，也不要配置公网端口映射。
-- 当前 Ubuntu 的 UFW 配置状态为“不活动”；已保存 `192.168.1.0/24` 到 `192.168.1.17:8000/TCP` 的规则。启用 UFW 前必须先核对 SSH、Tailscale 和其他服务规则，避免远程失联。
+- 防火墙状态必须现场确认。启用 UFW 前必须先核对 SSH、Tailscale 和其他服务规则，避免远程失联。
 - 当前 Docker 基线不引入公网、Tailscale、HTTPS、Nginx、独立前端容器或镜像仓库。
 
 ## Codex 项目 Hooks
 
 - 配置：`.codex/hooks.json`；脚本：`.codex/hooks/`。
-- `UserPromptSubmit` 提供相关记忆片段或检索位置；`PostToolUse` 只保存匿名失败类型与指纹；`Stop` 提醒 AI 做最小归档判断。
+- `UserPromptSubmit` 按 `.codex/hooks/memory_routes.json` 检索；`PostToolUse` 仅采集具有明确失败状态的匿名类型与指纹；`Stop` 对重复或高价值失败给非阻断审计提示。
+- 不再扫描或哈希整个工作区，不根据提示词或文档中的报错文字要求归档。没有实际复用价值时无需更新记忆。
+- 项目 Hook 使用 Windows base Python；应用后端继续使用本手册的项目环境。当前 Hook 命令为本机绝对路径，迁移主机/克隆目录时须重配并重新审查。
 - Hook 不自动修改记忆文件，也不保存完整命令、参数或工具日志。
 - 项目首次启用或 Hook 内容改变后，在 Codex 中使用 `/hooks` 审查并信任当前定义。
 - 回归测试：
@@ -157,3 +172,5 @@ sudo sh ./verify.sh
 ```powershell
 D:\Anaconda\python.exe -X utf8 -B -m unittest discover -s .codex\hooks -p "test_*.py" -v
 ```
+
+项目 Hook 已做有意的本地精简；技能安装器 `--check` 比较的是模板一致性，可能报告差异，不等同于运行测试失败。不要为消除模板差异直接覆盖本地实现。

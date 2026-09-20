@@ -370,7 +370,7 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
   const [dateTo, setDateTo] = useState('')
   const [reload, setReload] = useState(0)
   const [preview, setPreview] = useState<LedgerPreviewState | null>(null)
-  const [selectedGroup, setSelectedGroup] = useState<LedgerDetailGroup | null>(null)
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const closeTimer = useRef<number | null>(null)
   const compactInteraction = useCompactLedgerInteraction()
   useEffect(() => {
@@ -382,7 +382,7 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
       .finally(() => active && setLoading(false))
     return () => { active = false }
   }, [reload, refreshRevision])
-  const hasSelectedGroup = selectedGroup !== null
+  const hasSelectedGroup = selectedGroupId !== null
   useEffect(() => {
     if (!hasSelectedGroup) return
     const previousOverflow = document.body.style.overflow
@@ -394,15 +394,15 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
     }
   }, [hasSelectedGroup])
   useEffect(() => {
-    if (!selectedGroup) return
+    if (!selectedGroupId) return
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !detailOpen) setSelectedGroup(null)
+      if (event.key === 'Escape' && !detailOpen) setSelectedGroupId(null)
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => {
       window.removeEventListener('keydown', closeOnEscape)
     }
-  }, [selectedGroup, detailOpen])
+  }, [selectedGroupId, detailOpen])
 
   const groups = useMemo(() => {
     if (!data) return new Map<string, LedgerDetailGroup>()
@@ -429,6 +429,11 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
     }))
     return result
   }, [data])
+  // 明细只保留分组标识，编辑或删除后的内容始终来自最新账本数据。
+  const selectedGroup = selectedGroupId ? groups.get(selectedGroupId) : undefined
+  useEffect(() => {
+    if (selectedGroupId && !loading && !groups.has(selectedGroupId)) setSelectedGroupId(null)
+  }, [selectedGroupId, loading, groups])
   const monthlyNetExpense = useMemo(() => (data?.analytics.money_trend ?? []).map((item) => ({
     key: item.key,
     label: item.label,
@@ -445,7 +450,7 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
     closeTimer.current = window.setTimeout(() => setPreview(null), 160)
   }
   const openGroup = (group: LedgerDetailGroup) => {
-    cancelClose(); setPreview(null); setSelectedGroup(group)
+    cancelClose(); setPreview(null); setSelectedGroupId(group.id)
   }
   const showPreview = (group: LedgerDetailGroup, anchorRect: FloatingAnchorRect) => {
     if (compactInteraction) return
@@ -486,7 +491,7 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
     {data && (data.analytics.payment_composition.length > 0 || data.analytics.vendor_distribution.length > 0) && <div className="chart-grid"><AnalyticsChart title="资金构成" interactionHint="点击图形查看明细记录" description="悬停预览，点击查看完整明细" kind="donut" unit="元" rows={data.analytics.payment_composition.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('composition')} onLeave={scheduleClose} onClick={chartClick('composition')} disableTooltip /><AnalyticsChart title="主要商家金额" interactionHint="点击图形查看明细记录" description="悬停预览，点击查看完整明细；支出为正，退款与收入为负" kind="bar" unit="元" rows={data.analytics.vendor_distribution.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('vendor')} onLeave={scheduleClose} onClick={chartClick('vendor')} disableTooltip verticalScrollAfter={8} /></div>}
     {monthlyNetExpense.length > 0 && <div className="chart-grid chart-grid--single"><AnalyticsChart title="每月净支出趋势" description="按月统计付款减退款与收入后的净支出" kind="line" unit="元" rows={monthlyNetExpense} /></div>}
     {preview && <LedgerDetailPreview state={preview} onEnter={cancelClose} onLeave={scheduleClose} onViewAll={() => openGroup(preview.group)} />}
-    {selectedGroup && <LedgerDetailPanel group={selectedGroup} obscured={detailOpen} onClose={() => setSelectedGroup(null)} onOpenRecord={onOpen} />}
+    {selectedGroup && <LedgerDetailPanel group={selectedGroup} obscured={detailOpen} onClose={() => setSelectedGroupId(null)} onOpenRecord={onOpen} />}
   </section>
 }
 
@@ -576,30 +581,33 @@ function SearchView({ onOpen, refreshRevision }: { onOpen: (id: string) => void;
   const [dateTo, setDateTo] = useState('')
   const [data, setData] = useState<SearchResponse | null>(null)
   const submittedParams = useRef<Record<string, string> | null>(null)
+  const searchRevision = useRef(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const runSearch = async () => {
-    const params = { q, record_type: recordType, status, date_from: dateFrom, date_to: dateTo }
-    submittedParams.current = params
+  const requestSearch = async (params: Record<string, string>) => {
+    // 手动搜索和编辑后刷新共用序号，只有最新请求能够更新结果和加载状态。
+    const revision = ++searchRevision.current
     setLoading(true)
     try {
-      setData(await searchRecords(params))
+      const result = await searchRecords(params)
+      if (revision !== searchRevision.current) return
+      setData(result)
       setError('')
     } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : '搜索失败')
+      if (revision === searchRevision.current) setError(reason instanceof Error ? reason.message : '搜索失败')
     } finally {
-      setLoading(false)
+      if (revision === searchRevision.current) setLoading(false)
     }
   }
+  const runSearch = () => {
+    const params = { q, record_type: recordType, status, date_from: dateFrom, date_to: dateTo }
+    submittedParams.current = params
+    return requestSearch(params)
+  }
+  useEffect(() => () => { searchRevision.current += 1 }, [])
   useEffect(() => {
     if (!submittedParams.current || refreshRevision === 0) return
-    let active = true
-    setLoading(true)
-    searchRecords(submittedParams.current)
-      .then((result) => { if (active) { setData(result); setError('') } })
-      .catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '搜索失败'))
-      .finally(() => active && setLoading(false))
-    return () => { active = false }
+    void requestSearch(submittedParams.current)
   }, [refreshRevision])
   const total = useMemo(() => data ? Object.values(data.counts).reduce((sum, count) => sum + count, 0) : null, [data])
   return <section className="view-panel"><header><p className="eyebrow">基础搜索</p><h2>查找装修事实</h2><p>搜索原始来源、正式记录、材料、商家和空间；结果保持来源追溯。</p></header>
@@ -763,6 +771,7 @@ export function CoreViews({ children, onLogout }: { children: ReactNode; onLogou
       <header className="workspace-topbar"><button type="button" className="menu-button" aria-label="打开导航" aria-expanded={navOpen} onClick={() => setNavOpen((value) => !value)}>☰</button><div><small>HomeBuild Log</small><strong>{currentLabel}</strong></div><span><span className="service-dot" />服务正常</span></header>
       <main className="workspace-content">{view === 'overview' && <OverviewView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'ledger' && <LedgerView onOpen={setDetailId} detailOpen={Boolean(detailId)} refreshRevision={viewRevision} />}{view === 'issues' && <IssuesView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'pitfalls' && <PitfallsView />}{view === 'spaces' && <SpacesView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'records' && <RecordsAnalyticsView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={setDetailId} refreshRevision={viewRevision} />}</main>
     </div>
-    {detailId && <RecordDetail recordId={detailId} onClose={() => setDetailId('')} onChanged={() => setViewRevision((value) => value + 1)} />}
+    {/* 切换记录时重新建立详情状态，避免沿用上一条记录的编辑草稿。 */}
+    {detailId && <RecordDetail key={detailId} recordId={detailId} onClose={() => setDetailId('')} onChanged={() => setViewRevision((value) => value + 1)} />}
   </div>
 }

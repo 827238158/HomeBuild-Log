@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as api from './domainApi'
@@ -109,6 +109,62 @@ beforeEach(() => {
 })
 
 describe('DomainWorkspace', () => {
+  it.each(['选择来源', '外部切换'])('%s 后旧来源草稿不能覆盖新来源', async (mode) => {
+    vi.mocked(api.listSources).mockResolvedValue([source, anotherSource])
+    const view = render(<DomainWorkspace refreshKey={0} />)
+    fireEvent.click(await screen.findByText('修改原始数据'))
+    fireEvent.change(screen.getByLabelText('原始文字'), { target: { value: '来源 A 的草稿' } })
+
+    if (mode === '选择来源') {
+      const picker = screen.getByText('原始数据来源').parentElement!
+      fireEvent.click(within(picker).getByRole('button', { name: /主卧门口地砖/ }))
+      fireEvent.click(screen.getByRole('option', { name: /客厅地砖已到场/ }))
+    } else {
+      view.rerender(<DomainWorkspace refreshKey={1} preferredSourceId={anotherSource.id} />)
+    }
+    await waitFor(() => expect(screen.queryByLabelText('原始文字')).toBeNull())
+    expect(api.updateSource).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText('修改原始数据'))
+    expect(screen.getByLabelText('原始文字')).toHaveProperty('value', anotherSource.original_text)
+    fireEvent.change(screen.getByLabelText('原始文字'), { target: { value: '来源 B 的修正' } })
+    fireEvent.click(screen.getByText('保存修改'))
+    await waitFor(() => expect(api.updateSource).toHaveBeenCalledExactlyOnceWith(anotherSource.id, {
+      original_text: '来源 B 的修正', reported_time_text: null,
+    }))
+  })
+
+  it('手工批次等待全部响应，部分失败后只重试失败项', async () => {
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue(null)
+    let finishFirst!: (record: api.DomainRecord) => void
+    vi.mocked(api.createRecord)
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve }))
+      .mockRejectedValueOnce(new Error('第二条校验失败'))
+    render(<DomainWorkspace refreshKey={0} />)
+    fireEvent.click(await screen.findByText('+ 添加手工记录'))
+    fireEvent.click(screen.getByText('+ 添加手工记录'))
+    const titles = screen.getAllByLabelText('标题')
+    fireEvent.change(titles[0], { target: { value: '第一条手工记录' } })
+    fireEvent.change(titles[1], { target: { value: '第二条手工记录' } })
+    fireEvent.click(screen.getByText('确认所选'))
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('button', { name: '正在确认…' })).toHaveProperty('disabled', true)
+
+    await act(async () => finishFirst({
+      id: 'saved-first', record_type: 'event', title: '第一条手工记录', status: 'completed',
+      description: null, archived_at: null, source_refs: [],
+    }))
+    expect(await screen.findByText(/已保存 1 条手工记录；1 条失败/)).toBeTruthy()
+    expect(screen.queryByDisplayValue('第一条手工记录')).toBeNull()
+    expect(screen.getByLabelText('标题')).toHaveProperty('value', '第二条手工记录')
+    await waitFor(() => expect(screen.getByRole('button', { name: '确认所选' })).toHaveProperty('disabled', false))
+    fireEvent.click(screen.getByText('确认所选'))
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(3))
+    expect(vi.mocked(api.createRecord).mock.calls.map(([payload]) => payload.title)).toEqual([
+      '第一条手工记录', '第二条手工记录', '第二条手工记录',
+    ])
+    expect(await screen.findByText('所选建议已保存为正式记录。')).toBeTruthy()
+  })
+
   it('尺寸默认状态与轴顺序稳定并统一换算为毫米', () => {
     const payload = defaultPayload('measurement', { status: 'planned' })
     expect(payload.status).toBe('active')

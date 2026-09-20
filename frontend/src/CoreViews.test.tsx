@@ -162,6 +162,76 @@ beforeEach(() => {
 })
 
 describe('CoreViews', () => {
+  it('编辑中切换记录不会将上一条草稿提交到新记录', async () => {
+    const second = { ...record, id: 'event-2', title: '复核尺寸' }
+    vi.mocked(api.getTimeline).mockResolvedValue({ total: 2, analytics, groups: [{ date_key: '2026-06', label: '2026年6月', items: [record, second].map((entry) => ({ record: entry, related_records: [] })) }] })
+    vi.mocked(api.getRecord).mockImplementation(async (id) => id === second.id ? second : record)
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
+    const firstDetail = await screen.findByLabelText('记录详情')
+    fireEvent.click(await within(firstDetail).findByRole('button', { name: '修改记录' }))
+    fireEvent.change(within(firstDetail).getByLabelText('标题'), { target: { value: '不能覆盖其他记录的草稿' } })
+    fireEvent.click(screen.getByRole('button', { name: /复核尺寸/ }))
+    const secondDetail = screen.getByLabelText('记录详情')
+    fireEvent.click(await within(secondDetail).findByRole('button', { name: '修改记录' }))
+    expect((within(secondDetail).getByLabelText('标题') as HTMLInputElement).value).toBe(second.title)
+    fireEvent.click(within(secondDetail).getByRole('button', { name: '保存修改' }))
+    await waitFor(() => expect(api.updateRecord).toHaveBeenLastCalledWith(second.id, expect.objectContaining({ title: second.title })))
+  })
+
+  it.each(['编辑', '删除'] as const)('账本完整明细在%s后展示新金额和记录', async (operation) => {
+    const ledger = { ...record, id: 'payment-1', record_type: 'ledger', ledger_kind: 'payment', direction: 'expense' as const, status: 'paid', title: '材料付款', amount_minor: 50000 }
+    const changed = { ...ledger, title: '付款已更新', amount_minor: 70000 }
+    const summary = (entries: ProjectionRecord[], amount: number) => ({ totals: { expense_minor: amount, refund_minor: 0, income_minor: 0, net_expense_minor: amount }, ledger_entries: entries, analytics: { money_trend: [], payment_composition: [{ key: 'expense', label: '付款', value: amount }], vendor_distribution: [] } })
+    vi.mocked(api.getLedgerSummary).mockResolvedValueOnce(summary([ledger], 50000)).mockResolvedValue(summary(operation === '编辑' ? [changed] : [], operation === '编辑' ? 70000 : 0))
+    vi.mocked(api.getRecord).mockResolvedValue(ledger)
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '账本' }))
+    fireEvent.click(await screen.findByRole('button', { name: /付款总额/ }))
+    const dialog = await screen.findByRole('dialog', { name: '付款总额' })
+    fireEvent.click(within(dialog).getByRole('button', { name: /材料付款/ }))
+    const detail = screen.getByLabelText('记录详情')
+    await within(detail).findByRole('button', { name: '修改记录' })
+    if (operation === '编辑') {
+      fireEvent.click(within(detail).getByRole('button', { name: '修改记录' }))
+      fireEvent.change(within(detail).getByLabelText('标题'), { target: { value: changed.title } })
+      fireEvent.click(within(detail).getByRole('button', { name: '保存修改' }))
+      fireEvent.click(await within(detail).findByRole('button', { name: '关闭详情' }))
+    } else {
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      fireEvent.click(within(detail).getByRole('button', { name: '删除记录' }))
+      await waitFor(() => expect(screen.queryByLabelText('记录详情')).toBeNull())
+      confirm.mockRestore()
+    }
+    const refreshed = await screen.findByRole('dialog', { name: '付款总额' })
+    await waitFor(() => expect(within(refreshed).queryByRole('button', { name: /材料付款/ })).toBeNull())
+    expect(within(refreshed).getByText(operation === '编辑' ? '¥700.00' : '¥0.00')).toBeTruthy()
+    if (operation === '编辑') expect(within(refreshed).getByRole('button', { name: /付款已更新/ })).toBeTruthy()
+    else expect(within(refreshed).getByText('暂无对应记录。')).toBeTruthy()
+  })
+
+  it.each(['成功', '失败'] as const)('较早搜索%s响应不会覆盖较新的搜索结果', async (outcome) => {
+    type Result = Awaited<ReturnType<typeof api.searchRecords>>
+    let resolveOld!: (value: Result) => void
+    let rejectOld!: (reason: Error) => void
+    const oldRequest = new Promise<Result>((resolve, reject) => { resolveOld = resolve; rejectOld = reject })
+    const result = (title: string): Result => ({ query: title, counts: { sources: 0, records: 1, materials: 0, vendors: 0, spaces: 0 }, groups: { sources: [], records: [{ ...record, title }], materials: [], vendors: [], spaces: [] }, limit: 20, offset: 0 })
+    vi.mocked(api.searchRecords).mockReturnValueOnce(oldRequest).mockResolvedValueOnce(result('最新搜索结果'))
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    const input = screen.getByLabelText('关键词')
+    fireEvent.change(input, { target: { value: '旧查询' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.change(input, { target: { value: '新查询' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await screen.findByRole('button', { name: /最新搜索结果/ })
+    await act(async () => { if (outcome === '成功') resolveOld(result('旧查询结果')); else rejectOld(new Error('旧请求失败')) })
+    expect(screen.getByRole('button', { name: /最新搜索结果/ })).toBeTruthy()
+    expect(screen.queryByText('旧请求失败')).toBeNull()
+    expect(screen.queryByRole('button', { name: /旧查询结果/ })).toBeNull()
+  })
+
   it('问题图表按交集请求，空间草稿不生效，分别清除与全部清除保留已应用空间', async () => {
     vi.mocked(api.listSpaces).mockResolvedValue([{ id: 'room-1', name: '主卧', kind: 'room', parent_id: null }])
     render(<CoreViews><p>录入</p></CoreViews>)

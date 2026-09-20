@@ -788,7 +788,7 @@ def get_local_suggestions(source_id: str, request: Request, user: User) -> dict[
         source = db.get(SourceEntry, source_id)
         if source is None or source.project_id != DEFAULT_PROJECT_ID:
             raise _not_found("来源")
-        bundle = suggest_from_text(source.id, source.original_text)
+        bundle = suggest_from_text(source.id, source.original_text, source.captured_at)
         for suggestion in bundle["suggestions"]:
             origin_key = _source_origin_key("local", source, suggestion["key"])
             record = db.execute(
@@ -815,7 +815,7 @@ def confirm_local_suggestions(
         source = db.get(SourceEntry, source_id)
         if source is None or source.project_id != DEFAULT_PROJECT_ID:
             raise _not_found("来源")
-        bundle = suggest_from_text(source.id, source.original_text)
+        bundle = suggest_from_text(source.id, source.original_text, source.captured_at)
         suggestion_map = {item["key"]: item for item in bundle["suggestions"]}
         selected_keys = [item.key for item in body.selections]
         if len(selected_keys) != len(set(selected_keys)):
@@ -1010,6 +1010,11 @@ def update_record(
                 raise HTTPException(status_code=422, detail="账目状态与账目类型不一致。")
             if not validation_payload.get("vendor_id"):
                 raise HTTPException(status_code=422, detail="资金流水必须选择交易对象（商家）。")
+            # 更新也必须保持流水完整，不能将已有金额或款项性质清空。
+            if validation_payload.get("amount_minor") is None:
+                raise HTTPException(status_code=422, detail="资金流水必须填写金额。")
+            if not str(validation_payload.get("payment_kind") or "").strip():
+                raise HTTPException(status_code=422, detail="资金流水必须填写款项性质。")
         if record.record_type == "issue" and validation_payload.get("severity") not in {
             "low", "medium", "high"
         }:

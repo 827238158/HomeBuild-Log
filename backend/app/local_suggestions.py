@@ -4,6 +4,7 @@ import hashlib
 import re
 from datetime import date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.core.constants import TYPE_LABELS
 
@@ -145,8 +146,16 @@ def suggest_from_text(
             "relations": [],
         }
 
-    reference_date = captured_at.date() if isinstance(captured_at, datetime) else captured_at
-    reference_date = reference_date or date.today()
+    # 数据库返回 UTC 时间；相对日期须按用户所在的北京时间取日历日期。
+    if isinstance(captured_at, datetime):
+        reference_date = (
+            captured_at.astimezone(ZoneInfo("Asia/Shanghai")).date()
+            if captured_at.tzinfo is not None
+            else captured_at.date()
+        )
+    else:
+        reference_date = captured_at
+    reference_date = reference_date or datetime.now(ZoneInfo("Asia/Shanghai")).date()
     suggestions: list[dict[str, Any]] = []
     occurrences: dict[str, int] = {}
 

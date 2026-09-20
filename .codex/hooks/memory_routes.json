@@ -1,0 +1,190 @@
+{
+  "categories": [
+    {
+      "section": "文档与记忆",
+      "keywords": [
+        "文档",
+        "记忆",
+        "memory",
+        "agents.md",
+        "pitfalls.md",
+        "hook",
+        "codex"
+      ],
+      "log_keywords": [
+        "文档系统",
+        "记忆",
+        "README 改为",
+        "Hook"
+      ],
+      "route_hint": ""
+    },
+    {
+      "section": "编码与中文",
+      "keywords": [
+        "乱码",
+        "编码",
+        "utf-8",
+        "utf8",
+        "csv",
+        "markdown",
+        "中文"
+      ],
+      "log_keywords": [
+        "编码",
+        "乱码",
+        "utf"
+      ],
+      "route_hint": ""
+    },
+    {
+      "section": "Windows 与 PowerShell",
+      "keywords": [
+        "windows",
+        "powershell",
+        "cmd",
+        "路径",
+        "空格",
+        "进程",
+        "process"
+      ],
+      "log_keywords": [
+        "windows",
+        "powershell",
+        "cmd"
+      ],
+      "route_hint": ""
+    },
+    {
+      "section": "Python 与 Conda",
+      "keywords": [
+        "python",
+        "conda",
+        "pip",
+        "pytest",
+        "fastapi",
+        "ruff",
+        "缺包",
+        "module"
+      ],
+      "log_keywords": [
+        "python",
+        "conda",
+        "pip",
+        "pytest",
+        "fastapi"
+      ],
+      "route_hint": ""
+    },
+    {
+      "section": "数据库迁移",
+      "keywords": [
+        "迁移",
+        "migration",
+        "alembic",
+        "sqlite",
+        "database",
+        "schema",
+        "revision"
+      ],
+      "log_keywords": [
+        "迁移",
+        "alembic",
+        "sqlite",
+        "schema",
+        "revision"
+      ],
+      "route_hint": ""
+    },
+    {
+      "section": "业务记录与 AI 分析",
+      "keywords": [
+        "调研",
+        "正式记录",
+        "候选记录",
+        "记录分类",
+        "分类覆盖",
+        "人工修改",
+        "手动修改",
+        "ai分析",
+        "ai 分析",
+        "抽取",
+        "extraction",
+        "record kind",
+        "record_type",
+        "suggestion"
+      ],
+      "log_keywords": [
+        "正式记录",
+        "候选",
+        "分类",
+        "抽取",
+        "调研"
+      ],
+      "route_hint": "优先查找 PITFALLS 中可能存在的同名章节及相关 LOG；实现定位需继续搜索候选确认、正式记录写入、分类字段转换和对应测试，避免只检查表单显示状态。"
+    },
+    {
+      "section": "前端 UI",
+      "keywords": [
+        "前端",
+        "ui",
+        "react",
+        "typescript",
+        "vite",
+        "css",
+        "样式",
+        "图表",
+        "echarts",
+        "响应式"
+      ],
+      "log_keywords": [
+        "前端",
+        "ui",
+        "react",
+        "vite",
+        "可视化"
+      ],
+      "route_hint": ""
+    },
+    {
+      "section": "Docker",
+      "keywords": [
+        "docker",
+        "ubuntu",
+        "compose",
+        "容器",
+        "镜像",
+        "部署",
+        "mihomo",
+        "代理",
+        "buildx"
+      ],
+      "log_keywords": [
+        "docker",
+        "ubuntu",
+        "容器",
+        "镜像",
+        "部署",
+        "mihomo"
+      ],
+      "route_hint": ""
+    },
+    {
+      "section": "后端路由与静态前端",
+      "keywords": [
+        "后端路由",
+        "静态前端",
+        "spa",
+        "404",
+        "api 路由",
+        "api/v1"
+      ],
+      "log_keywords": [
+        "后端路由",
+        "静态前端",
+        "SPA 回退"
+      ],
+      "route_hint": "核对 API 路由与静态前端回退边界及对应测试。"
+    }
+  ]
+}

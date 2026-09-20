@@ -11,13 +11,32 @@ from typing import Any
 from memory_hook_common import read_payload, write_signal
 
 
-FAILURE_PATTERNS = (
-    re.compile(r"exit code:\s*[1-9]\d*", re.IGNORECASE),
-    re.compile(r"exit_?code\s*[\n:= ]+\s*[1-9]\d*", re.IGNORECASE),
-    re.compile(r"\"(?:isError|is_error)\"\s*:\s*true", re.IGNORECASE),
-    re.compile(r"script failed|traceback|timed? out|permission denied|access is denied", re.IGNORECASE),
-)
-SUCCESS_PATTERN = re.compile(r"exit code:\s*0", re.IGNORECASE)
+EXIT_PATTERN = re.compile(r"^\s*(?:Process exited with code|Exit code:|exit_code[:=])\s*(-?\d+)\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def failed_response(response: Any) -> bool:
+    """优先使用协议退出状态；未知状态宁可不采集，避免搜索结果误报。"""
+    if isinstance(response, dict):
+        if response.get("isError") is True or response.get("is_error") is True:
+            return True
+        for key in ("exit_code", "exitCode"):
+            code = response.get(key)
+            if isinstance(code, int) and not isinstance(code, bool):
+                return code != 0
+        return False
+    if isinstance(response, str):
+        try:
+            value = json.loads(response)
+        except (ValueError, TypeError):
+            value = None
+        if isinstance(value, dict):
+            return failed_response(value)
+        # 文本状态若相互矛盾，无法区分包装层与文档示例，保守跳过。
+        matches = EXIT_PATTERN.findall(response)
+        return bool(matches) and all(int(code) != 0 for code in matches)
+    return False
+
+
 MARKER_PATTERNS = {
     "依赖或环境": (
         "modulenotfounderror", "no module named", "dependency conflict", "环境冲突",
@@ -69,13 +88,10 @@ def compact_text(value: Any, *, limit: int = 12_000) -> str:
 
 
 def classify_tool_event(payload: dict[str, Any]) -> dict[str, Any] | None:
-    response_text = compact_text(payload.get("tool_response"))
-    if (
-        not response_text
-        or SUCCESS_PATTERN.search(response_text)
-        or not any(pattern.search(response_text) for pattern in FAILURE_PATTERNS)
-    ):
+    response = payload.get("tool_response")
+    if not failed_response(response):
         return None
+    response_text = compact_text(response)
 
     normalized = response_text.casefold()
     markers = [
