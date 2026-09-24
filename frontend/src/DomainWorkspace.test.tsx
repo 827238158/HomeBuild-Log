@@ -111,7 +111,9 @@ beforeEach(() => {
 describe('DomainWorkspace', () => {
   it.each(['选择来源', '外部切换'])('%s 后旧来源草稿不能覆盖新来源', async (mode) => {
     vi.mocked(api.listSources).mockResolvedValue([source, anotherSource])
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
     const view = render(<DomainWorkspace refreshKey={0} />)
+    fireEvent.click(await screen.findByText('来源操作'))
     fireEvent.click(await screen.findByText('修改原始数据'))
     fireEvent.change(screen.getByLabelText('原始文字'), { target: { value: '来源 A 的草稿' } })
 
@@ -120,9 +122,20 @@ describe('DomainWorkspace', () => {
       fireEvent.click(within(picker).getByRole('button', { name: /主卧门口地砖/ }))
       fireEvent.click(screen.getByRole('option', { name: /客厅地砖已到场/ }))
     } else {
-      view.rerender(<DomainWorkspace refreshKey={1} preferredSourceId={anotherSource.id} />)
+      view.rerender(<DomainWorkspace refreshKey={0} preferredSourceId={anotherSource.id} sourceRequestKey={1} />)
+    }
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(screen.getByLabelText('原始文字')).toHaveProperty('value', '来源 A 的草稿')
+    if (mode === '选择来源') {
+      const picker = screen.getByText('原始数据来源').parentElement!
+      fireEvent.click(within(picker).getByRole('button', { name: /主卧门口地砖/ }))
+      fireEvent.click(screen.getByRole('option', { name: /客厅地砖已到场/ }))
+    } else {
+      view.rerender(<DomainWorkspace refreshKey={0} preferredSourceId={anotherSource.id} sourceRequestKey={2} />)
     }
     await waitFor(() => expect(screen.queryByLabelText('原始文字')).toBeNull())
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('未保存的编辑'))
     expect(api.updateSource).not.toHaveBeenCalled()
     fireEvent.click(screen.getByText('修改原始数据'))
     expect(screen.getByLabelText('原始文字')).toHaveProperty('value', anotherSource.original_text)
@@ -131,6 +144,25 @@ describe('DomainWorkspace', () => {
     await waitFor(() => expect(api.updateSource).toHaveBeenCalledExactlyOnceWith(anotherSource.id, {
       original_text: '来源 B 的修正', reported_time_text: null,
     }))
+    confirm.mockRestore()
+  })
+
+  it('切换来源前保留未保存候选，拒绝后再次请求可切换', async () => {
+    vi.mocked(api.listSources).mockResolvedValue([source, anotherSource])
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    const view = render(<DomainWorkspace refreshKey={0} />)
+    const title = await screen.findByDisplayValue('地砖破裂') as HTMLInputElement
+    fireEvent.change(title, { target: { value: '尚未提交的修改' } })
+
+    view.rerender(<DomainWorkspace refreshKey={0} preferredSourceId={anotherSource.id} sourceRequestKey={1} />)
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(screen.getByDisplayValue('尚未提交的修改')).toBeTruthy()
+    expect(within(screen.getByText('原始数据来源').parentElement!).getByRole('button', { name: /主卧门口地砖/ })).toBeTruthy()
+
+    view.rerender(<DomainWorkspace refreshKey={0} preferredSourceId={anotherSource.id} sourceRequestKey={2} />)
+    await waitFor(() => expect(within(screen.getByText('原始数据来源').parentElement!).getByRole('button', { name: /客厅地砖已到场/ })).toBeTruthy())
+    expect(confirm).toHaveBeenCalledTimes(2)
+    confirm.mockRestore()
   })
 
   it('手工批次等待全部响应，部分失败后只重试失败项', async () => {
@@ -323,6 +355,7 @@ describe('DomainWorkspace', () => {
     vi.mocked(api.updateSource).mockResolvedValue(updated)
     render(<DomainWorkspace refreshKey={0} />)
 
+    fireEvent.click(await screen.findByText('来源操作'))
     fireEvent.click(await screen.findByText('修改原始数据'))
     fireEvent.change(screen.getByLabelText('原始文字'), {
       target: { value: '修正后的原始数据' },
@@ -343,6 +376,7 @@ describe('DomainWorkspace', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<DomainWorkspace refreshKey={0} />)
 
+    fireEvent.click(await screen.findByText('来源操作'))
     fireEvent.click(await screen.findByText('删除原始数据'))
 
     await waitFor(() => expect(api.deleteSource).toHaveBeenCalledWith(source.id))
@@ -373,6 +407,37 @@ describe('DomainWorkspace', () => {
     expect(vi.mocked(api.confirmCandidateBundle).mock.calls[0][2][0]).toMatchObject({
       key: 'issue:1', payload: { title: '主卧地砖破裂' },
     })
+  })
+
+  it('候选摘要列表切换时只展示一条详情并保留上一条编辑', async () => {
+    const second = {
+      ...explicitBundle.suggestions[0], key: 'issue:2', summary: '客厅地砖破损',
+      payload: { ...explicitBundle.suggestions[0].payload, title: '客厅地砖破损' },
+    }
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({
+      ...explicitBundle, suggestions: [explicitBundle.suggestions[0], second],
+    })
+    render(<DomainWorkspace refreshKey={0} />)
+
+    const firstTitle = await screen.findByDisplayValue('地砖破裂') as HTMLInputElement
+    const firstCard = firstTitle.closest('article')!
+    const list = screen.getByLabelText('候选记录列表')
+    const items = within(list).getAllByRole('button')
+    expect(items).toHaveLength(2)
+    expect(items[0].getAttribute('aria-current')).toBe('true')
+    expect(items[0].textContent).toContain(`原文：${source.original_text}`)
+    expect(items[0].textContent).toContain('需重点核对')
+    expect(firstCard.hidden).toBe(false)
+    expect(screen.getByDisplayValue('客厅地砖破损').closest('article')?.hidden).toBe(true)
+    fireEvent.change(firstTitle, { target: { value: '人工核对后的标题' } })
+
+    fireEvent.click(items[1])
+    expect(firstCard.hidden).toBe(true)
+    expect(items[1].getAttribute('aria-current')).toBe('true')
+    expect(screen.getByDisplayValue('客厅地砖破损').closest('article')?.hidden).toBe(false)
+    fireEvent.click(items[0])
+    expect(screen.getByDisplayValue('人工核对后的标题')).toBeTruthy()
+    expect(firstCard.hidden).toBe(false)
   })
 
   it('全部候选已确认时禁用按钮，添加未确认手工记录后恢复', async () => {
@@ -532,6 +597,7 @@ describe('DomainWorkspace', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<DomainWorkspace refreshKey={0} />)
+    fireEvent.click(screen.getByText('管理空间与共享档案'))
     expect(await screen.findByText(/用于建立“房屋 → 房间 → 局部构件\/表面”层级/)).toBeTruthy()
     await waitFor(() => expect(screen.getByLabelText(/上级空间/)).toHaveProperty('value', house.id))
     expect(screen.getByText('房间 · 上级：房屋')).toBeTruthy()
@@ -552,6 +618,7 @@ describe('DomainWorkspace', () => {
     vi.mocked(api.createEntity).mockResolvedValue(material)
 
     render(<DomainWorkspace refreshKey={0} />)
+    fireEvent.click(screen.getByText('管理空间与共享档案'))
     expect(await screen.findByText('马可波罗 · 花砖')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('材料名称'), { target: { value: '柔光砖' } })
     fireEvent.change(screen.getByLabelText('材料品牌（可选）'), { target: { value: '东鹏' } })
@@ -571,6 +638,7 @@ describe('DomainWorkspace', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<DomainWorkspace refreshKey={0} />)
+    fireEvent.click(screen.getByText('管理空间与共享档案'))
     await screen.findByText('问题：主卧门口地砖有一处破裂')
     fireEvent.click(within(screen.getByLabelText('已有材料')).getByText('删除'))
 
@@ -584,6 +652,7 @@ describe('DomainWorkspace', () => {
     vi.mocked(api.listRecords).mockResolvedValue([ledger, refund])
 
     render(<DomainWorkspace refreshKey={0} />)
+    fireEvent.click((await screen.findByText('更多信息与关联')))
     const relationField = await screen.findByRole('group', { name: '关联记录（可选）' })
     fireEvent.click(within(relationField).getByRole('button'))
     expect(screen.getByText('2026-06-30').classList.contains('multi-select-option__meta')).toBe(true)
@@ -613,6 +682,7 @@ describe('DomainWorkspace', () => {
 
     render(<DomainWorkspace refreshKey={0} />)
     const firstCard = (await screen.findByDisplayValue('地砖破裂')).closest('article')!
+    fireEvent.click(within(firstCard).getByText('更多信息与关联'))
     const relationField = within(firstCard).getByRole('group', { name: '关联本批候选（可选）' })
     fireEvent.click(within(relationField).getByRole('button'))
     const relatedOption = await screen.findByLabelText('问题 · 第二个问题')
@@ -716,7 +786,9 @@ describe('DomainWorkspace', () => {
     })
     render(<DomainWorkspace refreshKey={0} />)
 
-    const secondPanel = (await screen.findByDisplayValue('不需要')).closest('article')!
+    await screen.findByDisplayValue('不需要')
+    fireEvent.click(screen.getByRole('button', { name: /问题 · 不需要/ }))
+    const secondPanel = screen.getByDisplayValue('不需要').closest('article')!
     fireEvent.click(within(secondPanel).getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
 

@@ -1,5 +1,5 @@
 {
-  "description": "HomeBuild Log 的定向记忆检索与非阻断经验审计。",
+  "description": "HomeBuild Log 的定向记忆检索与结束前一次性记忆审计。",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -32,7 +32,7 @@
           {
             "type": "command",
             "command": "D:\\Anaconda\\python.exe -X utf8 -B \"G:\\BackUp\\AI+网络项目孵化\\HomeBuild Log\\.codex\\hooks\\memory_gate.py\"",
-            "statusMessage": "Reviewing reusable failure clues",
+            "statusMessage": "Reviewing project memory",
             "timeout": 15
           }
         ]

@@ -71,13 +71,123 @@
   background: var(--surface);
 }
 
-/* 录入页：输入、最近来源、智能拆分形成清晰的纵向工作流。 */
+/* 录入页：标签分别承载快速记录与待整理，避免把两套流程堆在首屏。 */
+.capture-tabs {
+  display: flex;
+  gap: 24px;
+  align-items: stretch;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.capture-tab {
+  position: relative;
+  min-height: 44px;
+  padding: 8px 4px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: .95rem;
+  font-weight: 600;
+}
+
+.capture-tab:hover {
+  color: var(--primary);
+}
+
+.capture-tab[aria-selected='true'],
+.capture-tab.is-active {
+  color: var(--primary);
+}
+
+.capture-tab[aria-selected='true']::after,
+.capture-tab.is-active::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--primary);
+  content: '';
+}
+
+.capture-tab:focus-visible {
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 3px rgb(23 105 194 / 22%);
+}
+
+.capture-panel,
+.capture-quick,
+.capture-review {
+  min-width: 0;
+}
+
+.capture-panel[hidden],
+.candidate-review-detail .suggestion-card[hidden] {
+  display: none !important;
+}
+
+.capture-quick {
+  max-width: 880px;
+}
+
+.capture-next-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--ink-muted);
+}
+
+.capture-next-step button,
+.recent-source-row__actions button:first-child {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--primary);
+}
+
+.capture-next-step button:hover,
+.recent-source-row__actions button:first-child:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
 .capture-workspace .source-form {
   padding: 20px;
 }
 
+.capture-quick .source-form > h3 {
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-size: 1.125rem;
+  font-weight: 650;
+}
+
+.capture-quick .source-actions {
+  margin-top: 16px;
+}
+
+.capture-workspace .source-save:disabled {
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--ink-muted);
+  box-shadow: none;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
 .source-input {
-  min-height: 116px;
+  min-height: 168px;
   padding: 13px 14px;
 }
 
@@ -89,14 +199,69 @@
 }
 
 .attachment-field {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
   color: var(--ink-muted);
   font-size: .78rem;
   font-weight: 600;
 }
 
+.capture-quick .attachment-field input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  opacity: 0;
+  clip-path: inset(50%);
+}
+
+.attachment-picker {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--primary);
+  cursor: pointer;
+  font-size: .875rem;
+}
+
+.attachment-picker svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.attachment-field:hover .attachment-picker,
+.attachment-field:focus-within .attachment-picker {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.attachment-field:focus-within .attachment-picker {
+  box-shadow: 0 0 0 3px rgb(23 105 194 / 22%);
+}
+
+.capture-quick .attachment-name {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .source-list {
   gap: 10px;
-  margin: 18px 0 22px;
+  margin: 24px 0 0;
 }
 
 .source-list-title {
@@ -109,6 +274,58 @@
   padding: 14px 44px 14px 14px;
 }
 
+.recent-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding-right: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.recent-source-row > :first-child {
+  min-width: 0;
+}
+
+.recent-source-row .source-item-text {
+  overflow: hidden;
+  padding-right: 0;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-source-row .source-item-time {
+  white-space: nowrap;
+}
+
+.recent-source-row button {
+  flex: 0 0 auto;
+}
+
+.recent-source-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.recent-source-row__actions .source-item-close {
+  position: static;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  color: var(--ink-muted);
+  place-items: center;
+}
+
+.recent-source-row__actions .source-item-close:hover {
+  background: var(--surface-muted);
+  color: var(--ink);
+}
+
 .source-item-time,
 .muted {
   color: var(--ink-muted);
@@ -118,10 +335,30 @@
   gap: 18px;
 }
 
+.capture-review .domain-workspace {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
 .capture-workspace .domain-workspace > .source-picker,
 .source-maintenance {
   width: 100%;
   margin-inline: 0;
+}
+
+.capture-review .source-picker__trigger::after {
+  grid-column: 3;
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: '';
+  transform: rotate(45deg) translateY(-2px);
+}
+
+.capture-review .source-picker__trigger[aria-expanded='true']::after {
+  transform: rotate(225deg) translateY(-2px);
 }
 
 .source-picker,
@@ -131,6 +368,102 @@
 .record-list,
 .manage-panel {
   border-color: var(--border);
+}
+
+.review-source-actions {
+  display: block;
+  min-width: 0;
+}
+
+.review-source-actions .record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.review-source-actions summary,
+.review-analysis-options summary,
+.review-data-manager summary,
+.candidate-review-advanced summary {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--ink-muted);
+  font-size: .85rem;
+  font-weight: 600;
+  list-style: none;
+}
+
+.review-source-actions summary::-webkit-details-marker,
+.review-analysis-options summary::-webkit-details-marker,
+.review-data-manager summary::-webkit-details-marker,
+.candidate-review-advanced summary::-webkit-details-marker {
+  display: none;
+}
+
+.review-source-actions summary::after,
+.review-analysis-options summary::after,
+.review-data-manager summary::after,
+.candidate-review-advanced summary::after {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: '';
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 160ms ease;
+}
+
+.review-source-actions[open] summary::after,
+.review-analysis-options[open] summary::after,
+.review-data-manager[open] summary::after,
+.candidate-review-advanced[open] summary::after {
+  transform: rotate(225deg) translateY(-2px);
+}
+
+.review-source-actions summary:hover,
+.review-analysis-options summary:hover,
+.review-data-manager summary:hover,
+.candidate-review-advanced summary:hover {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.review-source-actions summary:focus-visible,
+.review-analysis-options summary:focus-visible,
+.review-data-manager summary:focus-visible,
+.candidate-review-advanced summary:focus-visible {
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 3px rgb(23 105 194 / 22%);
+}
+
+.review-analysis-options {
+  min-width: 0;
+  color: var(--ink-muted);
+  font-size: .82rem;
+}
+
+.review-analysis-options summary {
+  white-space: nowrap;
+}
+
+.review-analysis-options[open] {
+  min-width: min(260px, 100%);
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.review-analysis-options .ai-panel__options,
+.review-analysis-options select {
+  width: 100%;
+  min-width: 0;
 }
 
 .ai-panel {
@@ -152,6 +485,237 @@
 .suggestion-card--risk {
   border-color: #e7bcbc;
   box-shadow: inset 3px 0 0 var(--risk);
+}
+
+/* 候选列表与单条编辑共享同一来源；详情只呈现当前选择的候选。 */
+.candidate-review-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+  min-width: 0;
+}
+
+.candidate-review-list,
+.candidate-review-detail {
+  min-width: 0;
+}
+
+.candidate-review-detail .suggestion-card > p {
+  overflow-wrap: anywhere;
+}
+
+.capture-review .suggestion-card__header strong,
+.capture-review .manage-list__item > span,
+.capture-review .manage-list__item strong,
+.capture-review .manage-list__item small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.capture-review .suggestion-card__header strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.capture-review .suggestion-card__header .suggestion-remove,
+.capture-review .manage-list__item button {
+  flex: 0 0 auto;
+}
+
+.candidate-review-list {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+}
+
+.candidate-review-item {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+
+.candidate-review-item:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.candidate-review-item[aria-current='true'],
+.candidate-review-item.is-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.candidate-review-item:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgb(23 105 194 / 22%);
+}
+
+.candidate-review-item strong,
+.candidate-review-item span,
+.candidate-review-item small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.candidate-review-item .candidate-review-item__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.candidate-review-item__top strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candidate-review-item__top > span {
+  flex: 0 0 auto;
+  color: var(--primary);
+  font-size: .76rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.candidate-review-item .candidate-review-item__evidence {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 6px;
+  color: var(--ink-muted);
+  font-size: .8rem;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.candidate-review-item__meta {
+  margin-top: 7px;
+  color: var(--ink-muted);
+  font-size: .76rem;
+}
+
+.candidate-review-item small {
+  color: var(--ink-muted);
+}
+
+.candidate-review-detail {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  scroll-margin-top: 76px;
+}
+
+.candidate-review-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin-bottom: 16px;
+}
+
+.candidate-review-detail-header h4 {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.125rem;
+  font-weight: 650;
+}
+
+.candidate-review-detail .suggestion-card {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.candidate-review-detail .suggestion-card--risk {
+  padding-left: 14px;
+  border-left: 3px solid var(--risk);
+}
+
+.candidate-review-back {
+  display: none;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 8px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: .9rem;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.candidate-review-back svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+}
+
+.candidate-review-back:hover {
+  background: var(--primary-soft);
+  color: var(--primary-active);
+}
+
+.candidate-review-back:focus-visible {
+  box-shadow: 0 0 0 3px rgb(23 105 194 / 22%);
+}
+
+.candidate-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 16px;
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.candidate-review-advanced {
+  padding: 14px 0 0;
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.candidate-review-advanced summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.candidate-review-advanced[open] > :not(summary) {
+  margin-top: 16px;
+}
+
+.review-data-manager {
+  margin-top: 20px;
+  border-color: var(--border);
+  background: var(--surface-soft);
 }
 
 .record-card,

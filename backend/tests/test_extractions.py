@@ -347,7 +347,7 @@ def test_deepseek_failure_falls_back_to_mimo_with_one_budget(monkeypatch) -> Non
 
         response = client.post(f"/api/v1/sources/{source_id}/extractions?engine=auto")
         assert response.status_code == 201, response.text
-        assert response.json()["engine"] == "mimo-v2.5-pro"
+        assert response.json()["engine"] == "mimo-v2.6-pro"
         candidate = response.json()["suggestions"][0]
         assert candidate["payload"]["occurred_date"] is not None
         assert candidate["payload"]["original_time_text"] == "今天"

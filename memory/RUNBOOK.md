@@ -162,7 +162,7 @@ sudo sh ./verify.sh
 ## Codex 项目 Hooks
 
 - 配置：`.codex/hooks.json`；脚本：`.codex/hooks/`。
-- `UserPromptSubmit` 按 `.codex/hooks/memory_routes.json` 检索；`PostToolUse` 仅采集具有明确失败状态的匿名类型与指纹；`Stop` 对重复或高价值失败给非阻断审计提示。
+- `UserPromptSubmit` 按 `.codex/hooks/memory_routes.json` 检索；`PostToolUse` 仅采集具有明确失败状态的匿名类型与指纹；首次 `Stop` 强制续行一次以完成记忆审计，续行后的 `Stop` 放行，避免循环。重复或高价值失败另附踩坑审计线索。
 - 不再扫描或哈希整个工作区，不根据提示词或文档中的报错文字要求归档。没有实际复用价值时无需更新记忆。
 - 项目 Hook 使用 Windows base Python；应用后端继续使用本手册的项目环境。当前 Hook 命令为本机绝对路径，迁移主机/克隆目录时须重配并重新审查。
 - Hook 不自动修改记忆文件，也不保存完整命令、参数或工具日志。

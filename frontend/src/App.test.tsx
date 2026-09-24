@@ -1,10 +1,10 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const domainWorkspaceProps = vi.hoisted(() => vi.fn())
 vi.mock('./DomainWorkspace', () => ({
-  DomainWorkspace: (props: { refreshKey: number; preferredSourceId?: string }) => {
+  DomainWorkspace: (props: { refreshKey: number; preferredSourceId?: string; sourceRequestKey?: number }) => {
     domainWorkspaceProps(props)
     return null
   },
@@ -25,6 +25,28 @@ afterEach(() => {
 })
 
 describe('App', () => {
+  it('默认打开快速记录，切换标签保留未提交文字', async () => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => Promise.resolve({
+      ok: true,
+      json: async () => String(input).endsWith('/sources') ? [] : { status: 'ok' },
+    })))
+    render(<App />)
+
+    const input = await screen.findByPlaceholderText('记录今天发生的事情…') as HTMLTextAreaElement
+    const quickTab = screen.getByRole('tab', { name: '快速记录' })
+    const reviewTab = screen.getByRole('tab', { name: '待整理' })
+    expect(quickTab.getAttribute('aria-selected')).toBe('true')
+    expect(document.getElementById('capture-panel-review')?.hidden).toBe(true)
+    fireEvent.change(input, { target: { value: '尚未保存的现场情况' } })
+    fireEvent.click(reviewTab)
+    expect(reviewTab.getAttribute('aria-selected')).toBe('true')
+    expect(document.getElementById('capture-panel-quick')?.hidden).toBe(true)
+    fireEvent.click(quickTab)
+    expect(input.value).toBe('尚未保存的现场情况')
+    expect(document.getElementById('capture-panel-quick')?.hidden).toBe(false)
+  })
+
   it.each(['新草稿', '原草稿'])('保存返回时保留等待期间编辑的文字：%s', async (nextText) => {
     sessionStorage.setItem('homebuild-log-token', 'test-token')
     let complete!: (value: unknown) => void
@@ -42,6 +64,23 @@ describe('App', () => {
     await act(async () => complete({ ok: true, json: async () => ({ id: 'saved', original_text: '原草稿', captured_at: '2026-09-21T00:00:00Z' }) }))
     expect((input as HTMLTextAreaElement).value).toBe(nextText)
     expect(await screen.findByText('已保存')).toBeTruthy()
+  })
+
+  it('保存失败时保留输入并停留在快速记录', async () => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') return Promise.reject(new Error('网络暂不可用'))
+      return Promise.resolve({ ok: true, json: async () => String(input).endsWith('/sources') ? [] : { status: 'ok' } })
+    }))
+    render(<App />)
+    const input = await screen.findByPlaceholderText('记录今天发生的事情…') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '待重试的现场记录' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存记录' }))
+
+    expect(await screen.findByText('保存失败')).toBeTruthy()
+    expect(input.value).toBe('待重试的现场记录')
+    expect(screen.getByRole('tab', { name: '快速记录' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.queryByRole('button', { name: '去整理这条记录' })).toBeNull()
   })
 
   it.each([false, true])('附件请求完成时保留新选择（重试：%s）', async (retry) => {
@@ -103,6 +142,11 @@ describe('App', () => {
     expect(screen.getByText('第二条')).toBeTruthy()
     expect(screen.getByText('第三条')).toBeTruthy()
     expect(screen.queryByText('第四条')).toBeNull()
+
+    fireEvent.click(within(screen.getByText('第一条').closest('.recent-source-row')!).getByRole('button', { name: '去整理' }))
+    expect(screen.getByRole('tab', { name: '待整理' }).getAttribute('aria-selected')).toBe('true')
+    expect(domainWorkspaceProps.mock.calls.at(-1)?.[0]).toMatchObject({ preferredSourceId: 'source-1', sourceRequestKey: 1 })
+    fireEvent.click(screen.getByRole('tab', { name: '快速记录' }))
 
     fireEvent.click(screen.getByRole('button', { name: '关闭最近记录：第二条' }))
     expect(screen.queryByText('第二条')).toBeNull()
@@ -299,7 +343,12 @@ describe('App', () => {
     fireEvent.click(screen.getByText('保存记录'))
 
     expect(await screen.findByText('已保存')).toBeTruthy()
-    expect(domainWorkspaceProps.mock.calls.at(-1)?.[0]).toMatchObject({ preferredSourceId: 'source-1' })
+    // 保存只产生原始来源；用户明确进入待整理时才定向选中它。
+    expect(screen.getByRole('tab', { name: '快速记录' }).getAttribute('aria-selected')).toBe('true')
+    expect(domainWorkspaceProps.mock.calls.at(-1)?.[0]).toMatchObject({ preferredSourceId: '', sourceRequestKey: 0 })
+    fireEvent.click(screen.getByRole('button', { name: '去整理这条记录' }))
+    expect(screen.getByRole('tab', { name: '待整理' }).getAttribute('aria-selected')).toBe('true')
+    expect(domainWorkspaceProps.mock.calls.at(-1)?.[0]).toMatchObject({ preferredSourceId: 'source-1', sourceRequestKey: 1 })
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/attachments?source_id=source-1',
       expect.objectContaining({ method: 'POST', body: expect.any(FormData) }),

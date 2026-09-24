@@ -36,6 +36,7 @@ import { formatBeijingDate, formatBeijingDateTime } from './time'
 interface Props {
   refreshKey: number
   preferredSourceId?: string
+  sourceRequestKey?: number
   onSourcesChanged?: () => void
 }
 export type { RecordType } from './recordConfig'
@@ -519,7 +520,7 @@ export function RecordEditFields({
   </div>
 }
 
-export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChanged }: Props) {
+export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKey = 0, onSourcesChanged }: Props) {
   const [sources, setSources] = useState<SourceEntry[]>([])
   const [sourceId, setSourceId] = useState('')
   const currentSourceId = useRef(sourceId)
@@ -548,6 +549,11 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
   const [sourceDraft, setSourceDraft] = useState('')
   const [sourceTimeDraft, setSourceTimeDraft] = useState('')
   const [sourceBusy, setSourceBusy] = useState(false)
+  const [activeSuggestionKey, setActiveSuggestionKey] = useState('')
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false)
+  const [hasUnsavedCandidateEdits, setHasUnsavedCandidateEdits] = useState(false)
+  const handledSourceRequest = useRef(0)
+  const suggestionLoadRequest = useRef(0)
 
   const applyBundle = (
     nextBundle: CandidateBundle | null,
@@ -607,16 +613,22 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
   }
 
   const loadSuggestions = async (selectedSource: string, force = false) => {
+    const request = ++suggestionLoadRequest.current
     if (!selectedSource) {
       applyBundle(null)
+      setAnalyzing(false)
+      setHasUnsavedCandidateEdits(false)
       return
     }
     setAnalyzing(true)
     try {
       const latest = force ? null : await getLatestCandidateBundle(selectedSource)
-      applyBundle(latest ?? (force ? await createExtraction(selectedSource, engineMode) : null))
+      const nextBundle = latest ?? (force ? await createExtraction(selectedSource, engineMode) : null)
+      if (request !== suggestionLoadRequest.current || currentSourceId.current !== selectedSource) return
+      applyBundle(nextBundle)
+      setHasUnsavedCandidateEdits(false)
     } finally {
-      setAnalyzing(false)
+      if (request === suggestionLoadRequest.current) setAnalyzing(false)
     }
   }
 
@@ -640,6 +652,7 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
     const selected = rows.some((source) => source.id === preferredId)
       ? preferredId
       : rows[0]?.id || ''
+    currentSourceId.current = selected
     setSourceId(selected)
     return selected
   }
@@ -648,14 +661,20 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
     Promise.all([listSources(), refreshReferences()])
       .then(([rows]) => {
         setSources(rows)
+        const current = currentSourceId.current
+        if (current && rows.some((source) => source.id === current)) {
+          // 保存新来源只刷新列表，不覆盖当前来源正在编辑的候选草稿。
+          return refreshRecords(current)
+        }
         const selected = (preferredSourceId && rows.some((source) => source.id === preferredSourceId)
           ? preferredSourceId
-          : sourceId) || rows[0]?.id || ''
+          : rows[0]?.id) || ''
+        currentSourceId.current = selected
         setSourceId(selected)
-        return Promise.all([refreshRecords(selected), loadSuggestions(selected)])
+        return Promise.all([refreshRecords(selected), loadSuggestions(selected)]).then(() => undefined)
       })
       .catch((error: unknown) => setMessage(error instanceof Error ? error.message : '加载失败'))
-  }, [refreshKey, preferredSourceId])
+  }, [refreshKey])
 
   useEffect(() => {
     if (spaceKind === 'house') {
@@ -672,6 +691,28 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
     () => sources.find((source) => source.id === sourceId),
     [sources, sourceId],
   )
+  const sourceEditDirty = editingSourceId === sourceId && Boolean(selectedSource) && (
+    sourceDraft !== (selectedSource?.original_text || '')
+    || sourceTimeDraft !== (selectedSource?.reported_time_text || '')
+  )
+  const switchSource = (next: string) => {
+    if (next === sourceId) return true
+    if ((hasUnsavedCandidateEdits || sourceEditDirty) && !window.confirm('切换来源会丢失当前未保存的编辑，确定切换吗？')) return false
+    currentSourceId.current = next
+    setSourceId(next)
+    setEditingSourceId('')
+    setActiveSuggestionKey('')
+    setMobileDetailOpen(false)
+    setHasUnsavedCandidateEdits(false)
+    void Promise.all([refreshRecords(next), loadSuggestions(next)])
+      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : '加载来源失败'))
+    return true
+  }
+  useEffect(() => {
+    if (sourceRequestKey <= handledSourceRequest.current || !preferredSourceId || !sources.some((source) => source.id === preferredSourceId)) return
+    handledSourceRequest.current = sourceRequestKey
+    switchSource(preferredSourceId)
+  }, [sourceRequestKey, preferredSourceId, sources])
   const bundleCounts = useMemo(() => {
     const items = bundle?.suggestions ?? []
     return {
@@ -685,12 +726,14 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
   ).length
 
   const updateSuggestion = (key: string, field: string, value: unknown) => {
+    setHasUnsavedCandidateEdits(true)
     setSuggestions((current) => current.map((item) => item.key === key
       ? { ...item, payload: { ...item.payload, [field]: value } }
       : item))
   }
 
   const updateCandidateRelations = (key: string, relatedKeys: string[]) => {
+    setHasUnsavedCandidateEdits(true)
     const selected = new Set(relatedKeys)
     setSuggestions((current) => current.map((item) => {
       const existing = Array.isArray(item.payload.related_candidate_keys)
@@ -707,6 +750,7 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
   }
 
   const switchSuggestionType = (key: string, newType: RecordType) => {
+    setHasUnsavedCandidateEdits(true)
     setSuggestions((current) => current.map((item) => {
       if (item.key !== key) return item
       const base: Record<string, unknown> = {
@@ -751,6 +795,9 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
       missing_fields: [],
     }
     setSuggestions((current) => [...current, newSuggestion])
+    setHasUnsavedCandidateEdits(true)
+    setActiveSuggestionKey(key)
+    setMobileDetailOpen(true)
     setSelectedKeys((current) => {
       const next = new Set(current)
       next.add(key)
@@ -766,6 +813,7 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
         next.delete(key)
         return next
       })
+      setHasUnsavedCandidateEdits(true)
       return
     }
     if (!bundle) return
@@ -799,6 +847,7 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
     setConfirming(true)
     try {
       let confirmationMessage = '所选建议已保存为正式记录。'
+      let manualFailed = false
       if (aiSelections.length || ignoredAiKeys.length) {
         const eligibleAiSuggestions = suggestions.filter((item) =>
           !item.key.startsWith('manual:')
@@ -843,10 +892,12 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
         setSelectedKeys((current) => new Set([...current].filter((key) => !savedKeys.has(key))))
         const failures = results.filter((result) => result.status === 'rejected')
         if (failures.length) {
+          manualFailed = true
           const reason: unknown = failures[0].reason
           confirmationMessage = `已保存 ${savedKeys.size} 条手工记录；${failures.length} 条失败，已保留失败项，可修正后重试。${reason instanceof Error ? reason.message : ''}`
         }
       }
+      setHasUnsavedCandidateEdits(manualFailed || suggestions.some((item) => item.key.startsWith('manual:') && !selectedKeys.has(item.key)))
       setMessage(confirmationMessage)
       await refreshRecords()
       await refreshSourceRows(currentSourceId.current)
@@ -883,6 +934,7 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
       await refreshSourceRows(currentSourceId.current)
       await refreshRecords(selectedSource.id)
       if (currentSourceId.current === selectedSource.id) applyBundle(null)
+      setHasUnsavedCandidateEdits(false)
       setEditingSourceId((current) => current === selectedSource.id ? '' : current)
       setMessage('原始数据已修改。旧候选已失效，已有正式记录需要复核；请按需重新分析。')
       onSourcesChanged?.()
@@ -910,6 +962,7 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
       const result = await deleteSource(selectedSource.id)
       const nextId = await refreshSourceRows('')
       applyBundle(null)
+      setHasUnsavedCandidateEdits(false)
       await refreshRecords(nextId)
       if (nextId) await loadSuggestions(nextId)
       setEditingSourceId('')
@@ -990,26 +1043,43 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
   const hasSelectedUnconfirmed = suggestions.some(
     (item) => selectedKeys.has(item.key) && !item.confirmed_record_id,
   )
+  const displayedSuggestionKey = suggestions.some((item) => item.key === activeSuggestionKey)
+    ? activeSuggestionKey : suggestions.find((item) => !item.confirmed_record_id)?.key || suggestions[0]?.key || ''
+  const openSuggestion = (key: string) => {
+    window.dispatchEvent(new CustomEvent('homebuild-dropdown-open', { detail: 'candidate-review' }))
+    setActiveSuggestionKey(key)
+    setMobileDetailOpen(true)
+    // 手机端列表会隐藏；把视口与键盘焦点移到当前候选详情。
+    if (window.matchMedia?.('(max-width: 1100px)').matches) {
+      requestAnimationFrame(() => {
+        document.querySelector<HTMLElement>('.candidate-review-detail')?.scrollIntoView({ block: 'start' })
+        document.querySelector<HTMLElement>('.candidate-review-back')?.focus({ preventScroll: true })
+      })
+    }
+  }
+  const showSuggestionList = () => {
+    window.dispatchEvent(new CustomEvent('homebuild-dropdown-open', { detail: 'candidate-review' }))
+    setMobileDetailOpen(false)
+    requestAnimationFrame(() => {
+      const selected = document.querySelector<HTMLElement>('.candidate-review-item[aria-current="true"]')
+      selected?.scrollIntoView({ block: 'nearest' })
+      selected?.focus({ preventScroll: true })
+    })
+  }
 
   return (
     <section className="domain-workspace" aria-labelledby="domain-title">
-      <div className="section-heading">
-        <p className="eyebrow">阶段 3A · 人在回路</p>
-        <h2 id="domain-title">让 AI 帮你拆分装修事实</h2>
-      </div>
+      <h2 id="domain-title" className="sr-only">整理原始记录</h2>
 
-      <SourcePicker sources={sources} value={sourceId} onChange={(next) => {
-        setSourceId(next)
-        void Promise.all([refreshRecords(next), loadSuggestions(next)])
-      }} />
+      <SourcePicker sources={sources} value={sourceId} onChange={switchSource} />
 
       {selectedSource && <section className="source-maintenance" aria-label="原始数据管理">
         <div className="source-maintenance__summary">
           <span>来源版本 {selectedSource.revision} · 录入时间：{formatBeijingDateTime(selectedSource.captured_at)}</span>
-          <div className="record-actions">
+          <details className="review-source-actions"><summary>来源操作</summary><div className="record-actions">
             <button type="button" disabled={sourceBusy} onClick={beginSourceEdit}>修改原始数据</button>
             <button className="danger-button" type="button" disabled={sourceBusy} onClick={() => void deleteSelectedSource()}>删除原始数据</button>
-          </div>
+          </div></details>
         </div>
         {editingSourceId === sourceId && <div className="source-edit-form">
           <label className="field-stack"><span>原始文字</span><textarea rows={3} value={sourceDraft} onChange={(event) => setSourceDraft(event.target.value)} /></label>
@@ -1037,17 +1107,20 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
               className="secondary-button ai-panel__action-btn"
               type="button"
               disabled={!sourceId || analyzing}
-              onClick={() => void loadSuggestions(sourceId, true).catch((error: unknown) => setMessage(error instanceof Error ? error.message : '分析失败'))}
+              onClick={() => {
+                if (hasUnsavedCandidateEdits && !window.confirm('重新分析会覆盖当前未保存的候选编辑，确定继续吗？')) return
+                void loadSuggestions(sourceId, true).catch((error: unknown) => setMessage(error instanceof Error ? error.message : '分析失败'))
+              }}
             >
               {analyzing ? 'AI 正在分析…' : suggestions.length > 0 ? '重新分析' : '分析'}
             </button>
-            <label className="ai-panel__options">
+            <details className="review-analysis-options"><summary>分析选项</summary><label className="ai-panel__options"><span>分析方式</span>
               <Select value={engineMode} onChange={(event) => setEngineMode(event.target.value as 'auto' | 'ai' | 'local')}>
                 <option value="auto">自动主备并本地兜底</option>
                 <option value="ai">仅 AI（失败可见）</option>
                 <option value="local">仅本地规则</option>
               </Select>
-            </label>
+            </label></details>
           </div>
         </div>
         {analyzing && <p className="analysis-state" role="status">AI 正在分析…主备引擎共享 30 秒预算，失败后会提供本地规则建议。</p>}
@@ -1055,6 +1128,19 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
         {bundle && <p className="candidate-summary" role="status">待处理 {bundleCounts.pending} 条 · 已生成 {bundleCounts.confirmed} 条 · 已忽略 {bundleCounts.ignored} 条</p>}
         {!analyzing && sourceId && bundle && bundleCounts.pending === 0 && bundleCounts.ignored > 0 && bundleCounts.confirmed === 0 && <p className="muted">候选均已忽略，可按需重新分析。</p>}
         {!analyzing && sourceId && (!bundle || bundle.suggestions.length === 0) && <p className="muted">暂未识别，原始文字已经保留。</p>}
+        {suggestions.length > 0 && <div className={`candidate-review-layout${mobileDetailOpen ? ' is-detail-open' : ''}`}>
+          <div className="candidate-review-list" aria-label="候选记录列表">
+            {suggestions.map((item) => {
+              const highRisk = ['ledger', 'issue', 'decision'].includes(item.record_type)
+              return <button key={item.key} className="candidate-review-item" type="button" aria-current={displayedSuggestionKey === item.key ? 'true' : undefined} onClick={() => openSuggestion(item.key)}>
+                <span className="candidate-review-item__top"><strong>{item.type_label} · {String(item.payload.title || item.summary || '手工记录')}</strong><span>{item.confirmed_record_id ? '已生成' : selectedKeys.has(item.key) ? '已选择' : '未选择'}</span></span>
+                <span className="candidate-review-item__evidence">原文：{item.evidence}</span>
+                <span className="candidate-review-item__meta">{item.confirmed_record_id ? '用户已确认' : `可信程度：${item.certainty_label}`}{highRisk && !item.confirmed_record_id ? ' · 需重点核对' : ''}</span>
+              </button>
+            })}
+          </div>
+          <div className="candidate-review-detail">
+            <div className="candidate-review-detail-header"><button className="candidate-review-back" type="button" aria-label="返回候选列表" onClick={showSuggestionList}><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m12.5 3.5-6 6.5 6 6.5" /></svg><span>候选列表</span></button><h4>核对候选内容</h4></div>
         {suggestions.map((suggestion) => {
           const confirmed = Boolean(suggestion.confirmed_record_id)
           const payload = suggestion.payload
@@ -1088,18 +1174,18 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
             : ''
           const detailD = recordType === 'measurement' ? String((normalizeMeasurementValues(payload.values)[2]?.value) ?? '') : ''
 
-          return <article className={`record-card suggestion-card${highRisk ? ' suggestion-card--risk' : ''}`} key={suggestion.key}>
+          return <article className={`record-card suggestion-card${highRisk ? ' suggestion-card--risk' : ''}`} key={suggestion.key} hidden={displayedSuggestionKey !== suggestion.key}>
             <div className="suggestion-card__header">
               <label>
                 <input
                   type="checkbox"
                   checked={confirmed || selectedKeys.has(suggestion.key)}
                   disabled={confirmed}
-                  onChange={(event) => setSelectedKeys((current) => {
+                  onChange={(event) => { setHasUnsavedCandidateEdits(true); setSelectedKeys((current) => {
                     const next = new Set(current)
                     if (event.target.checked) next.add(suggestion.key); else next.delete(suggestion.key)
                     return next
-                  })}
+                  }) }}
                 />
                 <strong>{suggestion.type_label}：{suggestion.summary}</strong>
               </label>
@@ -1170,17 +1256,6 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
                     }}
                   />
                 </label>}
-                <MultiSelectField label="空间" selectedIds={spaceIds.map(String)} options={spaces} onChange={(ids) => updateSuggestion(suggestion.key, 'space_ids', ids)} />
-                <MultiSelectField label="材料" selectedIds={materialIds.map(String)} options={entities.materials} onChange={(ids) => updateSuggestion(suggestion.key, 'material_ids', ids)} />
-                <MultiSelectField label={recordType === 'issue' ? '处理人' : '参与者'} selectedIds={participantIds.map(String)} options={entities.participants} onChange={(ids) => updateSuggestion(suggestion.key, 'participant_ids', ids)} />
-                <MultiSelectField label="关联记录（可选）" selectedIds={relatedRecordIds.map(String)} options={allRecords.map(recordSelectOption)} onChange={(ids) => updateSuggestion(suggestion.key, 'related_record_ids', ids)} />
-                {!suggestion.key.startsWith('manual:') && <MultiSelectField label="关联本批候选（可选）" selectedIds={relatedCandidateKeys.map(String)} options={suggestions.filter((item) => item.key !== suggestion.key && !item.key.startsWith('manual:') && !item.confirmed_record_id).map((item) => ({ id: item.key, name: `${item.type_label} · ${String(item.payload.title || item.summary)}` }))} onChange={(ids) => updateCandidateRelations(suggestion.key, ids)} />}
-                <label className="field-stack"><span>装修阶段</span>
-                  <Select value={stageId} onChange={(event) => updateSuggestion(suggestion.key, 'stage_id', event.target.value || null)}>
-                    <option value="">未指定</option>
-                    {entities.stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </Select>
-                </label>
                 {cfg.showVendor && <label className="field-stack"><span>{recordType === 'ledger' ? '交易对象（商家）' : '商家'}</span>
                   <Select required={recordType === 'ledger'} value={vendorId} onChange={(event) => updateSuggestion(suggestion.key, 'vendor_id', event.target.value || null)}>
                     <option value="">请选择</option>
@@ -1195,10 +1270,25 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
                   {status === 'done' && <><label className="field-stack"><span>实际完成日期</span><input type="date" value={toDateInput(payload.completed_at)} onChange={(event) => updateSuggestion(suggestion.key, 'completed_at', event.target.value || null)} /></label><label className="field-stack record-form-grid__wide"><span>实际处理结果</span><textarea required rows={2} value={String(payload.actual_result ?? '')} onChange={(event) => updateSuggestion(suggestion.key, 'actual_result', event.target.value || null)} /></label></>}
                 </>}
               </div>
+              <details className="candidate-review-advanced"><summary>更多信息与关联</summary><div className="record-form-grid">
+                <MultiSelectField label="空间" selectedIds={spaceIds.map(String)} options={spaces} onChange={(ids) => updateSuggestion(suggestion.key, 'space_ids', ids)} />
+                <MultiSelectField label="材料" selectedIds={materialIds.map(String)} options={entities.materials} onChange={(ids) => updateSuggestion(suggestion.key, 'material_ids', ids)} />
+                <MultiSelectField label={recordType === 'issue' ? '处理人' : '参与者'} selectedIds={participantIds.map(String)} options={entities.participants} onChange={(ids) => updateSuggestion(suggestion.key, 'participant_ids', ids)} />
+                <MultiSelectField label="关联记录（可选）" selectedIds={relatedRecordIds.map(String)} options={allRecords.map(recordSelectOption)} onChange={(ids) => updateSuggestion(suggestion.key, 'related_record_ids', ids)} />
+                {!suggestion.key.startsWith('manual:') && <MultiSelectField label="关联本批候选（可选）" selectedIds={relatedCandidateKeys.map(String)} options={suggestions.filter((item) => item.key !== suggestion.key && !item.key.startsWith('manual:') && !item.confirmed_record_id).map((item) => ({ id: item.key, name: `${item.type_label} · ${String(item.payload.title || item.summary)}` }))} onChange={(ids) => updateCandidateRelations(suggestion.key, ids)} />}
+                <label className="field-stack"><span>装修阶段</span>
+                  <Select value={stageId} onChange={(event) => updateSuggestion(suggestion.key, 'stage_id', event.target.value || null)}>
+                    <option value="">未指定</option>
+                    {entities.stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </Select>
+                </label>
+              </div></details>
             </>}
           </article>
         })}
-        {suggestions.length > 0 && <div className="suggestion-actions">
+          </div>
+        </div>}
+        {suggestions.length > 0 && <div className="suggestion-actions candidate-review-actions"><span>已选择 {suggestions.filter((item) => selectedKeys.has(item.key) && !item.confirmed_record_id).length} 条待确认候选</span>
           <button className="source-save" type="button" disabled={confirming || !hasSelectedUnconfirmed} onClick={() => void confirmSelected()}>{confirming ? '正在确认…' : '确认所选'}</button>
           <button className="add-manual-suggestion" type="button" onClick={addManualSuggestion}>+ 添加手工记录</button>
         </div>}
@@ -1209,8 +1299,8 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, onSourcesChange
 
       {message && <p className="workspace-message" role="status">{message}</p>}
 
-      <details className="manage-panel">
-        <summary>空间与共享档案</summary>
+      <details className="manage-panel review-data-manager">
+        <summary>管理空间与共享档案</summary>
         <p className="panel-guide">空间用于标记事情发生的位置；共享档案可在多条记录中重复使用。只能删除尚未被正式记录使用的项目。</p>
         <div className="manage-grid">
           <section>

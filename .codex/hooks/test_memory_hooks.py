@@ -167,42 +167,49 @@ class HookLifecycleTests(unittest.TestCase):
         return self.call("memory_signal_collector.py", tool_name="exec_command",
                          tool_input={"cmd": "same-operation"}, tool_response=response)
 
-    def test_read_only_deployment_consultation_never_blocks(self):
+    def test_read_only_deployment_consultation_gets_one_audit_pass(self):
         self.start()
         output = self.call("memory_gate.py", last_assistant_message="已确认部署流程。")
-        self.assertEqual(output, {"continue": True})
+        self.assertEqual(output["decision"], "block")
+        self.assertIn("只读咨询", output["reason"])
 
     def test_successful_document_read_with_errors_never_escalates(self):
         self.start()
         self.collect({"exit_code": 0, "output": "ModuleNotFoundError 迁移失败 timeout"})
-        self.assertEqual(self.call("memory_gate.py"), {"continue": True})
+        output = self.call("memory_gate.py")
+        self.assertEqual(output["decision"], "block")
+        self.assertIn("CURRENT", output["reason"])
+        self.assertNotIn("失败线索", output["reason"])
 
     def test_one_transient_failure_does_not_escalate(self):
         self.start()
         self.collect({"exit_code": 1, "output": "timed out"})
-        self.assertEqual(self.call("memory_gate.py"), {"continue": True})
+        output = self.call("memory_gate.py")
+        self.assertEqual(output["decision"], "block")
+        self.assertNotIn("失败线索", output["reason"])
 
-    def test_repeated_failure_reminds_without_blocking_and_cleans_state(self):
+    def test_repeated_failure_prompts_one_audit_and_cleans_state(self):
         self.start()
         for _ in range(2):
             self.collect({"exit_code": 1, "output": "timed out"})
         output = self.call("memory_gate.py")
-        self.assertTrue(output["continue"])
-        self.assertNotIn("decision", output)
-        self.assertIn("重复失败", output["systemMessage"])
+        self.assertEqual(output["decision"], "block")
+        self.assertIn("CURRENT", output["reason"])
+        self.assertIn("重复失败", output["reason"])
+        self.assertEqual(self.call("memory_gate.py", stop_hook_active=True), {"continue": True})
         self.assertEqual(list(Path(self.temp.name).rglob("*.json")), [])
 
-    def test_strong_failure_reminds_without_blocking(self):
+    def test_strong_failure_prompts_audit(self):
         self.start()
         self.collect({"exit_code": 1, "output": "ModuleNotFoundError"})
         output = self.call("memory_gate.py")
-        self.assertTrue(output["continue"])
-        self.assertIn("依赖或环境", output["systemMessage"])
+        self.assertEqual(output["decision"], "block")
+        self.assertIn("依赖或环境", output["reason"])
 
     def test_missing_state_degrades_visibly(self):
         output = self.call("memory_gate.py")
-        self.assertTrue(output["continue"])
-        self.assertIn("状态缺失", output["systemMessage"])
+        self.assertEqual(output["decision"], "block")
+        self.assertIn("状态缺失", output["reason"])
 
     def test_missing_root_degrades_visibly(self):
         output = self.call("memory_router.py", cwd=self.temp.name)

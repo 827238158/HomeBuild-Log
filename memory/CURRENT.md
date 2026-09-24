@@ -9,6 +9,11 @@
 - 数据库 revision 为 `0019_add_pitfall_logs`，SQLite 完整性为 `ok`；计数和构建过程见 `LOG.md` 的 2026-09-21 记录。
 - 两个部署提交间没有迁移文件变化；本次未创建数据恢复点，`.last-upgrade` 不存在，不具备本次部署的一键数据回退条件。
 - 构建使用 DaoCloud、npmmirror 和阿里云 PyPI；Mihomo 未启用，结束时服务为 `inactive`，7890/9090 未监听。
+- 2026-09-24 已核对 AI 运行配置：小米 `mimo-v2.6-pro` 优先、DeepSeek `deepseek-flash` 备用，AI 处于启用状态；容器保持 `healthy`。未发起真实模型请求，接口兼容性仍需实际使用验证。
+
+## 当前未完成：2026-09-24 记录页 UI 验收
+
+- 记录页 UI 调整已完成本地目标测试、TypeScript 检查和前端构建；尚未部署或进行真实设备验收。
 
 ## 待验收
 

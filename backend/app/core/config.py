@@ -43,13 +43,13 @@ DEFAULT_AI_CONFIG: dict[str, Any] = {
     "providers": {
         "deepseek": {
             "base_url": "https://api.deepseek.com",
-            "model": "deepseek-v4-flash",
+            "model": "deepseek-flash",
             "auth_style": "bearer",
             "api_key": "",
         },
         "mimo": {
             "base_url": "https://api.xiaomimimo.com/v1",
-            "model": "mimo-v2.5-pro",
+            "model": "mimo-v2.6-pro",
             "auth_style": "api-key",
             "api_key": "",
         },

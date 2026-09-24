@@ -35,7 +35,8 @@ def test_ai_config_without_key_effectively_disables_ai() -> None:
     ).get_ai_config()
 
     assert config.enabled is False
-    assert config.providers["deepseek"].model == "deepseek-v4-flash"
+    assert config.providers["deepseek"].model == "deepseek-flash"
+    assert config.providers["mimo"].model == "mimo-v2.6-pro"
     assert config.providers["mimo"].auth_style == "api-key"
 
 

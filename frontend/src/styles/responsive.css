@@ -37,6 +37,20 @@
     border-top: 1px solid var(--border);
     border-left: 0;
   }
+
+  /* 侧栏仍在时也给候选表单足够宽度，平板使用列表与详情单视图。 */
+  .candidate-review-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .candidate-review-layout:not(.is-detail-open) .candidate-review-detail,
+  .candidate-review-layout.is-detail-open .candidate-review-list {
+    display: none;
+  }
+
+  .candidate-review-layout.is-detail-open .candidate-review-back {
+    display: inline-flex;
+  }
 }
 
 @media (max-width: 900px) {
@@ -65,6 +79,7 @@
   .issue-board {
     grid-template-columns: minmax(0, 1fr);
   }
+
 }
 
 @media (max-width: 720px) {
@@ -137,6 +152,73 @@
 
   .source-actions .source-save {
     width: 100%;
+  }
+
+  .ai-panel__actions {
+    flex-wrap: wrap;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+
+  .capture-tabs {
+    gap: 18px;
+    margin-bottom: 18px;
+  }
+
+  .capture-tab {
+    min-height: 44px;
+    padding-inline: 2px;
+  }
+
+  .capture-next-step {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .capture-next-step button {
+    width: 100%;
+  }
+
+  .recent-source-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .recent-source-row .source-item-text {
+    flex-basis: 100%;
+  }
+
+  .recent-source-row__actions {
+    margin-left: auto;
+  }
+
+  .review-source-actions {
+    width: 100%;
+  }
+
+  .review-analysis-options[open] {
+    flex: 0 0 100%;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .capture-review .source-picker__trigger,
+  .capture-review .source-picker__option {
+    grid-template-columns: minmax(0, 1fr) 104px 18px;
+  }
+
+  .capture-review .source-picker__status {
+    width: 104px;
+  }
+
+  .candidate-review-list,
+  .candidate-review-detail {
+    padding: 14px;
+  }
+
+  .candidate-review-actions > button {
+    max-width: 100%;
   }
 }
 

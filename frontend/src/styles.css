@@ -699,25 +699,12 @@ h1 {
   font-weight: 750;
 }
 
-.capture-workspace {
-  /* 与录入卡片内的文本框边缘对齐：18px 内边距 + 1px 边框。 */
-  --capture-control-inset: 19px;
-}
-
 .capture-workspace .source-form {
   padding: 18px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
   box-shadow: var(--shadow-sm);
-}
-
-.capture-workspace .domain-workspace {
-  border-top-color: var(--border);
-}
-
-.capture-workspace .domain-workspace > .source-picker {
-  margin-inline: var(--capture-control-inset, 19px);
 }
 
 @media (max-width: 1100px) {
@@ -830,11 +817,6 @@ h1 {
   .space-overview dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .source-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
 }
 
 .login-form {
@@ -895,10 +877,6 @@ h1 {
 
 .logout-button:hover {
   background: rgb(83 76 63 / 8%);
-}
-
-.source-form {
-  margin-top: 24px;
 }
 
 .chart-grid {
@@ -1036,10 +1014,6 @@ h1 {
   transition: border-color 0.2s;
 }
 
-.source-input:focus {
-  border-color: #a84f2f;
-}
-
 .source-actions {
   display: flex;
   align-items: center;
@@ -1108,10 +1082,6 @@ h1 {
 .source-error {
   color: #c0392b;
   font-size: 0.85rem;
-}
-
-.source-list {
-  margin-top: 28px;
 }
 
 .source-list-title {
@@ -2738,19 +2708,16 @@ h1 {
   padding-top: clamp(22px, 3vw, 36px);
 }
 
-.view-panel,
-.capture-workspace {
+.view-panel {
   animation: view-enter 320ms var(--ease-out) both;
 }
 
-.view-panel > header h2,
-.capture-workspace__header h2 {
+.view-panel > header h2 {
   font-weight: 720;
   letter-spacing: -0.035em;
 }
 
 .filter-grid,
-.capture-workspace .source-form,
 .space-overview,
 .overview-stage-panel,
 .chart-card,
@@ -2997,15 +2964,9 @@ select:disabled,
   }
 
   .filter-grid,
-  .capture-workspace .source-form,
   .space-overview,
   .overview-stage-panel {
     padding: 14px;
-  }
-
-  .capture-workspace {
-    /* 移动端为 14px 内边距 + 1px 边框。 */
-    --capture-control-inset: 15px;
   }
 
   .detail-panel {
@@ -3016,7 +2977,6 @@ select:disabled,
 @media (prefers-reduced-transparency: reduce) {
   .workspace-topbar,
   .filter-grid,
-  .capture-workspace .source-form,
   .space-overview,
   .overview-stage-panel,
   .chart-card,
