@@ -385,14 +385,14 @@ def create_extraction(
     source_id: str,
     request: Request,
     user: User,
-    engine: Literal["auto", "ai", "local"] = Query(default="auto"),
+    engine: Literal["auto", "ai", "local", "mimo", "deepseek"] = Query(default="auto"),
 ) -> dict[str, Any]:
     db = _db(request)
     try:
         source = db.get(SourceEntry, source_id)
         if source is None or source.project_id != DEFAULT_PROJECT_ID:
             raise HTTPException(status_code=404, detail="来源不存在。")
-        if engine == "ai" and not (source.original_text or "").strip():
+        if engine in {"ai", "mimo", "deepseek"} and not (source.original_text or "").strip():
             raise HTTPException(status_code=422, detail="纯 AI 提取需要非空原始文字。")
 
         request_id = uuid.uuid4().hex
@@ -404,12 +404,16 @@ def create_extraction(
         content: dict[str, Any] | None = None
 
         if engine != "local" and config.enabled:
+            # 指定模型只尝试这一家；自动与旧版 ai 参数继续使用配置中的主备顺序。
+            provider_names = (engine,) if engine in {"mimo", "deepseek"} else config.provider_order
             available_providers = [
                 provider
-                for provider_name in config.provider_order
+                for provider_name in provider_names
                 if (provider := config.providers.get(provider_name)) is not None
                 and provider.api_key
             ]
+            if not available_providers:
+                failures.append("AI_NOT_CONFIGURED")
             for index, provider in enumerate(available_providers):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -480,7 +484,7 @@ def create_extraction(
             failures.append("AI_NOT_CONFIGURED")
 
         if successful_run is None:
-            if engine == "ai":
+            if engine in {"ai", "mimo", "deepseek"}:
                 db.commit()
                 raise HTTPException(
                     status_code=503,

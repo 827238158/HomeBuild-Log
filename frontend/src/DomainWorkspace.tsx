@@ -321,6 +321,55 @@ function SourcePicker({
   </div>
 }
 
+function SourceActionsMenu({ busy, onEdit, onDelete }: { busy: boolean; onEdit: () => void; onDelete: () => void }) {
+  const id = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const menuStyle = useDropdownPosition(triggerRef, open, 160, 176)
+
+  useEffect(() => {
+    if (!open) return
+    const closeOutside = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setOpen(false); triggerRef.current?.focus() }
+    }
+    const closeOther = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== id) setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('homebuild-dropdown-open', closeOther)
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('homebuild-dropdown-open', closeOther)
+    }
+  }, [id, open])
+
+  useEffect(() => { if (busy) setOpen(false) }, [busy])
+  const choose = (action: () => void) => {
+    setOpen(false)
+    triggerRef.current?.focus()
+    action()
+  }
+
+  return <div ref={rootRef} className="review-source-actions">
+    <button id={id} ref={triggerRef} type="button" className="review-source-actions__trigger" disabled={busy} aria-haspopup="menu" aria-expanded={open} onClick={() => {
+      const next = !open
+      setOpen(next)
+      if (next) window.dispatchEvent(new CustomEvent('homebuild-dropdown-open', { detail: id }))
+    }}>来源操作<span aria-hidden="true">⌄</span></button>
+    {open && createPortal(<div ref={menuRef} className="review-source-actions__menu dropdown-portal" style={menuStyle} role="menu" aria-labelledby={id}>
+      <button type="button" role="menuitem" onClick={() => choose(onEdit)}>修改原始数据</button>
+      <button type="button" role="menuitem" className="danger-button" onClick={() => choose(onDelete)}>删除原始数据</button>
+    </div>, document.body)}
+  </div>
+}
+
 export function normalizeMeasurementValues(values: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(values)) return []
   const normalized = values.map((entry) => {
@@ -543,7 +592,7 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKe
   const [confirming, setConfirming] = useState(false)
   const confirmationInFlight = useRef(false)
   const [analyzing, setAnalyzing] = useState(false)
-  const [engineMode, setEngineMode] = useState<'auto' | 'ai' | 'local'>('auto')
+  const [engineMode, setEngineMode] = useState<'auto' | 'mimo' | 'deepseek' | 'local'>('auto')
   const [manualKeyCounter, setManualKeyCounter] = useState(1)
   const [editingSourceId, setEditingSourceId] = useState('')
   const [sourceDraft, setSourceDraft] = useState('')
@@ -1075,11 +1124,8 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKe
 
       {selectedSource && <section className="source-maintenance" aria-label="原始数据管理">
         <div className="source-maintenance__summary">
-          <span>来源版本 {selectedSource.revision} · 录入时间：{formatBeijingDateTime(selectedSource.captured_at)}</span>
-          <details className="review-source-actions"><summary>来源操作</summary><div className="record-actions">
-            <button type="button" disabled={sourceBusy} onClick={beginSourceEdit}>修改原始数据</button>
-            <button className="danger-button" type="button" disabled={sourceBusy} onClick={() => void deleteSelectedSource()}>删除原始数据</button>
-          </div></details>
+          <div className="source-maintenance__metadata"><span className="source-maintenance__version">来源版本 {selectedSource.revision}</span><span className="source-maintenance__time">录入时间：{formatBeijingDateTime(selectedSource.captured_at)}</span></div>
+          <SourceActionsMenu key={selectedSource.id} busy={sourceBusy} onEdit={beginSourceEdit} onDelete={() => void deleteSelectedSource()} />
         </div>
         {editingSourceId === sourceId && <div className="source-edit-form">
           <label className="field-stack"><span>原始文字</span><textarea rows={3} value={sourceDraft} onChange={(event) => setSourceDraft(event.target.value)} /></label>
@@ -1103,6 +1149,14 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKe
             )}
           </div>
           <div className="ai-panel__actions">
+            <label className="ai-panel__options"><span>模型选择</span>
+              <Select value={engineMode} displayLabel={engineMode === 'local' ? '不使用 AI' : undefined} onChange={(event) => setEngineMode(event.target.value as 'auto' | 'mimo' | 'deepseek' | 'local')}>
+                <option value="auto">自动主备</option>
+                <option value="mimo">小米 MiMo</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="local">不使用 AI（本地规则）</option>
+              </Select>
+            </label>
             <button
               className="secondary-button ai-panel__action-btn"
               type="button"
@@ -1112,18 +1166,11 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKe
                 void loadSuggestions(sourceId, true).catch((error: unknown) => setMessage(error instanceof Error ? error.message : '分析失败'))
               }}
             >
-              {analyzing ? 'AI 正在分析…' : suggestions.length > 0 ? '重新分析' : '分析'}
+              {analyzing ? '分析中…' : suggestions.length > 0 ? '重新分析' : '分析'}
             </button>
-            <details className="review-analysis-options"><summary>分析选项</summary><label className="ai-panel__options"><span>分析方式</span>
-              <Select value={engineMode} onChange={(event) => setEngineMode(event.target.value as 'auto' | 'ai' | 'local')}>
-                <option value="auto">自动主备并本地兜底</option>
-                <option value="ai">仅 AI（失败可见）</option>
-                <option value="local">仅本地规则</option>
-              </Select>
-            </label></details>
           </div>
         </div>
-        {analyzing && <p className="analysis-state" role="status">AI 正在分析…主备引擎共享 30 秒预算，失败后会提供本地规则建议。</p>}
+        {analyzing && <p className="analysis-state" role="status">{engineMode === 'local' ? '本地规则正在生成建议…' : engineMode === 'auto' ? 'AI 正在分析…主备引擎共享 30 秒预算，失败后会提供本地规则建议。' : '正在使用所选模型分析，失败时会显示错误。'}</p>}
         {bundle?.fallback_reason && <p className="fallback-notice">AI 暂不可用，本地规则已提供建议。原因：{bundle.fallback_reason}</p>}
         {bundle && <p className="candidate-summary" role="status">待处理 {bundleCounts.pending} 条 · 已生成 {bundleCounts.confirmed} 条 · 已忽略 {bundleCounts.ignored} 条</p>}
         {!analyzing && sourceId && bundle && bundleCounts.pending === 0 && bundleCounts.ignored > 0 && bundleCounts.confirmed === 0 && <p className="muted">候选均已忽略，可按需重新分析。</p>}

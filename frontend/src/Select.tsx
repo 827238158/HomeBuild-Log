@@ -12,9 +12,10 @@ export interface SelectProps {
   disabled?: boolean
   required?: boolean
   className?: string
+  displayLabel?: string
 }
 
-export function Select({ value, onChange, children, disabled, required, className }: SelectProps) {
+export function Select({ value, onChange, children, disabled, required, className, displayLabel }: SelectProps) {
   const id = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLDivElement>(null)
@@ -71,7 +72,7 @@ export function Select({ value, onChange, children, disabled, required, classNam
     }} onKeyDown={(event) => {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); if (!open) { setOpen(true); window.dispatchEvent(new CustomEvent('homebuild-dropdown-open', { detail: id })) } move(event.key === 'ArrowDown' ? 1 : -1) }
       if (event.key === 'Enter' && open && options[active] && !options[active].disabled) { event.preventDefault(); choose(options[active].value) }
-    }}>{selected?.label ?? '请选择'}<span aria-hidden="true">⌄</span></div>
+    }}>{displayLabel ?? selected?.label ?? '请选择'}<span aria-hidden="true">⌄</span></div>
     {open && createPortal(<div ref={menuRef} className="select-menu select-menu--portal dropdown-portal" style={menuStyle} role="listbox" aria-activedescendant={`${id}-${active}`}>{options.map((option, index) => <button id={`${id}-${index}`} key={`${option.value}-${index}`} type="button" role="option" aria-selected={option.value === value} disabled={option.disabled} className={index === active ? 'is-active' : ''} onPointerMove={() => setActive(index)} onClick={() => choose(option.value)}>{option.label}</button>)}</div>, document.body)}
   </div>
 }

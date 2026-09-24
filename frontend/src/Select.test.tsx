@@ -50,6 +50,12 @@ describe('Select', () => {
     expect(screen.getByRole('button', { name: /乙/ })).toBeTruthy()
   })
 
+  it('短显示值不改变菜单中的完整选项文案', () => {
+    render(<Select value="local" displayLabel="不使用 AI" onChange={() => {}}><option value="local">不使用 AI（本地规则）</option></Select>)
+    fireEvent.click(screen.getByRole('button', { name: '不使用 AI' }))
+    expect(screen.getAllByRole('option', { name: '不使用 AI（本地规则）' })).toHaveLength(2)
+  })
+
   it('滚动后保持展开并根据最新空间切换弹出方向', () => {
     render(<Fixture />)
     const trigger = screen.getByRole('button', { name: /甲/ })

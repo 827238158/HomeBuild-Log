@@ -8,6 +8,7 @@ export function useDropdownPosition(
   triggerRef: RefObject<HTMLElement | null>,
   open: boolean,
   preferredMaxHeight = 280,
+  minimumWidth = 0,
 ) {
   const [style, setStyle] = useState<CSSProperties>({})
 
@@ -20,7 +21,7 @@ export function useDropdownPosition(
     const spaceAbove = Math.max(0, rect.top - VIEWPORT_GAP - MENU_GAP)
     const openDown = spaceBelow >= MIN_USEFUL_HEIGHT || spaceBelow >= spaceAbove
     const availableHeight = openDown ? spaceBelow : spaceAbove
-    const width = Math.min(rect.width, Math.max(0, window.innerWidth - VIEWPORT_GAP * 2))
+    const width = Math.min(Math.max(rect.width, minimumWidth), Math.max(0, window.innerWidth - VIEWPORT_GAP * 2))
     const left = Math.max(VIEWPORT_GAP, Math.min(rect.left, window.innerWidth - width - VIEWPORT_GAP))
 
     // 使用 fixed + 视口坐标，让 portal 菜单不受卡片 overflow 和层叠上下文影响。
@@ -33,7 +34,7 @@ export function useDropdownPosition(
         ? { top: rect.bottom + MENU_GAP, bottom: 'auto' }
         : { top: 'auto', bottom: window.innerHeight - rect.top + MENU_GAP }),
     })
-  }, [preferredMaxHeight, triggerRef])
+  }, [minimumWidth, preferredMaxHeight, triggerRef])
 
   useLayoutEffect(() => {
     if (!open) return

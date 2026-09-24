@@ -137,6 +137,7 @@ describe('DomainWorkspace', () => {
     expect(confirm).toHaveBeenCalledTimes(2)
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('未保存的编辑'))
     expect(api.updateSource).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '来源操作' }))
     fireEvent.click(screen.getByText('修改原始数据'))
     expect(screen.getByLabelText('原始文字')).toHaveProperty('value', anotherSource.original_text)
     fireEvent.change(screen.getByLabelText('原始文字'), { target: { value: '来源 B 的修正' } })
@@ -345,6 +346,35 @@ describe('DomainWorkspace', () => {
 
     expect(await screen.findByText('暂未识别，原始文字已经保留。')).toBeTruthy()
     expect(api.createExtraction).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['自动主备', 'auto'],
+    ['小米 MiMo', 'mimo'],
+    ['DeepSeek', 'deepseek'],
+    ['不使用 AI（本地规则）', 'local'],
+  ])('模型选择 %s 传入对应分析模式', async (label, engine) => {
+    render(<DomainWorkspace refreshKey={0} />)
+    await screen.findByText('模型选择')
+    if (engine !== 'auto') {
+      fireEvent.click(screen.getByRole('button', { name: /自动主备/ }))
+      fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: label }))
+    }
+    fireEvent.click(screen.getByRole('button', { name: '重新分析' }))
+    await waitFor(() => expect(api.createExtraction).toHaveBeenCalledWith(source.id, engine))
+  })
+
+  it('来源操作菜单浮于卡片外，并可用 Escape 关闭', async () => {
+    render(<DomainWorkspace refreshKey={0} />)
+    const trigger = await screen.findByRole('button', { name: '来源操作' })
+    fireEvent.click(trigger)
+    const menu = screen.getByRole('menu', { name: '来源操作' })
+    expect(menu.parentElement).toBe(document.body)
+    expect(screen.getByRole('menuitem', { name: '修改原始数据' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: '删除原始数据' })).toBeTruthy()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('修改原始数据后提示重新分析和复核', async () => {

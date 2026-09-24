@@ -284,7 +284,10 @@ def test_source_edit_supersedes_bundle_and_rejects_stale_confirmation(
     assert "重新加载" in confirmation.json()["detail"]
 
 
-def test_deepseek_failure_falls_back_to_mimo_with_one_budget(monkeypatch) -> None:
+@pytest.mark.parametrize("requested_engine", ["auto", "ai"])
+def test_deepseek_failure_falls_back_to_mimo_with_one_budget(
+    monkeypatch, requested_engine: str
+) -> None:
     ai = {
         "enabled": True,
         "provider_order": ["deepseek", "mimo"],
@@ -345,7 +348,9 @@ def test_deepseek_failure_falls_back_to_mimo_with_one_budget(monkeypatch) -> Non
     try:
         source_id = _source(client, "今天去现场查看。")
 
-        response = client.post(f"/api/v1/sources/{source_id}/extractions?engine=auto")
+        response = client.post(
+            f"/api/v1/sources/{source_id}/extractions?engine={requested_engine}"
+        )
         assert response.status_code == 201, response.text
         assert response.json()["engine"] == "mimo-v2.6-pro"
         candidate = response.json()["suggestions"][0]
@@ -356,6 +361,127 @@ def test_deepseek_failure_falls_back_to_mimo_with_one_budget(monkeypatch) -> Non
         assert 0 < calls[1][1] <= 30
         runs = client.get(f"/api/v1/extraction-runs?source_id={source_id}").json()
         assert {run["status"] for run in runs} == {"failed", "succeeded"}
+    finally:
+        test_client.close()
+
+
+@pytest.mark.parametrize("selected_provider", ["mimo", "deepseek"])
+def test_selected_model_only_calls_requested_provider(monkeypatch, selected_provider: str) -> None:
+    other_provider = "deepseek" if selected_provider == "mimo" else "mimo"
+    ai = {
+        "enabled": True,
+        "provider_order": [other_provider],
+        "providers": {
+            "mimo": {"api_key": "mimo-key"},
+            "deepseek": {"api_key": "deep-key"},
+        },
+    }
+    calls: list[str] = []
+
+    def fake_extract(
+        self: OpenAICompatibleAdapter,
+        text: str,
+        timeout_seconds: float,
+        **_context: str,
+    ) -> AIAdapterResult:
+        calls.append(self.provider.name)
+        return AIAdapterResult(
+            draft=AIExtractionDraft(),
+            prompt_text="safe prompt",
+            raw_response="{}",
+            duration_ms=5,
+            prompt_tokens=None,
+            completion_tokens=None,
+            total_tokens=None,
+        )
+
+    monkeypatch.setattr(OpenAICompatibleAdapter, "extract_from_text", fake_extract)
+    test_client = _test_client(ai=ai)
+    client = next(test_client)
+    try:
+        source_id = _source(client, "已到现场查看。")
+        response = client.post(
+            f"/api/v1/sources/{source_id}/extractions?engine={selected_provider}"
+        )
+
+        assert response.status_code == 201, response.text
+        assert response.json()["requested_engine"] == selected_provider
+        configured_model = (
+            client.app.state.secrets.get_ai_config().providers[selected_provider].model
+        )
+        assert response.json()["engine"] == configured_model
+        assert calls == [selected_provider]
+        runs = client.get(f"/api/v1/extraction-runs?source_id={source_id}").json()
+        assert [(run["provider"], run["status"]) for run in runs] == [
+            (selected_provider, "succeeded")
+        ]
+    finally:
+        test_client.close()
+
+
+@pytest.mark.parametrize("selected_provider", ["mimo", "deepseek"])
+def test_selected_model_failure_does_not_switch_or_use_local(
+    monkeypatch, selected_provider: str
+) -> None:
+    ai = {
+        "enabled": True,
+        "provider_order": ["mimo", "deepseek"],
+        "providers": {
+            "mimo": {"api_key": "mimo-key"},
+            "deepseek": {"api_key": "deep-key"},
+        },
+    }
+    calls: list[str] = []
+
+    def fake_extract(
+        self: OpenAICompatibleAdapter,
+        text: str,
+        timeout_seconds: float,
+        **_context: str,
+    ) -> AIAdapterResult:
+        calls.append(self.provider.name)
+        raise AIAdapterFailure("AI_TIMEOUT", "供应商超时", prompt_text="safe prompt")
+
+    monkeypatch.setattr(OpenAICompatibleAdapter, "extract_from_text", fake_extract)
+    test_client = _test_client(ai=ai)
+    client = next(test_client)
+    try:
+        source_id = _source(client, "已到现场查看。")
+        response = client.post(
+            f"/api/v1/sources/{source_id}/extractions?engine={selected_provider}"
+        )
+
+        assert response.status_code == 503
+        assert f"{selected_provider}:AI_TIMEOUT" in response.json()["detail"]
+        assert calls == [selected_provider]
+        runs = client.get(f"/api/v1/extraction-runs?source_id={source_id}").json()
+        assert [(run["provider"], run["status"]) for run in runs] == [
+            (selected_provider, "failed")
+        ]
+    finally:
+        test_client.close()
+
+
+def test_selected_unconfigured_model_reports_error_without_fallback(monkeypatch) -> None:
+    ai = {
+        "enabled": True,
+        "provider_order": ["mimo", "deepseek"],
+        "providers": {"mimo": {"api_key": "mimo-key"}},
+    }
+
+    def unexpected_extract(*_args, **_kwargs) -> None:
+        pytest.fail("未配置的指定模型不应调用其他供应商")
+
+    monkeypatch.setattr(OpenAICompatibleAdapter, "extract_from_text", unexpected_extract)
+    test_client = _test_client(ai=ai)
+    client = next(test_client)
+    try:
+        source_id = _source(client, "已到现场查看。")
+        response = client.post(f"/api/v1/sources/{source_id}/extractions?engine=deepseek")
+
+        assert response.status_code == 503
+        assert "AI_NOT_CONFIGURED" in response.json()["detail"]
+        assert client.get(f"/api/v1/extraction-runs?source_id={source_id}").json() == []
     finally:
         test_client.close()
 

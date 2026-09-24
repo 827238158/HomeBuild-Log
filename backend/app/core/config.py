@@ -170,7 +170,8 @@ class SecretsConfig:
 
         providers: dict[str, AIProviderConfig] = {}
         defaults_by_provider = DEFAULT_AI_CONFIG["providers"]
-        for name in provider_order:
+        # 单独选模型时也要能读取未列入自动主备顺序的供应商配置。
+        for name in defaults_by_provider:
             defaults = defaults_by_provider.get(name)
             if not isinstance(defaults, dict):
                 continue

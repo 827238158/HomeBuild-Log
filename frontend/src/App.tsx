@@ -280,15 +280,15 @@ export function App() {
           <div className="source-form">
             <h3>写下今天的情况</h3>
             <textarea className="source-input" placeholder="记录今天发生的事情…" value={sourceText} onChange={(e) => { textVersion.current += 1; setSourceText(e.target.value) }} rows={3} />
-            <label className="attachment-field"><span>附件（可选，单个文件）</span><input ref={attachmentInput} type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)} /><span className="attachment-picker"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M7.5 10.5 12.6 5.4a3 3 0 0 1 4.2 4.2l-7.2 7.2a5 5 0 0 1-7.1-7.1l7.5-7.5" /></svg>选择图片或 PDF</span></label>
+            <div className="source-actions">
+              <label className="attachment-field"><span className="sr-only">附件（可选，单个文件）</span><input ref={attachmentInput} type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)} /><span className="attachment-picker"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M7.5 10.5 12.6 5.4a3 3 0 0 1 4.2 4.2l-7.2 7.2a5 5 0 0 1-7.1-7.1l7.5-7.5" /></svg>选择图片或 PDF</span></label>
+              <button className="source-save" onClick={handleSaveSource} disabled={!sourceText.trim() || saveStatus === 'saving'}>{saveStatus === 'saving' ? '保存中…' : '保存记录'}</button>
+            </div>
             {attachment && <p className="attachment-name">已选择：{attachment.name}</p>}
             {attachmentError && <p className="source-error">{attachmentError}</p>}
-            <div className="source-actions">
-              <button className="source-save" onClick={handleSaveSource} disabled={!sourceText.trim() || saveStatus === 'saving'}>{saveStatus === 'saving' ? '保存中…' : '保存记录'}</button>
-              {saveStatus === 'saved' && <span className="source-saved">已保存</span>}
-              {saveStatus === 'error' && <span className="source-error">保存失败</span>}
-              {saveStatus === 'attachment-error' && pendingUpload && <button className="attachment-retry" type="button" onClick={handleRetryAttachment}>来源已保存，重试附件</button>}
-            </div>
+            {saveStatus === 'saved' && <p className="source-saved">已保存</p>}
+            {saveStatus === 'error' && <p className="source-error">保存失败</p>}
+            {saveStatus === 'attachment-error' && pendingUpload && <button className="attachment-retry" type="button" onClick={handleRetryAttachment}>来源已保存，重试附件</button>}
             {lastSavedSourceId && saveStatus !== 'attachment-error' && <div className="capture-next-step"><span>原始记录已保存，整理可以稍后再做。</span><button type="button" onClick={() => openReview(lastSavedSourceId)}>去整理这条记录</button></div>}
           </div>
           {visibleRecentSources.length > 0 && <div className="source-list"><h3 className="source-list-title">最近记录</h3>{visibleRecentSources.map((s) => <div key={s.id} className="source-item recent-source-row"><p className="source-item-text">{s.original_text}</p><time className="source-item-time">{formatBeijingDateTime(s.captured_at)}</time><div className="recent-source-row__actions"><button type="button" onClick={() => openReview(s.id)}>去整理</button><button className="source-item-close" type="button" aria-label={`关闭最近记录：${s.original_text || '仅附件记录'}`} onClick={() => hideRecentSource(s.id)}>×</button></div></div>)}</div>}

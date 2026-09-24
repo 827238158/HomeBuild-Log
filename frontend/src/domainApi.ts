@@ -282,7 +282,7 @@ export interface CandidateBundle {
   source_revision: number
   extraction_run_id: string
   request_id: string
-  requested_engine: 'auto' | 'ai' | 'local'
+  requested_engine: 'auto' | 'ai' | 'mimo' | 'deepseek' | 'local'
   engine: string
   fallback_reason: string | null
   status: 'pending' | 'partially_confirmed' | 'confirmed' | 'reviewed' | 'superseded'
@@ -391,7 +391,7 @@ export const createRecord = (payload: Record<string, unknown>) =>
   })
 export const createExtraction = (
   sourceId: string,
-  engine: 'auto' | 'ai' | 'local' = 'auto',
+  engine: 'auto' | 'ai' | 'mimo' | 'deepseek' | 'local' = 'auto',
 ) => requestJson<CandidateBundle>(
   `${API_BASE}/sources/${sourceId}/extractions?engine=${engine}`,
   { method: 'POST' },
