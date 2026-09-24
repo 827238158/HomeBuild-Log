@@ -46,7 +46,7 @@
   原因：pip、python、pytest 来自不同环境。
   处理：使用 `D:\Anaconda\envs\homebuild-log\python.exe -m pip` 和同一路径执行测试。
 
-- 历史观察（当前是否仍存在需要验证）：提交前执行 `ruff check .` 时只有历史迁移 `0016_retire_legacy_detail_tables.py` 报 3 个 `E501`。
+- 历史观察（用户已确认验收，保留排查线索）：提交前执行 `ruff check .` 时只有历史迁移 `0016_retire_legacy_detail_tables.py` 报 3 个 `E501`。
   原因：该未修改迁移保留了超过 100 字符的 SQL 字符串，当时导致全量 Ruff 基线并非全绿，不代表当前改动产生回归。
   处理：不得把全量失败误报为本次回归；先对所有本次修改或新增的 Python 文件执行 Ruff 并确保通过，历史迁移的 3 个长行应在独立维护任务中修复后再恢复全量门禁。
 
@@ -56,7 +56,7 @@
 
 ## 后端路由与静态前端
 
-- 历史观察（当前是否仍存在需要验证）：前端 `dist` 存在时，带合法 token 请求未知 `/api/v1/*` 路径得到 `200 text/html`，而不是 API `404`。
+- 历史观察（用户已确认验收，保留排查线索）：前端 `dist` 存在时，带合法 token 请求未知 `/api/v1/*` 路径得到 `200 text/html`，而不是 API `404`。
   原因：未显式传入 `static_directory` 的测试会挂载真实 `frontend/dist`，当时 SPA 回退接管了未知 API，响应内容已核对为构建后的 `index.html`。
   处理：修复时必须用原始请求路径阻止 `/api/` 进入 SPA 回退，并同时覆盖“有 dist + 合法 token + 未知 API”的测试；路由隔离测试不要无意依赖工作区是否刚执行过前端构建。
 
@@ -111,6 +111,10 @@
 
 ## Docker
 
+- 触发：国内 PyPI 首页返回 HTTP 200，但 Docker 构建安装锁定依赖时仍报 `No matching distribution found`，例如清华源暂未提供刚发布的 `alembic==1.18.5`。
+  原因：镜像站可访问不代表每个新版本都已完成同步；重复使用同一索引构建不会解决版本缺失。
+  处理：检查报错包的具体 simple 页面是否包含锁定版本，再依次核对阿里云、腾讯云或中科大等国内镜像；使用已确认包含该版本的国内索引重新构建，全部国内源都缺失时才临时启用代理访问官方 PyPI。不要仅凭镜像首页 HTTP 200 判断依赖可用。
+
 - 触发：Ubuntu 访问国内 Docker、npm 和 PyPI 镜像正常，但 `git ls-remote` 或 `git pull` 直连 GitHub 长时间无响应或超时。
   原因：国内依赖镜像只覆盖镜像和包下载，不会改善 Ubuntu 到 GitHub 的网络路径。
   处理：先用带超时的只读 Git 命令确认故障；仅在拉取代码期间按 workspace 指南临时启动 Mihomo，并为退出路径设置关闭清理，拉取完成后核对 Mihomo 为 `inactive`、7890/9090 未监听；Docker 构建仍优先使用国内镜像源。
@@ -123,13 +127,9 @@
   原因：代理可启动不代表 GitHub HTTPS 链路稳定；继续重试可能只会重复消耗时间和代理流量。
   处理：仅在本地 `main` 与 GitHub `origin/main` 提交完全一致且工作树干净时，创建并校验包含 `origin/main` 的完整 Git bundle，经 SSH 传到服务器；服务器再次 `git bundle verify` 后只允许 `git fetch` 加 `git merge --ff-only`，完成后删除两端临时 bundle。校验不一致或无法 fast-forward 时必须停止并请用户处理。
 
-- 触发：部署开始时执行过 `sudo -v`，但后续特权命令仍突然报 `sudo: interactive authentication is required`，可能已停止旧容器。
-  原因：该 Ubuntu 的 sudo 认证缓存不能保证覆盖整段非交互部署，不能把一次 `sudo -v` 当成长脚本的持久在线授权。
-  处理：从 workspace 文件只在内存中读取密码，每条独立 sudo 命令均使用 `sudo -S -p '' ... <<< "$password"`，或在边界清晰时执行单个受控 root shell；若容器已停止，先确认 `.env` 未切换并恢复旧容器健康，再从明确断点续跑。
-
-- 触发：远程部署脚本启用 `set -o pipefail` 后，以 `printf '%s\n' "$password" | sudo -S ...` 传入密码，脚本可能在容器已停止但备份尚未开始时无明确业务错误地提前退出。
-  原因：sudo 复用认证缓存或提前关闭标准输入时，管道左侧 `printf` 可能收到 SIGPIPE；`pipefail` 将这个非零状态误判为 sudo 操作失败。
-  处理：需要在受控自动化中从本机文件隐式读取 sudo 密码时，使用 here-string（`sudo -S -p '' <命令> <<< "$password"`）或其他不经过管道的标准输入方式；停容器后若脚本中断，先只读核对 `.env`、数据目录、备份和容器状态，再从明确断点续跑，不要盲目重执行整段部署。
+- 触发：非交互部署在执行 `sudo -v` 后仍要求认证；或启用 `pipefail` 时通过 `printf '%s\n' "$password" | sudo -S ...` 传入密码，脚本在容器停止后意外退出。
+  原因：sudo 认证缓存不能保证覆盖整个部署过程；sudo 提前关闭标准输入时，管道中的 `printf` 还可能收到 SIGPIPE，被 `pipefail` 视为失败。
+  处理：从 workspace 文件只在内存中读取密码，逐条使用 `sudo -S -p '' <命令> <<< "$password"`，或在边界清晰时执行单个受控 root shell。若已中断，先只读核对 `.env`、数据目录、备份和容器状态，必要时恢复旧容器健康，再从明确断点续跑，不要盲目重执行整段部署。
 
 - 触发：本机没有 Docker/WSL，却把部署写成已完成。
   原因：只做了源码检查，没有实际构建和实机验收。
