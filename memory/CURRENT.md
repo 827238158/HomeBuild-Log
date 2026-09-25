@@ -10,7 +10,7 @@
 - 此次无迁移文件变化；停写后创建的 `deploy/.deployment-backups/local-data-pre-825e98ee2a29.tar.gz` 已通过 SHA-256 与归档可读性校验，旧镜像保留。Caddy CA 卷备份 `/home/pawel/homebuild-caddy-data-825e98ee2a29.tar.gz` 已校验且权限为 600，不能提交 Git 或丢失。
 - 根证书保存在 Windows 工作区忽略目录 `deploy/.local-data/homebuild-ca-root.crt` 和 Ubuntu `/home/pawel/homebuild-ca-root.crt`；Windows 当前用户已安装并信任。SHA-256 指纹为 `FC:72:5D:E4:0D:54:84:D5:25:E8:DF:A8:EA:0A:8A:74:B8:A2:CE:BC:4A:4D:52:16:46:C7:A4:FA:E6:17:56:4B`。
 - 构建使用 DaoCloud、npmmirror 和阿里云 PyPI；Ubuntu 从 GitHub 直连快进源码，未启用 Mihomo。
-- 2026-09-24 已核对 AI 运行配置：小米 `mimo-v2.6-pro` 优先、DeepSeek `deepseek-flash` 备用，AI 处于启用状态。新旧单模型接口已通过自动化测试，但未发起真实模型请求；供应商接口兼容性仍需实际使用验证。
+- AI 配置沿用小米 `mimo-v2.6-pro` 优先、DeepSeek `deepseek-flash` 备用；语音转写已通过真实小米请求验证，来源提取接口的供应商兼容性仍需单独实测。
 
 ## 当前未完成：2026-09-25 录入页真实设备验收
 
