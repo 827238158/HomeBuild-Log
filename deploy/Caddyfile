@@ -1,6 +1,10 @@
 {
     admin off
     auto_https disable_redirects
+    # IP 直连客户端可能不发送 SNI，仍需选中内网 IP 的证书。
+    default_sni {$HOMEBUILD_HTTPS_HOST}
+    # 容器不应尝试修改宿主机信任库；根证书由设备逐台安装。
+    skip_install_trust
 }
 
 https://{$HOMEBUILD_HTTPS_HOST} {
