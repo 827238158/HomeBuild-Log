@@ -212,25 +212,25 @@
 
 .source-input-wrap { min-width: 0; }
 .source-input-field { position: relative; }
-.source-input-wrap .source-input { padding-right: 76px; padding-bottom: 58px; }
+.source-input-wrap .source-input { display: block; padding-right: 76px; padding-bottom: 58px; }
 .voice-trigger {
   position: absolute;
-  right: 22px;
-  bottom: 10px;
+  /* 44px 透明点击区等距贴近输入框两边，居中的图案也保持等距留白。 */
+  right: 4px;
+  bottom: 4px;
   display: grid;
   place-items: center;
   width: 44px;
   height: 44px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: transparent;
   color: var(--ink-muted);
 }
 .voice-trigger:hover:not(:disabled), .voice-trigger:focus-visible {
-  border-color: var(--primary);
   color: var(--primary);
-  background: var(--primary-soft);
+  background: transparent;
 }
 .voice-trigger--recording { color: var(--primary); }
 .voice-trigger:disabled { opacity: .7; cursor: default; }

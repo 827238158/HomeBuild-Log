@@ -22,6 +22,26 @@ if [ ! -f "$backup_path" ]; then
     echo "未找到迁移前备份：$backup_path" >&2
     exit 1
 fi
+if ! docker image inspect "$previous_image" >/dev/null 2>&1; then
+    echo "旧镜像不存在：$previous_image" >&2
+    exit 1
+fi
+if ! tar -tzf "$backup_path" >/dev/null 2>&1; then
+    echo "备份归档损坏：$backup_path" >&2
+    exit 1
+fi
+first_entry=$(tar -tzf "$backup_path" | sed -n '1p')
+case "$first_entry" in
+    .local-data/|./.local-data/) ;;
+    *) echo "备份归档缺少 .local-data 顶层目录，拒绝回退。" >&2; exit 1 ;;
+esac
+
+# HTTPS 已启用时同时管理 Caddy，保留其 CA 数据卷。
+if grep -q '^HOMEBUILD_HTTPS_HOST=' .env; then
+    compose() { docker compose --profile https --env-file .env "$@"; }
+else
+    compose() { docker compose --env-file .env "$@"; }
+fi
 
 echo "风险：回退会停止服务，并用迁移前备份替换当前 .local-data。"
 printf '请输入 RESTORE 确认：'
@@ -32,13 +52,13 @@ if [ "$confirmation" != "RESTORE" ]; then
 fi
 
 failed_path="$PWD/.deployment-backups/failed-data-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
-docker compose --env-file .env down
+compose down
 tar -czf "$failed_path" .local-data
 rm -rf -- "$PWD/.local-data"
 tar -xzf "$backup_path" -C "$PWD"
 chown -R 10001:10001 .local-data
 chmod 0750 .local-data
 sed -i "s|^HOMEBUILD_IMAGE=.*|HOMEBUILD_IMAGE=$previous_image|" .env
-docker compose --env-file .env up --detach
-./verify.sh
+compose up --detach
+sh ./verify.sh
 echo "已回退；失败版本数据另存为：$failed_path"
