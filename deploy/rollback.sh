@@ -2,7 +2,7 @@
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then
-    echo "请使用 sudo ./rollback.sh 运行。" >&2
+    echo "请使用 sudo sh ./rollback.sh 运行。" >&2
     exit 1
 fi
 

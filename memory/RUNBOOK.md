@@ -105,6 +105,7 @@ Windows 生成离线包：
 - 构建优先使用 DaoCloud 基础镜像、npmmirror 与清华 PyPI。最近部署使用一次性临时 Dockerfile；仓库 Dockerfile 尚未内置这些替换，不能直接把普通 `docker build` 当作国内源构建。
 - 临时 Dockerfile 应以本次仓库 Dockerfile 为基础，只替换镜像/包源；版本、构建阶段与应用内容保持一致。镜像标签取目标提交的短 SHA，并传入 `APP_VERSION`。具体替换命令需要核对本次 Dockerfile 后生成。
 - 镜像构建完成后再按已确认的恢复方案切换 Compose；验证容器目标标签、健康、数据库 revision、数据完整性及访问情况，结束时清理临时代理。
+- HTTPS 环境的手工源码更新：停写后从 `deploy` 目录把整个 `.local-data` 作为顶层目录归档（`tar -czf <备份路径> .local-data`），校验 SHA-256、归档可读性及首项为 `.local-data/`；更新 `.env` 镜像标签，用 `docker compose --profile https --env-file .env up --detach --no-build --no-deps app` 切换，比较前后数据库完整性和数量，再验证 443。验收后让 `.last-upgrade` 配对直接上一版镜像和本次升级前归档，保留 CA 卷。真正使用 `sudo sh ./rollback.sh` 前还需确认当前数据备份；本轮仅验证脚本语法与恢复点结构，未演练破坏性恢复。
 - `deploy/upgrade.sh` 面向含 `SHA256SUMS` 的离线镜像包，不能直接用于只有源码构建镜像的更新。
 
 ### Docker Hub 代理构建备选

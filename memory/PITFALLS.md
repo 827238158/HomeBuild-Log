@@ -118,8 +118,8 @@
 ## Docker
 
 - 触发：源码手工部署新镜像后，直接运行 `deploy/rollback.sh` 试图回退当前版本。
-  原因：手工构建切换未更新 `.last-upgrade`；2026-09-25 新数据归档以 `./` 为根，脚本却按包含 `.local-data/` 顶层目录的归档解包；脚本的 Compose 命令也未启用可选 HTTPS profile。
-  处理：先核对当前镜像、目标旧镜像、归档顶层结构、`.last-upgrade` 和 Caddy 状态；在回退脚本及恢复点完成针对 HTTPS 的修复和验证前不要直接执行。旧归档与 CA 卷备份不能仅凭年代删除。
+  原因：早期手工构建切换未更新 `.last-upgrade`，且归档以 `./` 为根，旧脚本却按包含 `.local-data/` 顶层目录的归档解包；旧脚本也未启用可选 HTTPS profile。
+  处理：每次手工切换都停写创建以 `.local-data/` 为顶层的备份，校验 SHA-256、SQLite 和文件清单，并把 `.last-upgrade` 配成直接上一版镜像与该备份。现有脚本已加入旧镜像、归档预检和 HTTPS profile 支持，仍须在真正回退前确认当前数据副本；破坏性恢复尚未演练，不能把语法检查当作完整验收。
 
 - 触发：Caddy 已为内网 IP 取得证书，但 `curl https://192.168.1.17` 收到 TLS `internal error`，而 `openssl s_client -servername 192.168.1.17` 可以握手。
   原因：IP 直连客户端可能不发送 SNI，Caddy 无法选中该 IP 的证书。
