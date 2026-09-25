@@ -82,6 +82,7 @@ $env:MIMO_API_KEY = "你的 MiMo Key"
 - Ubuntu 升级脚本：`deploy/upgrade.sh`。
 - Ubuntu 回退脚本：`deploy/rollback.sh`。
 - 真实数据导入脚本：`deploy/import-data.sh`。
+- 可选内网 HTTPS：`deploy/README-HTTPS-LAN.md`；Caddy CA 卷必须持久化并在更新应用时保留。
 
 Windows 生成离线包：
 
@@ -143,7 +144,7 @@ sudo docker compose --env-file .env up --detach
 sudo sh ./verify.sh
 ```
 
-默认配置访问 `http://127.0.0.1:8000`；局域网绑定配置见 `deploy/README-LAN.md`。可选内网 HTTPS 的镜像准备、证书信任、并行切换与回退见 `deploy/README-HTTPS-LAN.md`；是否已部署以 `memory/CURRENT.md` 为准。
+默认配置访问 `http://127.0.0.1:8000`；局域网绑定配置见 `deploy/README-LAN.md`。可选内网 HTTPS 的镜像准备、证书信任、并行切换与回退见 `deploy/README-HTTPS-LAN.md`；是否已部署以 `memory/CURRENT.md` 为准。已验证过的镜像准备方式是在用户明确授权代下载后，经 `docker.m.daocloud.io/library/caddy:2.11.4-alpine` 拉取并标记为 `caddy:2.11.4-alpine`，再按文档校验摘要和启动；今后仍须核对镜像来源和版本。
 
 ## 迁移规则
 

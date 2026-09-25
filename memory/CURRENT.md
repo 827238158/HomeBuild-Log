@@ -1,26 +1,26 @@
 # 当前状态
 
-## 最近确认：2026-09-25 Ubuntu Docker 部署
+## 最近确认：2026-09-25 Ubuntu Docker 与内网 HTTPS 部署
 
 以下为该日已验证事实。
 
-- `ubuntu26` 部署提交为 `0d12038aab66a97f93c410a4ce5c5aaadf20755d`，镜像为 `homebuild-log:0d12038aab66`，OCI 版本标签与短 SHA 一致；GitHub `main` 同步到该提交，Ubuntu 工作树干净。
-- 容器运行且为 `healthy`，重启策略为 `unless-stopped`；仅绑定 `192.168.1.17:8000`。Ubuntu 本机和同网段 Windows 首页返回 HTTP 200，健康接口全部为 `ok`。
+- `ubuntu26` 与 GitHub `main` 已快进到 `6e3b003`，应用镜像为 `homebuild-log:825e98ee2a29`（OCI 版本标签一致）；Caddy 镜像为 `caddy:2.11.4-alpine`。应用 `healthy`，Caddy 运行中，两个容器均为 `restart: unless-stopped`。
+- HTTP `192.168.1.17:8000` 与 HTTPS `192.168.1.17:443` 正在并行；Caddy 只转发家庭网段 `192.168.1.0/24`，Ubuntu UFW 实际为不活动。Ubuntu 以根证书、Windows 当前用户以系统信任库验证 HTTPS 健康接口均返回 200；Windows 未认证转写请求返回 401。实际浏览器与手机、平板尚未验收。
 - 数据库 revision 为 `0019_add_pitfall_logs`，SQLite 完整性为 `ok`；97 条记录、80 条来源、23 条问题、22 条关系、1 条旧待办备份、2 条踩坑和 2 条处理记录仍在。构建及验收见 `LOG.md` 的 2026-09-25 记录。
-- 两个部署提交间没有迁移文件变化；停写后创建的 `.deployment-backups/local-data-pre-0d12038aab66.tar.gz` 已通过 SHA-256 与归档可读性校验，旧镜像保留，`.last-upgrade` 指向本次恢复点。
-- 构建使用 DaoCloud、npmmirror 和阿里云 PyPI；Ubuntu 从 GitHub 直连快进源码。结束时 Mihomo 为 `inactive`，7890/9090 未监听。
+- 此次无迁移文件变化；停写后创建的 `deploy/.deployment-backups/local-data-pre-825e98ee2a29.tar.gz` 已通过 SHA-256 与归档可读性校验，旧镜像保留。Caddy CA 卷备份 `/home/pawel/homebuild-caddy-data-825e98ee2a29.tar.gz` 已校验且权限为 600，不能提交 Git 或丢失。
+- 根证书保存在 Windows 工作区忽略目录 `deploy/.local-data/homebuild-ca-root.crt` 和 Ubuntu `/home/pawel/homebuild-ca-root.crt`；Windows 当前用户已安装并信任。SHA-256 指纹为 `FC:72:5D:E4:0D:54:84:D5:25:E8:DF:A8:EA:0A:8A:74:B8:A2:CE:BC:4A:4D:52:16:46:C7:A4:FA:E6:17:56:4B`。
+- 构建使用 DaoCloud、npmmirror 和阿里云 PyPI；Ubuntu 从 GitHub 直连快进源码，未启用 Mihomo。
 - 2026-09-24 已核对 AI 运行配置：小米 `mimo-v2.6-pro` 优先、DeepSeek `deepseek-flash` 备用，AI 处于启用状态。新旧单模型接口已通过自动化测试，但未发起真实模型请求；供应商接口兼容性仍需实际使用验证。
 
 ## 当前未完成：2026-09-25 录入页真实设备验收
 
 - 录入页的快速记录、待整理布局和模型选择已完成本地测试、TypeScript 检查、前端构建及 Ubuntu 部署；仍需在真实手机、平板浏览器验收。
 
-## 当前未完成：2026-09-25 快速记录语音输入与内网 HTTPS
+## 当前未完成：2026-09-25 快速记录语音输入实机验收与 HTTPS 收口
 
-- 本地源码已加入输入框右下角麦克风、三分钟录音与 WAV 编码、转写状态和声波、文字追加及请求取消保护；后端已加入鉴权转写接口，使用现有 `mimo-v2.6-pro` 配置。源码尚未部署到 Ubuntu。
-- 本地验证：后端 129 项、前端 129 项自动化测试通过，前端 lint 和构建通过；本机系统合成的中文语音经真实小米接口转写成功，服务端返回约 2.2 秒。该结果不能代表手机现场录音的识别效果和端到端耗时。
-- HTTPS 的 Caddy Compose 配置与操作说明已准备；2026-09-25 在 Ubuntu 只读核对发现无 `caddy:2.11.4-alpine` 镜像或 Caddy 程序。按项目下载规则待用户手动准备镜像后，才能并行启动 443、分发并信任根证书、在真实设备验收，再收回局域网 HTTP 8000。
-- 待验收：Ubuntu 实际镜像构建和服务切换、设备证书信任、桌面与真实手机/平板麦克风录音、中文现场噪声下的转写质量和端到端耗时。当前线上服务仍是上方记录的 HTTP 部署。
+- 语音录入和鉴权转写接口已部署；本地后端 129 项、前端 129 项自动化测试、前端 lint 与构建通过。Ubuntu 正式容器的鉴权接口对本机系统合成的 4.5 秒中文 WAV 调用小米模型并返回忠实转写，接口全程约 1.7 秒、模型处理约 1.6 秒；该样本不能代表手机现场录音质量或端到端耗时。
+- Windows 的根证书已信任，但实际桌面浏览器的登录、麦克风权限、录音声波、文字回填仍需确认；本轮浏览器控制服务不可用，未以命令行 HTTPS 校验代替浏览器验收。手机和平板仍需逐台安装并信任根证书，再测试登录、录音与转写。
+- 仅在电脑、手机、平板实际验收通过后，才把 HTTP 8000 改绑 `127.0.0.1`，保留可回退配置；当前局域网 HTTP 仍开放。
 
 ## 待验收
 

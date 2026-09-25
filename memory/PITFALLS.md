@@ -117,6 +117,14 @@
 
 ## Docker
 
+- 触发：Caddy 已为内网 IP 取得证书，但 `curl https://192.168.1.17` 收到 TLS `internal error`，而 `openssl s_client -servername 192.168.1.17` 可以握手。
+  原因：IP 直连客户端可能不发送 SNI，Caddy 无法选中该 IP 的证书。
+  处理：在 Caddy 全局选项设置 `default_sni {$HOMEBUILD_HTTPS_HOST}`，用无 SNI 的 IP 请求复测；容器内另设置 `skip_install_trust`，由实际设备自行信任根证书。
+
+- 触发：Windows `curl --cacert` 已指定内网 CA 但 Schannel 仍报撤销状态未知。
+  原因：本地 Caddy CA 没有供 Windows 查询的公开撤销服务；这不是证书链校验失败。
+  处理：仅在命令行验收时加 `--ssl-no-revoke`，仍保留根证书链校验；浏览器和设备应安装并信任根证书，不能用 `-k` 作为正式验收。
+
 - 触发：国内 PyPI 首页返回 HTTP 200，但 Docker 构建安装锁定依赖时仍报 `No matching distribution found`，例如清华源暂未提供刚发布的 `alembic==1.18.5`。
   原因：镜像站可访问不代表每个新版本都已完成同步；重复使用同一索引构建不会解决版本缺失。
   处理：检查报错包的具体 simple 页面是否包含锁定版本，再依次核对阿里云、腾讯云或中科大等国内镜像；使用已确认包含该版本的国内索引重新构建，全部国内源都缺失时才临时启用代理访问官方 PyPI。不要仅凭镜像首页 HTTP 200 判断依赖可用。

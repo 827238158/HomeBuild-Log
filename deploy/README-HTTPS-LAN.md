@@ -5,7 +5,7 @@
 ## 风险与准备
 
 - Caddy 的 `/data` Docker 卷保存本地 CA **私钥**。安装根证书意味着设备信任该 CA 签发的证书，必须保护私钥。丢失该卷会生成新的 CA，已信任旧证书的设备需要重新安装证书；泄露私钥则需撤销旧信任并更换 CA。不要运行 `docker compose down -v`，不要把私钥、卷备份或 `.env` 提交 Git。
-- 新增镜像需要用户手动准备，不由部署命令自动下载。优先从可信国内 Docker 镜像源取得官方 `caddy:2.11.4-alpine` 对应镜像，核对来源和摘要后在 Ubuntu 上标记为 `caddy:2.11.4-alpine`。如通过可信机器离线转入，可在 Ubuntu 使用 `sudo docker load -i /路径/caddy-镜像.tar`；具体镜像来源和摘要以实际取得的资源为准。
+- 新增镜像须先按项目规则告知用户；若用户明确授权代为下载，可优先从可信国内 Docker 镜像源取得官方 `caddy:2.11.4-alpine` 对应镜像，核对来源和摘要后在 Ubuntu 上标记为 `caddy:2.11.4-alpine`。2026-09-25 已验证 `docker.m.daocloud.io/library/caddy:2.11.4-alpine` 可用；如通过可信机器离线转入，可使用 `sudo docker load -i /路径/caddy-镜像.tar`。后续来源和摘要仍以实际取得的资源为准。
 - 验证镜像已在本机：`sudo docker image inspect caddy:2.11.4-alpine`。Compose 为 Caddy 设置了 `pull_policy: never`，镜像缺失时会报错，不会自行拉取。
 - 443/TCP 必须空闲。部署前执行 `sudo ss -lnt '( sport = :443 )'`，并确认家庭网段仍为 `192.168.1.0/24`、Ubuntu 地址仍为 `192.168.1.17`；若地址变化，先同步修改下述配置和证书访问地址。
 
@@ -90,3 +90,7 @@ sudo ufw delete allow from 192.168.1.0/24 to 192.168.1.17 port 8000 proto tcp
 从家庭网内另一台设备确认 `http://192.168.1.17:8000` 不再可访问，且 HTTPS 的登录和录音继续正常。不要把绑定地址改成 `0.0.0.0`。
 
 若 HTTPS 尚未验收，可保持原 HTTP 配置并停止 Caddy：`sudo docker compose --profile https --env-file .env stop caddy`。若已关闭局域网 HTTP，需要回退时将 `HOMEBUILD_BIND_ADDRESS` 改回 `192.168.1.17`，执行 `sudo docker compose --profile https --env-file .env up --detach --no-build --no-deps app`，按需恢复原 8000 防火墙规则；确认 HTTP 可用后再停止 Caddy。整个回退过程不要删除 `homebuild-log_caddy_data` 卷。
+
+## 后续应用更新
+
+长期更新沿用 Windows 修改、推送 GitHub、Ubuntu `git pull --ff-only origin main` 的路径。核对目标提交与迁移差异后，按 `memory/RUNBOOK.md` 使用一次性国内源 Dockerfile 构建新应用镜像，停写备份真实数据并校验，再更新 `.env` 中的 `HOMEBUILD_IMAGE`，运行 `docker compose --profile https --env-file .env up --detach --no-build`。检查新应用健康、数据库和 HTTPS 后再结束维护。保留 `.env` 中的 HTTPS 配置与 `homebuild-log_caddy_data` 卷；不要使用 `docker compose down -v`。
