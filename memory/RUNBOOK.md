@@ -143,7 +143,7 @@ sudo docker compose --env-file .env up --detach
 sudo sh ./verify.sh
 ```
 
-默认配置访问 `http://127.0.0.1:8000`；局域网绑定配置见 `deploy/README-LAN.md`，最近验收状态见 `memory/CURRENT.md`。
+默认配置访问 `http://127.0.0.1:8000`；局域网绑定配置见 `deploy/README-LAN.md`。可选内网 HTTPS 的镜像准备、证书信任、并行切换与回退见 `deploy/README-HTTPS-LAN.md`；是否已部署以 `memory/CURRENT.md` 为准。
 
 ## 迁移规则
 
@@ -157,7 +157,7 @@ sudo sh ./verify.sh
 - 不要把密钥、令牌、完整票据、个人联系方式或原始敏感内容写入日志和 Markdown。
 - Compose 默认只允许 Ubuntu 本机访问；真实数据部署机已显式绑定 `192.168.1.17:8000`，不要改为 `0.0.0.0`，也不要配置公网端口映射。
 - 防火墙状态必须现场确认。启用 UFW 前必须先核对 SSH、Tailscale 和其他服务规则，避免远程失联。
-- 当前 Docker 基线不引入公网、Tailscale、HTTPS、Nginx、独立前端容器或镜像仓库。
+- 当前 Docker 基线不引入公网、Tailscale、Nginx、独立前端容器或镜像仓库；内网 HTTPS 使用可选 Caddy profile，仍须逐台信任内网 CA 后验收。
 
 ## Codex 项目 Hooks
 

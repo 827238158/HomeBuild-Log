@@ -57,6 +57,19 @@ export async function createSource(
 
 export { authHeaders }
 
+export interface TranscriptionResponse {
+  text: string
+  duration_ms: number
+}
+
+export async function transcribeAudio(file: File, signal?: AbortSignal): Promise<TranscriptionResponse> {
+  const form = new FormData()
+  form.append('file', file)
+  return requestJson<TranscriptionResponse>('/transcriptions', {
+    method: 'POST', body: form, signal,
+  })
+}
+
 export async function uploadAttachment(
   sourceId: string,
   file: File,

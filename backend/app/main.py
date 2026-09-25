@@ -20,6 +20,7 @@ from app.api.extractions import router as extractions_router
 from app.api.health import router as health_router
 from app.api.pitfalls import router as pitfalls_router
 from app.api.sources import router as sources_router
+from app.api.transcriptions import router as transcriptions_router
 from app.api.views import router as views_router
 from app.core.config import SecretsConfig
 from app.core.paths import PROJECT_ROOT, StoragePaths, ensure_storage_directories, get_storage_paths
@@ -44,7 +45,8 @@ class _SinglePageApplicationFiles(StaticFiles):
             return response
 
         # 未知 API 和缺失的带扩展名资源必须保持 404，避免返回 HTML 干扰调用方。
-        if path.startswith("api/") or Path(path).suffix:
+        # 挂载后的 path 可能不含 api/ 前缀，完整请求路径仍必须按 API 处理。
+        if scope.get("path", "").startswith("/api/") or Path(path).suffix:
             return response
         return await super().get_response("index.html", scope)
 
@@ -130,6 +132,7 @@ def create_app(
     application.include_router(pitfalls_router, prefix="/api/v1")
     application.include_router(domain_router, prefix="/api/v1")
     application.include_router(extractions_router, prefix="/api/v1")
+    application.include_router(transcriptions_router, prefix="/api/v1")
     application.include_router(views_router, prefix="/api/v1")
     frontend_directory = static_directory or PROJECT_ROOT / "frontend" / "dist"
     if frontend_directory.is_dir():

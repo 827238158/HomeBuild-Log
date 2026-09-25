@@ -109,6 +109,12 @@
   原因：标题的绝对定位 `::before`、`::after` 装饰会参与滚动尺寸计算，使高度比较产生假阴性。
   处理：带伪元素的标题应以 `scrollWidth <= clientWidth` 检查横向裁切，并结合真实截图确认换行；不要单独用滚动高度判定单行状态。
 
+## AI 与语音
+
+- 触发：`mimo-v2.6-pro` 音频请求返回 HTTP 200，但 `message.content` 为空，转写接口报无有效文字。
+  原因：该模型默认开启深度思考；本次真实合成录音调用在 `max_completion_tokens=2048` 下出现空正文，关闭思考后同一内容得到正确转写。是否所有空正文都由此造成需要逐次核实。
+  处理：纯语音转写请求显式传入 `"thinking": {"type": "disabled"}`，仍对空正文报错，不能把 `reasoning_content` 当作转写结果。
+
 ## Docker
 
 - 触发：国内 PyPI 首页返回 HTTP 200，但 Docker 构建安装锁定依赖时仍报 `No matching distribution found`，例如清华源暂未提供刚发布的 `alembic==1.18.5`。

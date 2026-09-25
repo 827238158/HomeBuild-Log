@@ -16,6 +16,7 @@ import { DomainWorkspace } from './DomainWorkspace'
 import { CoreViews } from './CoreViews'
 import { formatBeijingDateTime } from './time'
 import { UNAUTHORIZED_EVENT } from './http'
+import { VoiceInput } from './VoiceInput'
 
 const HIDDEN_RECENT_SOURCES_KEY = 'homebuild-log-hidden-recent-sources'
 
@@ -279,7 +280,9 @@ export function App() {
           <div id="capture-panel-quick" className="capture-panel capture-quick" role="tabpanel" aria-labelledby="capture-tab-quick" hidden={captureTab !== 'quick'}>
           <div className="source-form">
             <h3>写下今天的情况</h3>
-            <textarea className="source-input" placeholder="记录今天发生的事情…" value={sourceText} onChange={(e) => { textVersion.current += 1; setSourceText(e.target.value) }} rows={3} />
+            <VoiceInput active={captureTab === 'quick'} onTranscript={(text) => { textVersion.current += 1; setSourceText((current) => current ? `${current}\n${text}` : text) }}>
+              <textarea className="source-input" placeholder="记录今天发生的事情…" value={sourceText} onChange={(e) => { textVersion.current += 1; setSourceText(e.target.value) }} rows={3} />
+            </VoiceInput>
             <div className="source-actions">
               <label className="attachment-field"><span className="sr-only">附件（可选，单个文件）</span><input ref={attachmentInput} type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)} /><span className="attachment-picker"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M7.5 10.5 12.6 5.4a3 3 0 0 1 4.2 4.2l-7.2 7.2a5 5 0 0 1-7.1-7.1l7.5-7.5" /></svg>选择图片或 PDF</span></label>
               <button className="source-save" onClick={handleSaveSource} disabled={!sourceText.trim() || saveStatus === 'saving'}>{saveStatus === 'saving' ? '保存中…' : '保存记录'}</button>

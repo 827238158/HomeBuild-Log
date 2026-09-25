@@ -210,6 +210,61 @@
   padding: 13px 14px;
 }
 
+.source-input-wrap { min-width: 0; }
+.source-input-field { position: relative; }
+.source-input-wrap .source-input { padding-right: 76px; padding-bottom: 58px; }
+.voice-trigger {
+  position: absolute;
+  right: 22px;
+  bottom: 10px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-muted);
+}
+.voice-trigger:hover:not(:disabled), .voice-trigger:focus-visible {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+.voice-trigger--recording { color: var(--primary); }
+.voice-trigger:disabled { opacity: .7; cursor: default; }
+.voice-trigger svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.voice-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--ink-muted);
+  font-size: .85rem;
+}
+.voice-panel--error { color: var(--risk); background: var(--risk-soft); }
+.voice-panel--done { color: var(--success); background: var(--success-soft); }
+.voice-panel button {
+  min-height: 36px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--primary);
+}
+.voice-panel button:hover { border-color: var(--primary); background: var(--primary-soft); }
+.voice-wave { display: inline-flex; align-items: center; gap: 3px; height: 28px; }
+.voice-wave i { width: 3px; min-height: 5px; border-radius: 3px; background: var(--primary); transition: height 90ms linear; }
+.voice-progress { width: 16px; height: 16px; border: 2px solid var(--border-strong); border-top-color: var(--primary); border-radius: 50%; animation: voice-spin .8s linear infinite; }
+@keyframes voice-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .voice-wave i, .voice-progress { animation: none; transition: none; } }
+
 .source-actions {
   display: flex;
   flex-wrap: wrap;
