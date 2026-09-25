@@ -4,7 +4,7 @@
 
 以下为该日已验证事实。
 
-- `ubuntu26` 与 GitHub `main` 已快进到 `6e3b003`，应用镜像为 `homebuild-log:825e98ee2a29`（OCI 版本标签一致）；Caddy 镜像为 `caddy:2.11.4-alpine`。应用 `healthy`，Caddy 运行中，两个容器均为 `restart: unless-stopped`。
+- `ubuntu26` 与 GitHub `main` 已同步；应用镜像为 `homebuild-log:825e98ee2a29`（OCI 版本标签一致），无 SNI 修复来自源码提交 `6e3b003`；Caddy 镜像为 `caddy:2.11.4-alpine`。应用 `healthy`，Caddy 运行中，两个容器均为 `restart: unless-stopped`。
 - HTTP `192.168.1.17:8000` 与 HTTPS `192.168.1.17:443` 正在并行；Caddy 只转发家庭网段 `192.168.1.0/24`，Ubuntu UFW 实际为不活动。Ubuntu 以根证书、Windows 当前用户以系统信任库验证 HTTPS 健康接口均返回 200；Windows 未认证转写请求返回 401。实际浏览器与手机、平板尚未验收。
 - 数据库 revision 为 `0019_add_pitfall_logs`，SQLite 完整性为 `ok`；97 条记录、80 条来源、23 条问题、22 条关系、1 条旧待办备份、2 条踩坑和 2 条处理记录仍在。构建及验收见 `LOG.md` 的 2026-09-25 记录。
 - 此次无迁移文件变化；停写后创建的 `deploy/.deployment-backups/local-data-pre-825e98ee2a29.tar.gz` 已通过 SHA-256 与归档可读性校验，旧镜像保留。Caddy CA 卷备份 `/home/pawel/homebuild-caddy-data-825e98ee2a29.tar.gz` 已校验且权限为 600，不能提交 Git 或丢失。
