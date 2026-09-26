@@ -60,13 +60,10 @@ AI 模型的 API Key 写在 .local-data/config/secrets.json 中，目前仅支�
 
 ## 界面预览
 
-**手机端装修概览**：查看待处理问题、近期事项和装修阶段分布。
-
-![手机端装修概览](界面预览1.png)
-
-**手机端功能导航**：按需要进入时间线、账本、问题、空间、分析和搜索。
-
-![手机端功能导航](界面预览2.png)
+<p align="center">
+  <img src="界面预览1.png" alt="手机端装修概览" width="320">
+  <img src="界面预览2.png" alt="手机端功能导航" width="320">
+</p>
 
 ## 为什么需要 HomeBuild Log
 

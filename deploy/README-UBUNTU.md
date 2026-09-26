@@ -4,8 +4,8 @@
 
 ## 前置条件
 
-- Ubuntu 26.04 x86_64（已完成空数据实机验证）。
-- 已安装 Docker Engine 与 Docker Compose v2；当前账号可使用 `sudo`。
+- Ubuntu。
+- 已安装 Docker Engine 与 Docker Compose v2。
 - 当前 Docker 基线默认只监听 `127.0.0.1:8000`，不提供公网、HTTPS 或 Tailscale。
 
 ## 首次部署
