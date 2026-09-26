@@ -25,6 +25,26 @@ afterEach(() => {
 })
 
 describe('App', () => {
+  it('来源列表加载失败后可重试，整理页共享刷新结果', async () => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    let sourceRequests = 0
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (String(input).endsWith('/sources')) {
+        sourceRequests += 1
+        return sourceRequests === 1
+          ? Promise.reject(new Error('网络暂不可用'))
+          : Promise.resolve({ ok: true, json: async () => [{ id: 'source-1', original_text: '现场新记录', captured_at: '2026-09-26T00:00:00Z' }] })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ status: 'ok' }) })
+    }))
+    render(<App />)
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('网络暂不可用'))
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    expect(await screen.findByText('现场新记录')).toBeTruthy()
+    const lastProps = domainWorkspaceProps.mock.calls.at(-1)?.[0]
+    expect(lastProps.sources).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'source-1' })]))
+  })
+
   it('默认打开快速记录，切换标签保留未提交文字', async () => {
     sessionStorage.setItem('homebuild-log-token', 'test-token')
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => Promise.resolve({

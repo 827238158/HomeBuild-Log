@@ -75,7 +75,23 @@ export function RecordsAnalyticsView({ onOpen, refreshRevision }: { onOpen: (id:
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  useEffect(() => { Promise.all([listSpaces(), listEntities('stages')]).then(([a, b]) => { setSpaces(a); setStages(b) }) }, [])
+  const [filterError, setFilterError] = useState('')
+  const [filterRetry, setFilterRetry] = useState(0)
+  useEffect(() => {
+    let active = true
+    // 筛选项加载失败要显示重试入口；卸载后忽略迟到的响应。
+    Promise.all([listSpaces(), listEntities('stages')])
+      .then(([nextSpaces, nextStages]) => {
+        if (!active) return
+        setSpaces(nextSpaces)
+        setStages(nextStages)
+        setFilterError('')
+      })
+      .catch((reason: unknown) => {
+        if (active) setFilterError(reason instanceof Error ? reason.message : '筛选项加载失败')
+      })
+    return () => { active = false }
+  }, [filterRetry])
   useEffect(() => {
     setLoading(true)
     getRecordsAnalytics({ record_type: recordType, status, space_id: spaceId, stage_id: stageId, date_from: dateFrom, date_to: dateTo })
@@ -86,6 +102,7 @@ export function RecordsAnalyticsView({ onOpen, refreshRevision }: { onOpen: (id:
 
   const clear = () => { setStatus(''); setSpaceId(''); setStageId(''); setDateFrom(''); setDateTo('') }
   return <section className="view-panel"><header><p className="eyebrow">八类正式记录</p><h2>记录分析</h2><p>从分布和趋势进入同一批真实记录。</p></header>
+    {filterError && <p className="view-state view-state--error" role="alert">筛选项加载失败：{filterError} <button type="button" onClick={() => setFilterRetry((value) => value + 1)}>重试</button></p>}
     <div className="type-tabs" role="tablist" aria-label="记录类型"><button type="button" className={!recordType ? 'is-active' : ''} onClick={() => { setRecordType(''); setStatus('') }}>全部</button>{types.map(([key, label]) => <button type="button" key={key} className={recordType === key ? 'is-active' : ''} onClick={() => { setRecordType(key); setStatus('') }}>{label}</button>)}</div>
     <div className="filter-grid"><label className="field-stack"><span>空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><label className="field-stack"><span>装修阶段</span><Select value={stageId} onChange={(event) => setStageId(event.target.value)}><option value="">全部阶段</option>{stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={clear}>清除筛选</button></div>
     {loadMessage(loading, error, data?.summary.total === 0, '录入并确认正式记录后，可按类型、空间和阶段查看趋势。')}

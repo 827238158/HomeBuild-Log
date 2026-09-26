@@ -16,7 +16,6 @@ import {
   createSpace,
   listEntities,
   listRecords,
-  listSources,
   listSpaces,
   deferCandidate,
   updateSource,
@@ -34,10 +33,11 @@ import { measurementRoleLabels, normalizeMeasurementRole } from './recordFields'
 import { formatBeijingDate, formatBeijingDateTime } from './time'
 
 interface Props {
+  sources: SourceEntry[]
+  refreshSources: () => Promise<SourceEntry[]>
   refreshKey: number
   preferredSourceId?: string
   sourceRequestKey?: number
-  onSourcesChanged?: () => void
 }
 export type { RecordType } from './recordConfig'
 
@@ -569,8 +569,7 @@ export function RecordEditFields({
   </div>
 }
 
-export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKey = 0, onSourcesChanged }: Props) {
-  const [sources, setSources] = useState<SourceEntry[]>([])
+export function DomainWorkspace({ sources, refreshSources, refreshKey, preferredSourceId, sourceRequestKey = 0 }: Props) {
   const [sourceId, setSourceId] = useState('')
   const currentSourceId = useRef(sourceId)
   useLayoutEffect(() => { currentSourceId.current = sourceId }, [sourceId])
@@ -696,8 +695,7 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKe
   }
 
   const refreshSourceRows = async (preferredId = sourceId) => {
-    const rows = await listSources()
-    setSources(rows)
+    const rows = await refreshSources()
     const selected = rows.some((source) => source.id === preferredId)
       ? preferredId
       : rows[0]?.id || ''
@@ -707,9 +705,11 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKe
   }
 
   useEffect(() => {
-    Promise.all([listSources(), refreshReferences()])
-      .then(([rows]) => {
-        setSources(rows)
+    let active = true
+    refreshReferences()
+      .then(() => {
+        if (!active) return
+        const rows = sources
         const current = currentSourceId.current
         if (current && rows.some((source) => source.id === current)) {
           // 保存新来源只刷新列表，不覆盖当前来源正在编辑的候选草稿。
@@ -722,8 +722,11 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKe
         setSourceId(selected)
         return Promise.all([refreshRecords(selected), loadSuggestions(selected)]).then(() => undefined)
       })
-      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : '加载失败'))
-  }, [refreshKey])
+      .catch((error: unknown) => {
+        if (active) setMessage(error instanceof Error ? error.message : '加载失败')
+      })
+    return () => { active = false }
+  }, [refreshKey, sources])
 
   useEffect(() => {
     if (spaceKind === 'house') {
@@ -870,7 +873,6 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKe
       // AI 候选的移除状态持久化，确认其他候选后不会再次出现。
       applyBundle(await deferCandidate(bundle.id, key, bundle.version), true, true)
       await refreshSourceRows(sourceId)
-      onSourcesChanged?.()
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : '移除候选失败')
     }
@@ -950,7 +952,6 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKe
       setMessage(confirmationMessage)
       await refreshRecords()
       await refreshSourceRows(currentSourceId.current)
-      onSourcesChanged?.()
     } catch (error: unknown) {
       // 失败时不重置本地编辑，方便用户修正后重试。
       setMessage(error instanceof Error ? error.message : '确认失败，已保留当前编辑内容。')
@@ -986,7 +987,6 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKe
       setHasUnsavedCandidateEdits(false)
       setEditingSourceId((current) => current === selectedSource.id ? '' : current)
       setMessage('原始数据已修改。旧候选已失效，已有正式记录需要复核；请按需重新分析。')
-      onSourcesChanged?.()
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : '修改原始数据失败')
     } finally {
@@ -1018,7 +1018,6 @@ export function DomainWorkspace({ refreshKey, preferredSourceId, sourceRequestKe
       setMessage(result.file_cleanup_warnings.length
         ? `原始数据及关联记录已删除。${result.file_cleanup_warnings.join('')}`
         : '原始数据及关联记录已删除。')
-      onSourcesChanged?.()
     } catch (error: unknown) {
       setMessage(error instanceof Error ? error.message : '删除原始数据失败')
     } finally {

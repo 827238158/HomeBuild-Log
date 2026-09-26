@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useEffect, useState } from 'react'
 
 import * as api from './domainApi'
 import { defaultPayload, DomainWorkspace, normalizeMeasurementValues, payloadForSave } from './DomainWorkspace'
@@ -50,6 +51,17 @@ const anotherSource = {
   pending_candidate_count: 1,
   confirmed_candidate_count: 0,
   ignored_candidate_count: 0,
+}
+
+function TestDomainWorkspace({ initialSources = [source], ...props }: { refreshKey: number; preferredSourceId?: string; sourceRequestKey?: number; initialSources?: api.SourceEntry[] }) {
+  const [sources, setSources] = useState<api.SourceEntry[]>(initialSources)
+  const refreshSources = async () => {
+    const rows = await api.listSources()
+    setSources(rows)
+    return rows
+  }
+  useEffect(() => { void refreshSources() }, [])
+  return <DomainWorkspace {...props} sources={sources} refreshSources={refreshSources} />
 }
 
 const explicitBundle = {
@@ -112,7 +124,7 @@ describe('DomainWorkspace', () => {
   it.each(['选择来源', '外部切换'])('%s 后旧来源草稿不能覆盖新来源', async (mode) => {
     vi.mocked(api.listSources).mockResolvedValue([source, anotherSource])
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
-    const view = render(<DomainWorkspace refreshKey={0} />)
+    const view = render(<TestDomainWorkspace refreshKey={0} />)
     fireEvent.click(await screen.findByText('来源操作'))
     fireEvent.click(await screen.findByText('修改原始数据'))
     fireEvent.change(screen.getByLabelText('原始文字'), { target: { value: '来源 A 的草稿' } })
@@ -122,7 +134,7 @@ describe('DomainWorkspace', () => {
       fireEvent.click(within(picker).getByRole('button', { name: /主卧门口地砖/ }))
       fireEvent.click(screen.getByRole('option', { name: /客厅地砖已到场/ }))
     } else {
-      view.rerender(<DomainWorkspace refreshKey={0} preferredSourceId={anotherSource.id} sourceRequestKey={1} />)
+      view.rerender(<TestDomainWorkspace refreshKey={0} preferredSourceId={anotherSource.id} sourceRequestKey={1} />)
     }
     expect(confirm).toHaveBeenCalledOnce()
     expect(screen.getByLabelText('原始文字')).toHaveProperty('value', '来源 A 的草稿')
@@ -131,7 +143,7 @@ describe('DomainWorkspace', () => {
       fireEvent.click(within(picker).getByRole('button', { name: /主卧门口地砖/ }))
       fireEvent.click(screen.getByRole('option', { name: /客厅地砖已到场/ }))
     } else {
-      view.rerender(<DomainWorkspace refreshKey={0} preferredSourceId={anotherSource.id} sourceRequestKey={2} />)
+      view.rerender(<TestDomainWorkspace refreshKey={0} preferredSourceId={anotherSource.id} sourceRequestKey={2} />)
     }
     await waitFor(() => expect(screen.queryByLabelText('原始文字')).toBeNull())
     expect(confirm).toHaveBeenCalledTimes(2)
@@ -151,16 +163,16 @@ describe('DomainWorkspace', () => {
   it('切换来源前保留未保存候选，拒绝后再次请求可切换', async () => {
     vi.mocked(api.listSources).mockResolvedValue([source, anotherSource])
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
-    const view = render(<DomainWorkspace refreshKey={0} />)
+    const view = render(<TestDomainWorkspace refreshKey={0} />)
     const title = await screen.findByDisplayValue('地砖破裂') as HTMLInputElement
     fireEvent.change(title, { target: { value: '尚未提交的修改' } })
 
-    view.rerender(<DomainWorkspace refreshKey={0} preferredSourceId={anotherSource.id} sourceRequestKey={1} />)
+    view.rerender(<TestDomainWorkspace refreshKey={0} preferredSourceId={anotherSource.id} sourceRequestKey={1} />)
     expect(confirm).toHaveBeenCalledOnce()
     expect(screen.getByDisplayValue('尚未提交的修改')).toBeTruthy()
     expect(within(screen.getByText('原始数据来源').parentElement!).getByRole('button', { name: /主卧门口地砖/ })).toBeTruthy()
 
-    view.rerender(<DomainWorkspace refreshKey={0} preferredSourceId={anotherSource.id} sourceRequestKey={2} />)
+    view.rerender(<TestDomainWorkspace refreshKey={0} preferredSourceId={anotherSource.id} sourceRequestKey={2} />)
     await waitFor(() => expect(within(screen.getByText('原始数据来源').parentElement!).getByRole('button', { name: /客厅地砖已到场/ })).toBeTruthy())
     expect(confirm).toHaveBeenCalledTimes(2)
     confirm.mockRestore()
@@ -172,7 +184,7 @@ describe('DomainWorkspace', () => {
     vi.mocked(api.createRecord)
       .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve }))
       .mockRejectedValueOnce(new Error('第二条校验失败'))
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     fireEvent.click(await screen.findByText('+ 添加手工记录'))
     fireEvent.click(screen.getByText('+ 添加手工记录'))
     const titles = screen.getAllByLabelText('标题')
@@ -219,15 +231,15 @@ describe('DomainWorkspace', () => {
 
   it('外部保存新来源后优先选中后端返回的来源 ID', async () => {
     vi.mocked(api.listSources).mockResolvedValue([source, anotherSource])
-    render(<DomainWorkspace refreshKey={1} preferredSourceId={anotherSource.id} />)
+    render(<TestDomainWorkspace refreshKey={1} preferredSourceId={anotherSource.id} initialSources={[]} />)
 
     const picker = (await screen.findByText('原始数据来源')).parentElement!
-    expect(within(picker).getByRole('button', { name: /客厅地砖已到场/ })).toBeTruthy()
+    expect(await within(picker).findByRole('button', { name: /客厅地砖已到场/ })).toBeTruthy()
   })
 
   it('真实指针选择顺序不显示顶部全文浮层', async () => {
     vi.mocked(api.listSources).mockResolvedValue([source, anotherSource])
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     const picker = (await screen.findByText('原始数据来源')).parentElement
     expect(picker).toBeTruthy()
@@ -245,7 +257,7 @@ describe('DomainWorkspace', () => {
 
   it('长按显示原始数据全文并在松开后关闭', async () => {
     vi.mocked(api.listSources).mockResolvedValue([source, anotherSource])
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     const picker = (await screen.findByText('原始数据来源')).parentElement
     const pickerUi = within(picker as HTMLElement)
@@ -261,7 +273,7 @@ describe('DomainWorkspace', () => {
 
   it('来源下拉显示明确的待处理数量', async () => {
     vi.mocked(api.listSources).mockResolvedValue([source, anotherSource])
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     const picker = (await screen.findByText('原始数据来源')).parentElement
     const pickerUi = within(picker as HTMLElement)
@@ -272,7 +284,7 @@ describe('DomainWorkspace', () => {
 
   it('来源和多选下拉在菜单内部滚动时保持展开', async () => {
     vi.mocked(api.listSources).mockResolvedValue([source, anotherSource])
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     const picker = (await screen.findByText('原始数据来源')).parentElement!
     fireEvent.click(within(picker).getByRole('button', { name: /主卧门口地砖/ }))
@@ -308,7 +320,7 @@ describe('DomainWorkspace', () => {
     }])
     vi.mocked(api.getLatestCandidateBundle).mockResolvedValue(ignoredBundle)
 
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     expect(await screen.findByText('待处理 0 条 · 已生成 0 条 · 已忽略 1 条')).toBeTruthy()
     expect(screen.getByText('候选均已忽略，可按需重新分析。')).toBeTruthy()
@@ -328,7 +340,7 @@ describe('DomainWorkspace', () => {
         },
       }],
     })
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     expect(await screen.findByText('问题：主卧门口地砖有一处破裂')).toBeTruthy()
     expect(screen.getByLabelText('实际完成日期')).toHaveProperty('value', '2026-06-30')
@@ -342,7 +354,7 @@ describe('DomainWorkspace', () => {
 
   it('没有已有候选时不会静默触发重新分析', async () => {
     vi.mocked(api.getLatestCandidateBundle).mockResolvedValue(null)
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     expect(await screen.findByText('暂未识别，原始文字已经保留。')).toBeTruthy()
     expect(api.createExtraction).not.toHaveBeenCalled()
@@ -354,7 +366,7 @@ describe('DomainWorkspace', () => {
     ['DeepSeek', 'deepseek'],
     ['不使用 AI（本地规则）', 'local'],
   ])('模型选择 %s 传入对应分析模式', async (label, engine) => {
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     await screen.findByText('模型选择')
     if (engine !== 'auto') {
       fireEvent.click(screen.getByRole('button', { name: /自动主备/ }))
@@ -365,7 +377,7 @@ describe('DomainWorkspace', () => {
   })
 
   it('来源操作菜单浮于卡片外，并可用 Escape 关闭', async () => {
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     const trigger = await screen.findByRole('button', { name: '来源操作' })
     fireEvent.click(trigger)
     const menu = screen.getByRole('menu', { name: '来源操作' })
@@ -383,7 +395,7 @@ describe('DomainWorkspace', () => {
       .mockResolvedValueOnce([source])
       .mockResolvedValueOnce([updated])
     vi.mocked(api.updateSource).mockResolvedValue(updated)
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     fireEvent.click(await screen.findByText('来源操作'))
     fireEvent.click(await screen.findByText('修改原始数据'))
@@ -404,7 +416,7 @@ describe('DomainWorkspace', () => {
       .mockResolvedValueOnce([source])
       .mockResolvedValueOnce([])
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     fireEvent.click(await screen.findByText('来源操作'))
     fireEvent.click(await screen.findByText('删除原始数据'))
@@ -416,7 +428,7 @@ describe('DomainWorkspace', () => {
   })
 
   it('默认勾选明确建议并批量确认', async () => {
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     expect(screen.getByRole('heading', { name: '智能拆分' })).toBeTruthy()
     expect(await screen.findByText('问题：主卧门口地砖有一处破裂')).toBeTruthy()
@@ -447,7 +459,7 @@ describe('DomainWorkspace', () => {
     vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({
       ...explicitBundle, suggestions: [explicitBundle.suggestions[0], second],
     })
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     const firstTitle = await screen.findByDisplayValue('地砖破裂') as HTMLInputElement
     const firstCard = firstTitle.closest('article')!
@@ -480,7 +492,7 @@ describe('DomainWorkspace', () => {
         confirmed_record_id: 'record-1',
       }],
     })
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     await screen.findByText('问题：主卧门口地砖有一处破裂')
     const confirmButton = screen.getByRole('button', { name: '确认所选' }) as HTMLButtonElement
@@ -503,14 +515,14 @@ describe('DomainWorkspace', () => {
         review_state: 'active', deferred_at: null, confirmed_record_id: null,
       }],
     })
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     expect(await screen.findByText('调研：是否更换地砖')).toBeTruthy()
     expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
   })
 
   it('记录类型中不再提供待办并可切换其他类型', async () => {
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     await screen.findByText('问题：主卧门口地砖有一处破裂')
 
     const typeSelect = screen.getAllByLabelText('记录类型')[0].closest('label')!.querySelector('select')!
@@ -536,7 +548,7 @@ describe('DomainWorkspace', () => {
       ...explicitBundle,
       suggestions: [researchSuggestion],
     })
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     const card = (await screen.findByText('调研：壁龛如何铺贴')).closest('article')!
     fireEvent.change(within(card).getByLabelText('记录类型'), { target: { value: 'issue' } })
@@ -557,7 +569,7 @@ describe('DomainWorkspace', () => {
   })
 
   it('问题业务时间只提交年月日', async () => {
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     await screen.findByText('问题：主卧门口地砖有一处破裂')
 
     fireEvent.change(screen.getByLabelText('严重程度'), { target: { value: 'medium' } })
@@ -573,7 +585,7 @@ describe('DomainWorkspace', () => {
   })
 
   it('添加手工记录后显示示例且确认时调用 createRecord', async () => {
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     await screen.findByText('问题：主卧门口地砖有一处破裂')
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
@@ -626,7 +638,7 @@ describe('DomainWorkspace', () => {
     vi.mocked(api.deleteEntity).mockResolvedValue(undefined)
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     fireEvent.click(screen.getByText('管理空间与共享档案'))
     expect(await screen.findByText(/用于建立“房屋 → 房间 → 局部构件\/表面”层级/)).toBeTruthy()
     await waitFor(() => expect(screen.getByLabelText(/上级空间/)).toHaveProperty('value', house.id))
@@ -647,7 +659,7 @@ describe('DomainWorkspace', () => {
     vi.mocked(api.listEntities).mockImplementation(async (type) => type === 'materials' ? [material] : [])
     vi.mocked(api.createEntity).mockResolvedValue(material)
 
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     fireEvent.click(screen.getByText('管理空间与共享档案'))
     expect(await screen.findByText('马可波罗 · 花砖')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('材料名称'), { target: { value: '柔光砖' } })
@@ -667,7 +679,7 @@ describe('DomainWorkspace', () => {
     vi.mocked(api.deleteEntity).mockRejectedValue(new Error('该材料已被正式记录使用，请先解除记录关联。'))
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     fireEvent.click(screen.getByText('管理空间与共享档案'))
     await screen.findByText('问题：主卧门口地砖有一处破裂')
     fireEvent.click(within(screen.getByLabelText('已有材料')).getByText('删除'))
@@ -681,7 +693,7 @@ describe('DomainWorkspace', () => {
     const refund = { id: 'refund-1', record_type: 'ledger', ledger_kind: 'refund', title: '花砖退款', status: 'posted', created_at: '无效时间', description: null, archived_at: null, source_refs: [] }
     vi.mocked(api.listRecords).mockResolvedValue([ledger, refund])
 
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     fireEvent.click((await screen.findByText('更多信息与关联')))
     const relationField = await screen.findByRole('group', { name: '关联记录（可选）' })
     fireEvent.click(within(relationField).getByRole('button'))
@@ -710,7 +722,7 @@ describe('DomainWorkspace', () => {
       relations: [{ from_key: 'issue:1', to_key: 'issue:2', relation_type: 'relates_to' }],
     })
 
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     const firstCard = (await screen.findByDisplayValue('地砖破裂')).closest('article')!
     fireEvent.click(within(firstCard).getByText('更多信息与关联'))
     const relationField = within(firstCard).getByRole('group', { name: '关联本批候选（可选）' })
@@ -726,7 +738,7 @@ describe('DomainWorkspace', () => {
 
   it('批量确认失败时保留勾选和编辑内容', async () => {
     vi.mocked(api.confirmCandidateBundle).mockRejectedValue(new Error('整批未保存'))
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     await screen.findByText('问题：主卧门口地砖有一处破裂')
     const titleInput = screen.getAllByText('标题')[0].closest('label')!.querySelector('input')!
     fireEvent.change(titleInput, { target: { value: '保留这个标题' } })
@@ -738,7 +750,7 @@ describe('DomainWorkspace', () => {
   })
 
   it('添加的手工记录可单独移除且不影响提交', async () => {
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     await screen.findByText('问题：主卧门口地砖有一处破裂')
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
@@ -756,7 +768,7 @@ describe('DomainWorkspace', () => {
   })
 
   it('AI 候选移除后持久化，确认其他记录时不会重新出现', async () => {
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     await screen.findByText('问题：主卧门口地砖有一处破裂')
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
@@ -786,7 +798,7 @@ describe('DomainWorkspace', () => {
       ...twoCandidates, version: 2,
       suggestions: [explicitBundle.suggestions[0], { ...second, review_state: 'deferred', deferred_at: '2026-07-03T00:00:00Z' }],
     })
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     const firstTitle = await screen.findByDisplayValue('地砖破裂')
     fireEvent.change(firstTitle, { target: { value: '保留用户编辑' } })
@@ -814,7 +826,7 @@ describe('DomainWorkspace', () => {
         ],
       },
     })
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     await screen.findByDisplayValue('不需要')
     fireEvent.click(screen.getByRole('button', { name: /问题 · 不需要/ }))
@@ -829,7 +841,7 @@ describe('DomainWorkspace', () => {
   })
 
   it('从原始来源创建可追溯的问题记录', async () => {
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     expect(await screen.findByText(source.original_text)).toBeTruthy()
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
@@ -855,7 +867,7 @@ describe('DomainWorkspace', () => {
   })
 
   it('录入界面不再展示已保存记录组件', async () => {
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     await screen.findByText('问题：主卧门口地砖有一处破裂')
     expect(screen.queryByText('已保存的记录')).toBeNull()
   })
@@ -873,14 +885,14 @@ describe('DomainWorkspace', () => {
       }],
     })
 
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
 
     const role = await screen.findByLabelText('尺寸用途') as HTMLSelectElement
     expect(role.value).toBe('site_measurement')
   })
 
   it('手工记录未填写标题时确认提交兜底标题', async () => {
-    render(<DomainWorkspace refreshKey={0} />)
+    render(<TestDomainWorkspace refreshKey={0} />)
     await screen.findByText('问题：主卧门口地砖有一处破裂')
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))

@@ -8,7 +8,7 @@ import {
   type HealthResponse,
   type SourceResponse,
 } from './api'
-import { listSources } from './domainApi'
+import { listSources, type SourceEntry } from './domainApi'
 import { clearToken, getToken, saveToken } from './token'
 import { BACKEND_URL, UI, UPLOAD } from './config'
 import './styles.css'
@@ -46,7 +46,8 @@ export function App() {
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
   const [sourceText, setSourceText] = useState('')
-  const [sources, setSources] = useState<SourceResponse[]>([])
+  const [sources, setSources] = useState<SourceEntry[]>([])
+  const [sourceListError, setSourceListError] = useState('')
   const [saveStatus, setSaveStatus] = useState('')
   const [attachment, setAttachment] = useState<File | null>(null)
   const textVersion = useRef(0)
@@ -127,11 +128,22 @@ export function App() {
     return () => controller.abort()
   }, [])
 
+  const refreshSources = async (): Promise<SourceEntry[]> => {
+    try {
+      const rows = await listSources()
+      const nextRows = Array.isArray(rows) ? rows : []
+      setSources(nextRows)
+      setSourceListError('')
+      return nextRows
+    } catch (error: unknown) {
+      setSourceListError(error instanceof Error ? error.message : '来源列表加载失败')
+      throw error
+    }
+  }
+
   useEffect(() => {
     if (state.kind !== 'ready') return
-    listSources()
-      .then((rows) => setSources(Array.isArray(rows) ? rows : []))
-      .catch(() => setSources([]))
+    void refreshSources().catch(() => undefined)
   }, [state.kind])
 
   const handleLogin = async () => {
@@ -160,6 +172,7 @@ export function App() {
     setLoginError('')
     setSourceText('')
     setSources([])
+    setSourceListError('')
     setAttachment(null)
     setAttachmentError('')
     setPendingUpload(null)
@@ -273,6 +286,7 @@ export function App() {
       <CoreViews onLogout={handleLogout}>
         <section className="capture-workspace">
           <header className="capture-workspace__header"><p className="eyebrow">装修事实工作台</p><h2>记录装修现场</h2><p>先记下现场发生的事，需要时再整理成正式记录。</p></header>
+          {sourceListError && <p className="source-error" role="alert">来源列表加载失败：{sourceListError}<button type="button" onClick={() => void refreshSources().catch(() => undefined)}>重试</button></p>}
           <div className="capture-tabs" role="tablist" aria-label="录入工作区">
             <button id="capture-tab-quick" className="capture-tab" type="button" role="tab" aria-selected={captureTab === 'quick'} aria-controls="capture-panel-quick" tabIndex={captureTab === 'quick' ? 0 : -1} onKeyDown={handleCaptureTabKeyDown} onClick={() => setCaptureTab('quick')}>快速记录</button>
             <button id="capture-tab-review" className="capture-tab" type="button" role="tab" aria-selected={captureTab === 'review'} aria-controls="capture-panel-review" tabIndex={captureTab === 'review' ? 0 : -1} onKeyDown={handleCaptureTabKeyDown} onClick={() => openReview()}>待整理</button>
@@ -294,10 +308,10 @@ export function App() {
             {saveStatus === 'attachment-error' && pendingUpload && <button className="attachment-retry" type="button" onClick={handleRetryAttachment}>来源已保存，重试附件</button>}
             {lastSavedSourceId && saveStatus !== 'attachment-error' && <div className="capture-next-step"><span>原始记录已保存，整理可以稍后再做。</span><button type="button" onClick={() => openReview(lastSavedSourceId)}>去整理这条记录</button></div>}
           </div>
-          {visibleRecentSources.length > 0 && <div className="source-list"><h3 className="source-list-title">最近记录</h3>{visibleRecentSources.map((s) => <div key={s.id} className="source-item recent-source-row"><p className="source-item-text">{s.original_text}</p><time className="source-item-time">{formatBeijingDateTime(s.captured_at)}</time><div className="recent-source-row__actions"><button type="button" onClick={() => openReview(s.id)}>去整理</button><button className="source-item-close" type="button" aria-label={`关闭最近记录：${s.original_text || '仅附件记录'}`} onClick={() => hideRecentSource(s.id)}>×</button></div></div>)}</div>}
+            {visibleRecentSources.length > 0 && <div className="source-list"><h3 className="source-list-title">最近记录</h3>{visibleRecentSources.map((s) => <div key={s.id} className="source-item recent-source-row"><p className="source-item-text">{s.original_text}</p><time className="source-item-time">{formatBeijingDateTime(s.captured_at)}</time><div className="recent-source-row__actions"><button type="button" onClick={() => openReview(s.id)}>去整理</button><button className="source-item-close" type="button" aria-label={`关闭最近记录：${s.original_text || '仅附件记录'}`} onClick={() => hideRecentSource(s.id)}>×</button></div></div>)}</div>}
           </div>
           <div id="capture-panel-review" className="capture-panel capture-review" role="tabpanel" aria-labelledby="capture-tab-review" hidden={captureTab !== 'review'}>
-            <DomainWorkspace refreshKey={sourceRefreshKey} preferredSourceId={preferredSourceId} sourceRequestKey={sourceRequestKey} onSourcesChanged={() => void listSources().then((rows) => setSources(Array.isArray(rows) ? rows : []))} />
+            <DomainWorkspace sources={sources} refreshSources={refreshSources} refreshKey={sourceRefreshKey} preferredSourceId={preferredSourceId} sourceRequestKey={sourceRequestKey} />
           </div>
         </section>
       </CoreViews>

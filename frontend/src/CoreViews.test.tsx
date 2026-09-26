@@ -837,6 +837,17 @@ describe('CoreViews', () => {
     expect(screen.queryByText('succeeded')).toBeNull()
   })
 
+  it('记录分析筛选项失败后可以重试', async () => {
+    vi.mocked(api.listSpaces).mockRejectedValueOnce(new Error('空间服务暂不可用'))
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '记录分析' }))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('空间服务暂不可用'))
+    const callsBeforeRetry = vi.mocked(api.listSpaces).mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    expect(vi.mocked(api.listSpaces).mock.calls.length).toBeGreaterThan(callsBeforeRetry)
+  })
+
   it('记录详情可修改状态、日期、空间和参与者', async () => {
     vi.mocked(api.listSpaces).mockResolvedValue([
       { id: 'room-1', name: '主卧', kind: 'room', parent_id: null },
