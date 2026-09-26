@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import httpx
@@ -19,6 +20,9 @@ from app.domain_models import DEFAULT_PROJECT_ID, Pitfall, PitfallResolution, Pr
 
 router = APIRouter(tags=["pitfalls"], prefix="/pitfalls")
 User = Annotated[CurrentUser, Depends(require_user)]
+PITFALL_ANALYSIS_PROMPT = (
+    Path(__file__).resolve().parent.parent / "prompts" / "pitfall_analysis.txt"
+).read_text(encoding="utf-8").strip()
 
 
 def _db(request: Request) -> Session:
@@ -188,13 +192,8 @@ def analyze_pitfalls(request: Request, user: User) -> dict[str, Any]:
     if not config.enabled:
         raise HTTPException(status_code=503, detail="AI 尚未启用或未配置可用密钥。")
 
-    system_prompt = (
-        "你是装修复盘助手。只根据用户提供的踩坑与处理记录分析，不推断不存在的事实。"
-        "返回 JSON，字段必须为 summary、recurring_patterns、approaches、unresolved_items、"
-        "prevention_advice；后四项均为字符串数组。重点识别重复问题、已有做法、未处理事项和避免建议。"
-    )
     messages = [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": PITFALL_ANALYSIS_PROMPT},
         {"role": "user", "content": f"以下是全部踩坑记录，处理记录已按日期排列：\n{source}"},
     ]
     deadline = time.monotonic() + config.timeout_seconds

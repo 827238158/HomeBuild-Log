@@ -4,6 +4,7 @@ import base64
 import io
 import time
 import wave
+from pathlib import Path
 from typing import Annotated
 
 import httpx
@@ -19,9 +20,8 @@ MAX_AUDIO_SECONDS = 180
 TRANSCRIPTION_TIMEOUT_SECONDS = 120.0
 TRANSCRIPTION_MODEL = "mimo-v2.6-pro"
 TRANSCRIPTION_PROMPT = (
-    "请忠实转写这段录音，只输出转写文字。不要总结、润色、补全或推断；"
-    "金额、尺寸、日期、人名等听不清的地方不要猜测。"
-)
+    Path(__file__).resolve().parent.parent / "prompts" / "transcription.txt"
+).read_text(encoding="utf-8").strip()
 
 
 def _validate_audio(content: bytes) -> None:
