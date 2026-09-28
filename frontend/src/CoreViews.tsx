@@ -7,6 +7,7 @@ import { AiAnalyticsView, OverviewView, RecordsAnalyticsView } from './Analytics
 import { defaultPayload, payloadForSave, RecordEditFields, type RecordType } from './DomainWorkspace'
 import { LazyEChart as EChart } from './LazyEChart'
 import { PitfallsView } from './PitfallsView'
+import { WorkspaceAtmosphere } from './WorkspaceAtmosphere'
 import { chartPalette, chartSummary, donutOption, horizontalBarOption, lineOption } from './chartConfig'
 import {
   getIssueBoard,
@@ -122,7 +123,7 @@ function LoadState({ loading, error, empty }: { loading: boolean; error: string;
 
 function RecordButton({ record, onOpen }: { record: ProjectionRecord; onOpen: (id: string) => void }) {
   return (
-    <button className="projection-card" type="button" onClick={() => onOpen(record.id)}>
+    <button className="projection-card immersive-tilt immersive-glass" type="button" onClick={() => onOpen(record.id)}>
       <span className="record-type-tag">{recordTypeLabels[record.record_type] || '未知类型'}</span>
       <strong>{record.title}</strong>
       <span>{recordStatusLabel(record.record_type, record.status, record.ledger_kind)}</span>
@@ -211,6 +212,13 @@ function TimelineView({ onOpen, refreshRevision }: { onOpen: (id: string) => voi
       return { ...group, items }
     }).filter((group) => group.items.length > 0)
   }, [data, visibleCount])
+  const motionGroups = useMemo(() => {
+    let motionIndex = 0
+    return visibleGroups.map((group) => ({
+      ...group,
+      items: group.items.map((item) => ({ item, motionIndex: motionIndex++ })),
+    }))
+  }, [visibleGroups])
   useEffect(() => {
     const update = () => setShowBackToTop(window.scrollY > 320)
     update()
@@ -228,7 +236,7 @@ function TimelineView({ onOpen, refreshRevision }: { onOpen: (id: string) => voi
     {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="记录时间趋势" description="点击月份筛选该月记录" kind="line" rows={data.analytics.time_trend} onClick={applyMonth} selectedKey={selectedMonth} /><AnalyticsChart title="记录类型分布" description="点击类型可筛选下方时间线" kind="donut" rows={data.analytics.type_distribution} onClick={applyRecordTypeImmediately} selectedKey={applied.record_type} /></div>}
     {applied.record_type && <button type="button" className="clear-filter" onClick={() => applyRecordTypeImmediately('')}>当前按记录类型筛选，点击取消</button>}
     {(applied.date_from || applied.date_to) && <button type="button" className="clear-filter" onClick={() => applyMonth('')}>当前日期：{applied.date_from || '不限'} 至 {applied.date_to || '不限'}，点击取消</button>}
-    <div className="timeline-list">{visibleGroups.map((group) => <section className="timeline-group" key={group.date_key}><h3>{group.label}</h3><div className="timeline-day-items">{group.items.map((item) => <article className="timeline-item" key={item.record.id}><RecordButton record={item.record} onOpen={onOpen} />{item.related_records.length > 0 && <div className="related-strip"><span>关联事实</span>{item.related_records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div>}</article>)}</div></section>)}</div>
+    <div className="timeline-list">{motionGroups.map((group) => <section className="timeline-group" key={group.date_key}><h3>{group.label}</h3><div className="timeline-day-items">{group.items.map(({ item, motionIndex }) => <article className="timeline-item timeline-motion-item" data-motion-index={motionIndex} style={{ '--motion-index': motionIndex } as CSSProperties} key={item.record.id}><RecordButton record={item.record} onOpen={onOpen} />{item.related_records.length > 0 && <div className="related-strip"><span>关联事实</span>{item.related_records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div>}</article>)}</div></section>)}</div>
     {visibleCount < totalTimelineItems && <button type="button" className="timeline-load-more" onClick={() => setVisibleCount((count) => Math.min(count + timelineBatchSize, totalTimelineItems))}>查看更多</button>}
     {showBackToTop && <button type="button" className="timeline-back-to-top" aria-label="回到顶部" onClick={() => window.scrollTo({ top: 0, left: 0, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg></button>}
   </section>
@@ -351,7 +359,7 @@ function LedgerDetailPanel({
   // 挂载到 body，避免看板祖先的 transform/overflow 改变 fixed 定位参照。
   return createPortal(<>
     {!obscured && <button type="button" className="ledger-detail-backdrop" aria-label="点击遮罩关闭明细" onClick={onClose} />}
-    <aside className={`detail-panel ledger-detail-panel${obscured ? ' is-obscured' : ''}`} role="dialog" aria-modal={!obscured} aria-hidden={obscured} aria-labelledby="ledger-detail-title">
+    <aside className={`detail-panel ledger-detail-panel immersive-glass immersive-glass--strong${obscured ? ' is-obscured' : ''}`} role="dialog" aria-modal={!obscured} aria-hidden={obscured} aria-labelledby="ledger-detail-title">
       <header className="detail-panel__header ledger-detail-panel__header"><div><p className="eyebrow">完整明细</p><h2 id="ledger-detail-title">{group.title}</h2></div><button type="button" onClick={onClose} aria-label="关闭明细" autoFocus={!obscured}>关闭</button></header>
       <div className="ledger-detail-panel__summary"><strong>{formatMoney(group.amountMinor)}</strong><span>{group.records.length} 条记录</span>{group.percentage !== undefined && <span>占比 {group.percentage === null ? '无法计算' : `${group.percentage.toFixed(1)}%`}</span>}</div>
       <div className="ledger-detail-panel__records">
@@ -487,7 +495,7 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
       ['card:refund', 'summary-card--success', '已入账退款'],
       ['card:income', 'summary-card--success', '已入账收入'],
       ['card:net-expense', '', '付款减退款与收入'],
-    ].map(([id, variant, note]) => { const group = groups.get(id)!; return <button className={`summary-card summary-card--interactive ${variant}`} type="button" key={id} {...cardHandlers(group)}><span>{group.title}</span><strong>{formatMoney(group.amountMinor)}</strong>{note && <small>{note}</small>}</button> })}</div></>}
+    ].map(([id, variant, note]) => { const group = groups.get(id)!; return <button className={`summary-card summary-card--interactive immersive-glass immersive-tilt ${variant}`} type="button" key={id} {...cardHandlers(group)}><span>{group.title}</span><strong>{formatMoney(group.amountMinor)}</strong>{note && <small>{note}</small>}</button> })}</div></>}
     {data && (data.analytics.payment_composition.length > 0 || data.analytics.vendor_distribution.length > 0) && <div className="chart-grid"><AnalyticsChart title="资金构成" interactionHint="点击图形查看明细记录" description="悬停预览，点击查看完整明细" kind="donut" unit="元" rows={data.analytics.payment_composition.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('composition')} onLeave={scheduleClose} onClick={chartClick('composition')} disableTooltip /><AnalyticsChart title="主要商家金额" interactionHint="点击图形查看明细记录" description="悬停预览，点击查看完整明细；支出为正，退款与收入为负" kind="bar" unit="元" rows={data.analytics.vendor_distribution.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('vendor')} onLeave={scheduleClose} onClick={chartClick('vendor')} disableTooltip verticalScrollAfter={8} /></div>}
     {monthlyNetExpense.length > 0 && <div className="chart-grid chart-grid--single"><AnalyticsChart title="每月净支出趋势" description="按月统计付款减退款与收入后的净支出" kind="line" unit="元" rows={monthlyNetExpense} /></div>}
     {preview && <LedgerDetailPreview state={preview} onEnter={cancelClose} onLeave={scheduleClose} onViewAll={() => openGroup(preview.group)} />}
@@ -617,7 +625,7 @@ function SearchView({ onOpen, refreshRevision }: { onOpen: (id: string) => void;
   </section>
 }
 
-function RecordDetail({ recordId, onClose, onChanged }: { recordId: string; onClose: () => void; onChanged: () => void }) {
+function RecordDetail({ recordId, closing, onClose, onChanged, onExitComplete }: { recordId: string; closing: boolean; onClose: () => void; onChanged: () => void; onExitComplete: () => void }) {
   const [record, setRecord] = useState<ProjectionRecord | null>(null)
   const [sources, setSources] = useState<SourceDetail[]>([])
   const [relations, setRelations] = useState<RecordRelation[]>([])
@@ -721,7 +729,10 @@ function RecordDetail({ recordId, onClose, onChanged }: { recordId: string; onCl
     }
   }
 
-  return <aside className="detail-panel record-detail-panel" aria-label="记录详情">
+  return <aside className={`detail-panel record-detail-panel immersive-glass immersive-glass--strong${closing ? ' is-closing' : ''}`} data-state={closing ? 'closing' : 'open'} aria-label="记录详情" onAnimationEnd={(event) => {
+    // 只响应抽屉本身的退出，避免子元素动画冒泡提前结束过渡。
+    if (closing && event.target === event.currentTarget) onExitComplete()
+  }}>
     <div className="detail-panel__header"><div><p className="eyebrow">{editing ? '编辑正式记录' : '来源可追溯'}</p><h2>{editing ? '修改记录' : '记录详情'}</h2></div>{!editing && <button type="button" onClick={onClose} aria-label="关闭详情">关闭</button>}</div>
     {error && <p role="alert" className="view-state--error">{error}</p>}
     {!record && !error && <p role="status">正在加载详情…</p>}
@@ -756,10 +767,37 @@ function RecordDetail({ recordId, onClose, onChanged }: { recordId: string; onCl
 export function CoreViews({ children, onLogout }: { children: ReactNode; onLogout?: () => void }) {
   const [view, setView] = useState<ViewName>('overview')
   const [detailId, setDetailId] = useState('')
+  const [detailClosing, setDetailClosing] = useState(false)
   const [viewRevision, setViewRevision] = useState(0)
   const [navOpen, setNavOpen] = useState(false)
+  const detailCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const currentLabel = viewLabels.find((item) => item.key === view)?.label ?? '工作台'
-  const selectView = (next: ViewName) => { setView(next); setDetailId(''); setNavOpen(false) }
+  const finishDetailClose = () => {
+    if (detailCloseTimer.current) clearTimeout(detailCloseTimer.current)
+    detailCloseTimer.current = null
+    setDetailId('')
+    setDetailClosing(false)
+  }
+  const closeDetail = () => {
+    if (!detailId || detailClosing) return
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      finishDetailClose()
+      return
+    }
+    setDetailClosing(true)
+    // CSS 动画结束会立即卸载；定时器只在 animationend 丢失时兜底。
+    detailCloseTimer.current = setTimeout(finishDetailClose, 220)
+  }
+  const openDetail = (recordId: string) => {
+    if (detailCloseTimer.current) clearTimeout(detailCloseTimer.current)
+    detailCloseTimer.current = null
+    setDetailClosing(false)
+    setDetailId(recordId)
+  }
+  useEffect(() => () => {
+    if (detailCloseTimer.current) clearTimeout(detailCloseTimer.current)
+  }, [])
+  const selectView = (next: ViewName) => { setView(next); finishDetailClose(); setNavOpen(false) }
   return <div className="workspace-shell">
     <aside className={`workspace-sidebar${navOpen ? ' is-open' : ''}`}>
       <div className="workspace-brand"><span className="workspace-brand__mark">H</span><div><strong>HomeBuild Log</strong><small>装修事实工作台</small></div></div>
@@ -768,10 +806,11 @@ export function CoreViews({ children, onLogout }: { children: ReactNode; onLogou
     </aside>
     {navOpen && <button type="button" className="nav-backdrop" aria-label="关闭导航" onClick={() => setNavOpen(false)} />}
     <div className="workspace-main">
-      <header className="workspace-topbar"><button type="button" className="menu-button" aria-label="打开导航" aria-expanded={navOpen} onClick={() => setNavOpen((value) => !value)}>☰</button><div><small>HomeBuild Log</small><strong>{currentLabel}</strong></div><span><span className="service-dot" />服务正常</span></header>
-      <main className="workspace-content">{view === 'overview' && <OverviewView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'ledger' && <LedgerView onOpen={setDetailId} detailOpen={Boolean(detailId)} refreshRevision={viewRevision} />}{view === 'issues' && <IssuesView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'pitfalls' && <PitfallsView />}{view === 'spaces' && <SpacesView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'records' && <RecordsAnalyticsView onOpen={setDetailId} refreshRevision={viewRevision} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={setDetailId} refreshRevision={viewRevision} />}</main>
+      <WorkspaceAtmosphere />
+      <header className="workspace-topbar immersive-glass"><button type="button" className="menu-button" aria-label="打开导航" aria-expanded={navOpen} onClick={() => setNavOpen((value) => !value)}>☰</button><div><small>HomeBuild Log</small><strong>{currentLabel}</strong></div><span><span className="service-dot" />服务正常</span></header>
+      <main className="workspace-content">{view === 'overview' && <OverviewView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ledger' && <LedgerView onOpen={openDetail} detailOpen={Boolean(detailId)} refreshRevision={viewRevision} />}{view === 'issues' && <IssuesView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'pitfalls' && <PitfallsView />}{view === 'spaces' && <SpacesView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'records' && <RecordsAnalyticsView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={openDetail} refreshRevision={viewRevision} />}</main>
     </div>
     {/* 切换记录时重新建立详情状态，避免沿用上一条记录的编辑草稿。 */}
-    {detailId && <RecordDetail key={detailId} recordId={detailId} onClose={() => setDetailId('')} onChanged={() => setViewRevision((value) => value + 1)} />}
+    {detailId && <RecordDetail key={detailId} recordId={detailId} closing={detailClosing} onClose={closeDetail} onExitComplete={finishDetailClose} onChanged={() => setViewRevision((value) => value + 1)} />}
   </div>
 }

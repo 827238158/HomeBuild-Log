@@ -85,8 +85,16 @@ describe('PitfallsView', () => {
     expect(await screen.findByText('墙面返碱')).toBeTruthy()
     expect(screen.getAllByText('未处理').length).toBeGreaterThan(0)
 
-    fireEvent.click(screen.getByRole('button', { name: '未处理' }))
+    const tabs = screen.getByRole('tablist', { name: '筛选踩坑记录' })
+    const allTab = screen.getByRole('tab', { name: '全部' })
+    const unresolvedTab = screen.getByRole('tab', { name: '未处理' })
+    expect(allTab.getAttribute('aria-selected')).toBe('true')
+    fireEvent.keyDown(allTab, { key: 'ArrowRight' })
+    expect(unresolvedTab.getAttribute('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(unresolvedTab)
+    expect(tabs.style.getPropertyValue('--tab-indicator-width')).not.toBe('')
     await waitFor(() => expect(api.listPitfalls).toHaveBeenLastCalledWith('unresolved'))
+    expect(screen.getByText('墙面返碱').closest('.timeline-motion-item')?.getAttribute('data-motion-index')).toBe('0')
   })
 
   it('从同一踩坑内追加处理记录', async () => {

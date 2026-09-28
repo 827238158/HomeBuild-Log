@@ -404,6 +404,20 @@ describe('CoreViews', () => {
     expect(screen.getByRole('heading', { name: '相关记录' })).toBeTruthy()
   })
 
+  it('关闭详情时先进入退出状态，动画结束后再卸载', async () => {
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
+    const detail = await screen.findByLabelText('记录详情')
+
+    fireEvent.click(within(detail).getByRole('button', { name: '关闭详情' }))
+    expect(detail.getAttribute('data-state')).toBe('closing')
+    expect(detail.classList.contains('is-closing')).toBe(true)
+    expect(screen.getByLabelText('记录详情')).toBe(detail)
+
+    await waitFor(() => expect(screen.queryByLabelText('记录详情')).toBeNull())
+  })
+
   it('账本明确展示付款、退款、收入和净支出', async () => {
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '账本' }))
@@ -510,10 +524,12 @@ describe('CoreViews', () => {
 
     expect(await screen.findByText('时间线记录 10')).toBeTruthy()
     expect(screen.queryByText('时间线记录 11')).toBeNull()
+    expect(screen.getByText('时间线记录 1').closest('.timeline-motion-item')?.getAttribute('data-motion-index')).toBe('0')
     const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
     const scrollYSpy = vi.spyOn(window, 'scrollY', 'get').mockReturnValue(500)
     fireEvent.click(screen.getByRole('button', { name: '查看更多' }))
     expect(await screen.findByText('时间线记录 12')).toBeTruthy()
+    expect(screen.getByText('时间线记录 11').closest('.timeline-motion-item')?.getAttribute('data-motion-index')).toBe('10')
     expect(screen.queryByRole('button', { name: '查看更多' })).toBeNull()
     fireEvent.scroll(window)
     const backToTop = await screen.findByRole('button', { name: '回到顶部' })
@@ -828,6 +844,15 @@ describe('CoreViews', () => {
     fireEvent.click(screen.getByRole('button', { name: '记录分析' }))
     expect(await screen.findByRole('heading', { name: '记录分析' })).toBeTruthy()
     expect(screen.getByText('符合条件的记录')).toBeTruthy()
+    const typeTabs = screen.getByRole('tablist', { name: '记录类型' })
+    const allTypes = within(typeTabs).getByRole('tab', { name: '全部' })
+    const issueType = within(typeTabs).getByRole('tab', { name: '问题' })
+    expect(allTypes.getAttribute('aria-selected')).toBe('true')
+    fireEvent.keyDown(allTypes, { key: 'End' })
+    expect(within(typeTabs).getAllByRole('tab').at(-1)?.getAttribute('aria-selected')).toBe('true')
+    fireEvent.click(issueType)
+    expect(issueType.getAttribute('aria-selected')).toBe('true')
+    expect(typeTabs.style.getPropertyValue('--tab-indicator-left')).not.toBe('')
 
     fireEvent.click(screen.getByRole('button', { name: '智能分析' }))
     expect(await screen.findByRole('heading', { name: '智能分析' })).toBeTruthy()

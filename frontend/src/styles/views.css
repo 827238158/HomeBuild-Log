@@ -71,21 +71,46 @@
   background: var(--surface);
 }
 
-/* 录入页：标签分别承载快速记录与待整理，避免把两套流程堆在首屏。 */
+/* 录入页双标签共用一个滑动底板，选中状态仍由原生按钮的 aria-selected 表达。 */
 .capture-tabs {
-  display: flex;
-  gap: 24px;
-  align-items: stretch;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(100%, 288px);
+  gap: 0;
+  padding: 4px;
   margin-bottom: 24px;
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.capture-tabs::before {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / 2);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgb(31 35 40 / 8%);
+  content: '';
+  pointer-events: none;
+  transition: transform 240ms var(--ease-out);
+}
+
+.capture-tabs[data-active='review']::before {
+  transform: translateX(100%);
 }
 
 .capture-tab {
   position: relative;
+  z-index: 1;
   min-height: 44px;
-  padding: 8px 4px 12px;
+  padding: 8px 12px;
   border: 0;
-  border-radius: 0;
+  border-radius: 6px;
   background: transparent;
   color: var(--ink-muted);
   font-size: .95rem;
@@ -96,26 +121,13 @@
   color: var(--primary);
 }
 
-.capture-tab[aria-selected='true'],
-.capture-tab.is-active {
+.capture-tab[aria-selected='true'] {
   color: var(--primary);
 }
 
-.capture-tab[aria-selected='true']::after,
-.capture-tab.is-active::after {
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 3px;
-  border-radius: 3px 3px 0 0;
-  background: var(--primary);
-  content: '';
-}
-
 .capture-tab:focus-visible {
-  border-radius: var(--radius-sm);
-  box-shadow: 0 0 0 3px rgb(23 105 194 / 22%);
+  outline: 2px solid var(--primary);
+  outline-offset: -3px;
 }
 
 .capture-panel,
@@ -232,7 +244,6 @@
   color: var(--primary);
   background: transparent;
 }
-.voice-trigger--recording { color: var(--primary); }
 .voice-trigger:disabled { opacity: .7; cursor: default; }
 .voice-trigger svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .voice-panel {
@@ -259,11 +270,9 @@
   color: var(--primary);
 }
 .voice-panel button:hover { border-color: var(--primary); background: var(--primary-soft); }
-.voice-wave { display: inline-flex; align-items: center; gap: 3px; height: 28px; }
-.voice-wave i { width: 3px; min-height: 5px; border-radius: 3px; background: var(--primary); transition: height 90ms linear; }
 .voice-progress { width: 16px; height: 16px; border: 2px solid var(--border-strong); border-top-color: var(--primary); border-radius: 50%; animation: voice-spin .8s linear infinite; }
 @keyframes voice-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .voice-wave i, .voice-progress { animation: none; transition: none; } }
+@media (prefers-reduced-motion: reduce) { .voice-progress { animation: none; transition: none; } }
 
 .source-actions {
   display: flex;
@@ -332,6 +341,80 @@
 .capture-quick .attachment-name {
   max-width: 100%;
   overflow-wrap: anywhere;
+}
+
+.attachment-feedback {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-top: 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--primary-soft) 46%, var(--surface));
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--primary) 8%, transparent);
+  animation: attachment-feedback-enter 190ms var(--ease-out) both;
+}
+
+.attachment-feedback__icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-size: .68rem;
+  font-weight: 750;
+  letter-spacing: .02em;
+}
+
+.attachment-feedback__icon[data-file-type='pdf'] {
+  background: var(--accent);
+}
+
+.attachment-feedback__details {
+  display: grid;
+  min-width: 0;
+}
+
+.attachment-feedback__details strong {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-feedback__details small {
+  color: var(--ink-muted);
+}
+
+.attachment-feedback button {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  background: rgb(255 255 255 / 74%);
+  color: var(--primary);
+}
+
+.attachment-feedback__remove {
+  color: var(--risk) !important;
+}
+
+@keyframes attachment-feedback-enter {
+  from { opacity: 0; transform: translateY(-5px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 640px) {
+  .attachment-feedback {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .attachment-feedback button {
+    width: 100%;
+  }
 }
 
 .source-list {
@@ -851,19 +934,42 @@
 
 /* 时间线 */
 .timeline-group h3 {
-  color: var(--ink-muted);
-  font-size: .8rem;
+  position: sticky;
+  z-index: 2;
+  top: 76px;
+  display: inline-flex;
+  align-items: center;
+  /* 日期胶囊不能被网格拉伸到整组记录的高度。 */
+  align-self: start;
+  width: fit-content;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
+  border-radius: 999px;
+  background: rgb(248 251 255 / 86%);
+  color: var(--primary);
+  font-size: .78rem;
   font-weight: 650;
+  box-shadow: 0 6px 16px rgb(15 23 42 / 7%);
+  backdrop-filter: blur(10px);
 }
 
 .timeline-day-items {
-  border-left: 1px solid #cfdef0;
+  border-left: 2px solid color-mix(in srgb, var(--primary) 24%, var(--border));
 }
 
 .timeline-item::before {
   border-color: var(--app-bg);
   background: var(--primary);
-  box-shadow: 0 0 0 3px rgb(23 105 194 / 10%);
+  box-shadow: 0 0 0 4px rgb(23 105 194 / 12%), 0 0 18px rgb(23 105 194 / 20%);
+}
+
+.timeline-item > .projection-card {
+  border-color: color-mix(in srgb, var(--primary) 18%, var(--border));
+}
+
+.timeline-item .related-strip {
+  border-color: color-mix(in srgb, var(--primary) 14%, var(--border));
+  background: color-mix(in srgb, var(--primary-soft) 35%, var(--surface));
 }
 
 /* 账本 */
@@ -893,8 +999,14 @@
 /* 问题看板 */
 .issue-page-header {
   grid-template-columns: minmax(320px, 1fr) minmax(360px, .8fr);
+  align-items: start;
   gap: 24px;
   margin-bottom: 20px;
+}
+
+/* 页头内的筛选栏不沿用独立筛选区域的底部间距。 */
+.issue-page-header > .filter-grid.issue-filter-bar {
+  margin: 0;
 }
 
 .issue-board {

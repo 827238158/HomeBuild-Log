@@ -226,13 +226,13 @@
   }
 
   .capture-tabs {
-    gap: 18px;
+    width: min(100%, 288px);
     margin-bottom: 18px;
   }
 
   .capture-tab {
     min-height: 44px;
-    padding-inline: 2px;
+    padding-inline: 8px;
   }
 
   .capture-next-step {

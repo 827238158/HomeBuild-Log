@@ -1,0 +1,317 @@
+/* 短时操作反馈沿用现有语义色；动效不承担状态文案。 */
+.ai-panel__thinking {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  min-width: 91px;
+  color: var(--ink-muted);
+  font-size: .84rem;
+  white-space: nowrap;
+}
+
+.thinking-lattice {
+  display: grid;
+  grid-template-columns: repeat(3, 5px);
+  gap: 2px;
+  flex: none;
+}
+
+.thinking-lattice i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+  opacity: .2;
+  animation: thinking-lattice-pulse 1050ms ease-in-out infinite;
+}
+
+.thinking-lattice--compact {
+  grid-template-columns: repeat(3, 3px);
+  gap: 1.5px;
+}
+
+.thinking-lattice--compact i {
+  width: 3px;
+  height: 3px;
+  background: currentColor;
+}
+
+/* 保存与确认沿用同一状态模型，按钮尺寸不会随文案切换而跳动。 */
+.state-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 104px;
+  overflow: hidden;
+  transition: transform 140ms var(--ease-out), background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.state-button:not(:disabled):active {
+  transform: scale(.97);
+}
+
+.state-button[data-state='saving'],
+.state-button[data-state='confirming'] {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 88%, var(--surface));
+  color: #fff;
+  cursor: wait;
+}
+
+.state-button[data-state='saved'],
+.state-button[data-state='success'] {
+  border-color: var(--success);
+  background: var(--success);
+  color: #fff;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 15%, transparent);
+}
+
+.state-button[data-state='error'],
+.state-button[data-state='attachment-error'] {
+  border-color: var(--risk);
+  background: var(--risk);
+  color: #fff;
+}
+
+.state-button__label {
+  white-space: nowrap;
+}
+
+/* 原生勾选框继续负责语义与键盘操作，视觉层只表现选中反馈。 */
+.candidate-check {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.candidate-check__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  opacity: 0;
+  clip-path: inset(50%);
+}
+
+.candidate-check__visual {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  margin-top: 1px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: #fff;
+  transition: transform 170ms var(--ease-out), border-color 170ms ease, background-color 170ms ease, box-shadow 170ms ease;
+}
+
+.candidate-check__visual svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 18;
+  stroke-dashoffset: 18;
+  transition: stroke-dashoffset 180ms var(--ease-out) 40ms;
+}
+
+.candidate-check.is-checked .candidate-check__visual {
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary) 22%, transparent);
+  transform: scale(1.04);
+}
+
+.candidate-check.is-checked .candidate-check__visual svg {
+  stroke-dashoffset: 0;
+}
+
+.candidate-check__input:focus-visible + .candidate-check__visual {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.candidate-check.is-disabled {
+  cursor: default;
+  opacity: .72;
+}
+
+.suggestion-card.is-selected {
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+}
+
+.field-stack > span,
+.multi-select-field legend {
+  transition: color 160ms ease, transform 160ms var(--ease-out);
+}
+
+.field-stack:focus-within > span,
+.multi-select-field:focus-within legend {
+  color: var(--primary);
+}
+
+/* 新内容只在首次挂载时入场，稳定 key 能避免编辑时重复播放。 */
+.candidate-motion-item,
+.timeline-motion-item {
+  animation: content-rise-in 220ms var(--ease-out) both;
+  animation-delay: min(calc(var(--motion-index, 0) * 35ms), 245ms);
+}
+
+@keyframes content-rise-in {
+  from { opacity: 0; transform: translateY(9px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.record-detail-panel.is-closing {
+  pointer-events: none;
+  animation: panel-exit 170ms cubic-bezier(.4, 0, 1, 1) both;
+}
+
+@keyframes panel-exit {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(22px); }
+}
+
+/* 多标签以实际按钮宽度定位底板，避免中文标签宽度不等时错位。 */
+.type-tabs,
+.segmented-control {
+  position: relative;
+  isolation: isolate;
+}
+
+.type-tabs::before,
+.segmented-control::before {
+  position: absolute;
+  z-index: 0;
+  top: 4px;
+  bottom: 4px;
+  left: var(--tab-indicator-left, 4px);
+  width: var(--tab-indicator-width, 0);
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border-strong));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--primary-soft));
+  box-shadow: 0 4px 13px color-mix(in srgb, var(--primary) 12%, transparent);
+  content: '';
+  opacity: 1;
+  pointer-events: none;
+  transition: left 240ms var(--ease-out), width 240ms var(--ease-out), background-color 180ms ease;
+}
+
+.type-tabs > button,
+.segmented-control > button {
+  position: relative;
+  z-index: 1;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+@keyframes thinking-lattice-pulse {
+  0%, 100% { opacity: .2; transform: scale(.8); }
+  30% { opacity: 1; transform: scale(1); }
+  55% { opacity: .2; transform: scale(.8); }
+}
+
+.voice-capsule {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: max-content;
+  max-width: calc(100% - 8px);
+  height: 44px;
+  padding: 4px 5px 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--ink);
+  animation: voice-capsule-enter 180ms var(--ease-out) both;
+}
+
+@keyframes voice-capsule-enter {
+  from { opacity: .5; transform: scale(.92); transform-origin: right center; }
+  to { opacity: 1; transform: scale(1); transform-origin: right center; }
+}
+
+.voice-capsule__wave {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 31px;
+  height: 24px;
+  flex: none;
+}
+
+.voice-capsule__wave i {
+  width: 3px;
+  min-height: 5px;
+  border-radius: 3px;
+  background: var(--primary);
+  transition: height 90ms linear;
+}
+
+.voice-capsule__clock {
+  min-width: 36px;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.voice-capsule button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.voice-capsule__stop {
+  background: var(--primary);
+  color: var(--surface);
+}
+
+.voice-capsule__stop:hover { background: var(--primary-hover); }
+.voice-capsule__stop span { width: 8px; height: 8px; border-radius: 2px; background: currentColor; }
+.voice-capsule__cancel { background: var(--surface-soft); color: var(--ink-muted); }
+.voice-capsule__cancel:hover { background: var(--surface-muted); color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-lattice i { animation: none; transform: none; opacity: .65; }
+  .voice-capsule { animation: none; }
+  .voice-capsule__wave i { height: 9px !important; transition: none; }
+  .state-button,
+  .candidate-check__visual,
+  .candidate-check__visual svg,
+  .candidate-motion-item,
+  .timeline-motion-item,
+  .record-detail-panel,
+  .record-detail-panel.is-closing,
+  .type-tabs::before,
+  .segmented-control::before {
+    animation: none;
+    transition: none;
+    transform: none;
+  }
+
+  .candidate-motion-item,
+  .timeline-motion-item { opacity: 1; }
+}

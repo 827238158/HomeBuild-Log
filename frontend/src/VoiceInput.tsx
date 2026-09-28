@@ -18,7 +18,6 @@ export function VoiceInput({ active, onTranscript, children }: { active: boolean
   const [elapsed, setElapsed] = useState(0)
   const [transcribeElapsed, setTranscribeElapsed] = useState(0)
   const [level, setLevel] = useState(0)
-  const [resultDuration, setResultDuration] = useState(0)
   const recording = useRef<VoiceRecording | null>(null)
   const request = useRef<AbortController | null>(null)
   const lastFile = useRef<File | null>(null)
@@ -78,7 +77,6 @@ export function VoiceInput({ active, onTranscript, children }: { active: boolean
       // 回填由父组件基于最新草稿追加，保留请求等待期间的编辑。
       transcriptRef.current(result.text.trim())
       lastFile.current = null
-      setResultDuration(result.duration_ms)
       setStatus('done')
     } catch (cause) {
       if (generation.current !== current || controller.signal.aborted) return
@@ -146,19 +144,21 @@ export function VoiceInput({ active, onTranscript, children }: { active: boolean
   const clock = `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
   return <div className="source-input-wrap"><div className="source-input-field">
     {children}
-    <button className={`voice-trigger${status === 'recording' ? ' voice-trigger--recording' : ''}`} type="button" aria-label="开始语音输入" title="开始语音输入" onClick={() => void start()} disabled={!active || status === 'requesting' || status === 'recording' || status === 'transcribing'}>
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21m-4 0h8" /></svg>
-    </button>
+    {status === 'recording' ? <div className="voice-capsule" role="group" aria-label="录音控制">
+      {/* 复用录音服务提供的真实音量；胶囊只负责展示与操作，不创建第二条音频流。 */}
+      <span className="voice-capsule__wave" aria-hidden="true">{[0.55, 0.82, 1, 0.72, 0.45].map((factor, index) => <i key={index} style={{ height: `${6 + level * factor * 20}px` }} />)}</span>
+      <span className="voice-capsule__clock" aria-hidden="true">{clock}</span>
+      <button className="voice-capsule__stop" type="button" onClick={stop} aria-label="停止并转写"><span aria-hidden="true" />停止</button>
+      <button className="voice-capsule__cancel" type="button" onClick={() => cancel()} aria-label="取消录音">取消</button>
+      <span className="sr-only" role="status">录音中，最长 3 分钟</span>
+    </div> : <button className="voice-trigger" type="button" aria-label="开始语音输入" title="开始语音输入" onClick={() => void start()} disabled={!active || status === 'requesting' || status === 'transcribing'}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="2.5" width="6" height="12.5" rx="3" /><path d="M5 10.5v1a7 7 0 0 0 14 0v-1M12 18.5V22m-4 0h8" /></svg>
+    </button>}
     </div>
-    {status !== 'idle' && <div className={`voice-panel voice-panel--${status}`} role="status" aria-live="polite">
+    {status !== 'idle' && status !== 'recording' && <div className={`voice-panel voice-panel--${status}`} role="status" aria-live="polite">
       {status === 'requesting' && <><span>正在请求麦克风权限…</span><button type="button" onClick={() => cancel()}>取消</button></>}
-      {status === 'recording' && <>
-        <span className="voice-wave" aria-hidden="true">{[0.55, 0.82, 1, 0.72, 0.45].map((factor, index) => <i key={index} style={{ height: `${6 + level * factor * 20}px` }} />)}</span>
-        <span>录音中 {clock} / 03:00</span>
-        <button type="button" onClick={stop}>停止并转写</button><button type="button" onClick={() => cancel()}>取消</button>
-      </>}
       {status === 'transcribing' && <><span className="voice-progress" aria-hidden="true" /><span>正在转写 · 已等待 {Math.floor(transcribeElapsed / 1000)} 秒</span><button type="button" onClick={() => cancel()}>取消</button></>}
-      {status === 'done' && <span>转写已加入快速记录{Number.isFinite(resultDuration) && resultDuration > 0 ? `（用时 ${(resultDuration / 1000).toFixed(1)} 秒）` : ''}。</span>}
+      {status === 'done' && <span>已转写</span>}
       {status === 'error' && <><span>{error}</span>{lastFile.current && <button type="button" onClick={() => void submit(lastFile.current!, ++generation.current)}>重试转写</button>}</>}
     </div>}
   </div>

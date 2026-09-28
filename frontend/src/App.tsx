@@ -17,6 +17,7 @@ import { CoreViews } from './CoreViews'
 import { formatBeijingDateTime } from './time'
 import { UNAUTHORIZED_EVENT } from './http'
 import { VoiceInput } from './VoiceInput'
+import { ThinkingLattice } from './MotionPrimitives'
 
 const HIDDEN_RECENT_SOURCES_KEY = 'homebuild-log-hidden-recent-sources'
 
@@ -41,6 +42,20 @@ interface PendingUpload {
   attachmentVersion: number
 }
 
+type SaveStatus = '' | 'saving' | 'saved' | 'error' | 'attachment-error'
+
+function attachmentTypeLabel(file: File): string {
+  if (file.type === 'application/pdf') return 'PDF'
+  const subtype = file.type.split('/')[1]
+  return subtype ? subtype.toUpperCase() : '文件'
+}
+
+function attachmentSizeLabel(size: number): string {
+  if (size < 1024) return `${size} 字节`
+  if (size < 1024 * 1024) return `${Math.ceil(size / 1024)} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
 export function App() {
   const [state, setState] = useState<ViewState>({ kind: 'loading' })
   const [password, setPassword] = useState('')
@@ -48,7 +63,7 @@ export function App() {
   const [sourceText, setSourceText] = useState('')
   const [sources, setSources] = useState<SourceEntry[]>([])
   const [sourceListError, setSourceListError] = useState('')
-  const [saveStatus, setSaveStatus] = useState('')
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('')
   const [attachment, setAttachment] = useState<File | null>(null)
   const textVersion = useRef(0)
   const attachmentVersion = useRef(0)
@@ -258,6 +273,15 @@ export function App() {
     setAttachment(file)
   }
 
+  const handleRemoveAttachment = () => {
+    // 手动移除也要递增版本，避免旧上传请求结束后清理新状态。
+    attachmentVersion.current += 1
+    setAttachment(null)
+    setAttachmentError('')
+    setPendingUpload(null)
+    if (attachmentInput.current) attachmentInput.current.value = ''
+  }
+
   const handleRetryAttachment = async () => {
     if (!pendingUpload) return
     setSaveStatus('saving')
@@ -287,7 +311,7 @@ export function App() {
         <section className="capture-workspace">
           <header className="capture-workspace__header"><p className="eyebrow">装修事实工作台</p><h2>记录装修现场</h2><p>先记下现场发生的事，需要时再整理成正式记录。</p></header>
           {sourceListError && <p className="source-error" role="alert">来源列表加载失败：{sourceListError}<button type="button" onClick={() => void refreshSources().catch(() => undefined)}>重试</button></p>}
-          <div className="capture-tabs" role="tablist" aria-label="录入工作区">
+          <div className="capture-tabs" role="tablist" aria-label="录入工作区" data-active={captureTab}>
             <button id="capture-tab-quick" className="capture-tab" type="button" role="tab" aria-selected={captureTab === 'quick'} aria-controls="capture-panel-quick" tabIndex={captureTab === 'quick' ? 0 : -1} onKeyDown={handleCaptureTabKeyDown} onClick={() => setCaptureTab('quick')}>快速记录</button>
             <button id="capture-tab-review" className="capture-tab" type="button" role="tab" aria-selected={captureTab === 'review'} aria-controls="capture-panel-review" tabIndex={captureTab === 'review' ? 0 : -1} onKeyDown={handleCaptureTabKeyDown} onClick={() => openReview()}>待整理</button>
           </div>
@@ -298,13 +322,17 @@ export function App() {
               <textarea className="source-input" placeholder="记录今天发生的事情…" value={sourceText} onChange={(e) => { textVersion.current += 1; setSourceText(e.target.value) }} rows={3} />
             </VoiceInput>
             <div className="source-actions">
-              <label className="attachment-field"><span className="sr-only">附件（可选，单个文件）</span><input ref={attachmentInput} type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)} /><span className="attachment-picker"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M7.5 10.5 12.6 5.4a3 3 0 0 1 4.2 4.2l-7.2 7.2a5 5 0 0 1-7.1-7.1l7.5-7.5" /></svg>选择图片或 PDF</span></label>
-              <button className="source-save" onClick={handleSaveSource} disabled={!sourceText.trim() || saveStatus === 'saving'}>{saveStatus === 'saving' ? '保存中…' : '保存记录'}</button>
+              <label className={`attachment-field${attachment ? ' is-selected' : ''}`}><span className="sr-only">附件（可选，单个文件）</span><input ref={attachmentInput} type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)} />{!attachment && <span className="attachment-picker"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M7.5 10.5 12.6 5.4a3 3 0 0 1 4.2 4.2l-7.2 7.2a5 5 0 0 1-7.1-7.1l7.5-7.5" /></svg>选择图片或 PDF</span>}</label>
+              <button className="source-save state-button" data-state={saveStatus || 'idle'} aria-busy={saveStatus === 'saving'} aria-label={saveStatus === 'saving' ? '正在保存记录' : saveStatus === 'saved' ? '记录已保存' : saveStatus === 'error' ? '重试保存记录' : '保存记录'} onClick={handleSaveSource} disabled={!sourceText.trim() || saveStatus === 'saving'}>{saveStatus === 'saving' && <ThinkingLattice compact />}<span className="state-button__label" aria-live="polite">{saveStatus === 'saving' ? '保存中…' : saveStatus === 'saved' ? '已保存' : saveStatus === 'error' ? '重试保存' : '保存记录'}</span></button>
             </div>
-            {attachment && <p className="attachment-name">已选择：{attachment.name}</p>}
-            {attachmentError && <p className="source-error">{attachmentError}</p>}
-            {saveStatus === 'saved' && <p className="source-saved">已保存</p>}
-            {saveStatus === 'error' && <p className="source-error">保存失败</p>}
+            {attachment && <div className="attachment-feedback" role="status" aria-label={`已选择附件：${attachment.name}`}>
+              <span className="attachment-feedback__icon" data-file-type={attachment.type === 'application/pdf' ? 'pdf' : 'image'} aria-hidden="true">{attachment.type === 'application/pdf' ? 'PDF' : '图'}</span>
+              <span className="attachment-feedback__details"><strong>{attachment.name}</strong><small>{attachmentTypeLabel(attachment)} · {attachmentSizeLabel(attachment.size)}</small></span>
+              <button className="attachment-feedback__replace" type="button" onClick={() => attachmentInput.current?.click()}>更换附件</button>
+              <button className="attachment-feedback__remove" type="button" onClick={handleRemoveAttachment}>移除附件</button>
+            </div>}
+            {attachmentError && <p className="source-error" role="alert">{attachmentError}</p>}
+            {saveStatus === 'error' && <p className="source-error" role="alert">保存失败</p>}
             {saveStatus === 'attachment-error' && pendingUpload && <button className="attachment-retry" type="button" onClick={handleRetryAttachment}>来源已保存，重试附件</button>}
             {lastSavedSourceId && saveStatus !== 'attachment-error' && <div className="capture-next-step"><span>原始记录已保存，整理可以稍后再做。</span><button type="button" onClick={() => openReview(lastSavedSourceId)}>去整理这条记录</button></div>}
           </div>

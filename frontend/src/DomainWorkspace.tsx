@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { Select } from './Select'
+import { ThinkingLattice } from './MotionPrimitives'
 import { useDropdownPosition } from './useDropdownPosition'
 
 import {
@@ -589,6 +590,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
   const [suggestions, setSuggestions] = useState<CandidateSuggestion[]>([])
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [confirming, setConfirming] = useState(false)
+  const [confirmationState, setConfirmationState] = useState<'idle' | 'confirming' | 'success' | 'error'>('idle')
   const confirmationInFlight = useRef(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [engineMode, setEngineMode] = useState<'auto' | 'mimo' | 'deepseek' | 'local'>('auto')
@@ -608,6 +610,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
     preserveManual = false,
     preserveDrafts = false,
   ) => {
+    setConfirmationState('idle')
     setBundle(nextBundle)
     setSuggestions((current) => {
       const currentByKey = new Map(current.map((item) => [item.key, item]))
@@ -778,6 +781,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
   ).length
 
   const updateSuggestion = (key: string, field: string, value: unknown) => {
+    setConfirmationState('idle')
     setHasUnsavedCandidateEdits(true)
     setSuggestions((current) => current.map((item) => item.key === key
       ? { ...item, payload: { ...item.payload, [field]: value } }
@@ -802,6 +806,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
   }
 
   const switchSuggestionType = (key: string, newType: RecordType) => {
+    setConfirmationState('idle')
     setHasUnsavedCandidateEdits(true)
     setSuggestions((current) => current.map((item) => {
       if (item.key !== key) return item
@@ -827,6 +832,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
   }
 
   const addManualSuggestion = () => {
+    setConfirmationState('idle')
     const key = `manual:${manualKeyCounter}`
     setManualKeyCounter((c) => c + 1)
     const newSuggestion: CandidateSuggestion = {
@@ -858,6 +864,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
   }
 
   const removeSuggestion = async (key: string) => {
+    setConfirmationState('idle')
     if (key.startsWith('manual:')) {
       setSuggestions((current) => current.filter((item) => item.key !== key))
       setSelectedKeys((current) => {
@@ -896,6 +903,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
     }
     confirmationInFlight.current = true
     setConfirming(true)
+    setConfirmationState('confirming')
     try {
       let confirmationMessage = '所选建议已保存为正式记录。'
       let manualFailed = false
@@ -952,9 +960,11 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
       setMessage(confirmationMessage)
       await refreshRecords()
       await refreshSourceRows(currentSourceId.current)
+      setConfirmationState(manualFailed ? 'error' : 'success')
     } catch (error: unknown) {
       // 失败时不重置本地编辑，方便用户修正后重试。
       setMessage(error instanceof Error ? error.message : '确认失败，已保留当前编辑内容。')
+      setConfirmationState('error')
     } finally {
       confirmationInFlight.current = false
       setConfirming(false)
@@ -1156,29 +1166,32 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
                 <option value="local">不使用 AI（本地规则）</option>
               </Select>
             </label>
-            <button
+            {analyzing ? <div className="ai-panel__thinking" role="status" aria-label="思考中…">
+              {/* 等待时用点阵直接接替分析按钮，避免同一状态出现两处提示。 */}
+              <ThinkingLattice />
+              <span>思考中…</span>
+            </div> : <button
               className="secondary-button ai-panel__action-btn"
               type="button"
-              disabled={!sourceId || analyzing}
+              disabled={!sourceId}
               onClick={() => {
                 if (hasUnsavedCandidateEdits && !window.confirm('重新分析会覆盖当前未保存的候选编辑，确定继续吗？')) return
                 void loadSuggestions(sourceId, true).catch((error: unknown) => setMessage(error instanceof Error ? error.message : '分析失败'))
               }}
             >
-              {analyzing ? '分析中…' : suggestions.length > 0 ? '重新分析' : '分析'}
-            </button>
+              {suggestions.length > 0 ? '重新分析' : '分析'}
+            </button>}
           </div>
         </div>
-        {analyzing && <p className="analysis-state" role="status">{engineMode === 'local' ? '本地规则正在生成建议…' : engineMode === 'auto' ? 'AI 正在分析…主备引擎共享 30 秒预算，失败后会提供本地规则建议。' : '正在使用所选模型分析，失败时会显示错误。'}</p>}
         {bundle?.fallback_reason && <p className="fallback-notice">AI 暂不可用，本地规则已提供建议。原因：{bundle.fallback_reason}</p>}
         {bundle && <p className="candidate-summary" role="status">待处理 {bundleCounts.pending} 条 · 已生成 {bundleCounts.confirmed} 条 · 已忽略 {bundleCounts.ignored} 条</p>}
         {!analyzing && sourceId && bundle && bundleCounts.pending === 0 && bundleCounts.ignored > 0 && bundleCounts.confirmed === 0 && <p className="muted">候选均已忽略，可按需重新分析。</p>}
         {!analyzing && sourceId && (!bundle || bundle.suggestions.length === 0) && <p className="muted">暂未识别，原始文字已经保留。</p>}
         {suggestions.length > 0 && <div className={`candidate-review-layout${mobileDetailOpen ? ' is-detail-open' : ''}`}>
           <div className="candidate-review-list" aria-label="候选记录列表">
-            {suggestions.map((item) => {
+            {suggestions.map((item, motionIndex) => {
               const highRisk = ['ledger', 'issue', 'decision'].includes(item.record_type)
-              return <button key={item.key} className="candidate-review-item" type="button" aria-current={displayedSuggestionKey === item.key ? 'true' : undefined} onClick={() => openSuggestion(item.key)}>
+              return <button key={item.key} className="candidate-review-item candidate-motion-item" style={{ '--motion-index': Math.min(motionIndex, 7) } as CSSProperties} type="button" aria-current={displayedSuggestionKey === item.key ? 'true' : undefined} onClick={() => openSuggestion(item.key)}>
                 <span className="candidate-review-item__top"><strong>{item.type_label} · {String(item.payload.title || item.summary || '手工记录')}</strong><span>{item.confirmed_record_id ? '已生成' : selectedKeys.has(item.key) ? '已选择' : '未选择'}</span></span>
                 <span className="candidate-review-item__evidence">原文：{item.evidence}</span>
                 <span className="candidate-review-item__meta">{item.confirmed_record_id ? '用户已确认' : `可信程度：${item.certainty_label}`}{highRisk && !item.confirmed_record_id ? ' · 需重点核对' : ''}</span>
@@ -1220,19 +1233,22 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
             : ''
           const detailD = recordType === 'measurement' ? String((normalizeMeasurementValues(payload.values)[2]?.value) ?? '') : ''
 
-          return <article className={`record-card suggestion-card${highRisk ? ' suggestion-card--risk' : ''}`} key={suggestion.key} hidden={displayedSuggestionKey !== suggestion.key}>
+          const checked = confirmed || selectedKeys.has(suggestion.key)
+          return <article className={`record-card suggestion-card${highRisk ? ' suggestion-card--risk' : ''}${checked ? ' is-selected' : ''}`} data-selection-state={confirmed ? 'confirmed' : checked ? 'selected' : 'unselected'} key={suggestion.key} hidden={displayedSuggestionKey !== suggestion.key}>
             <div className="suggestion-card__header">
-              <label>
+              <label className={`candidate-check${checked ? ' is-checked' : ''}${confirmed ? ' is-disabled' : ''}`}>
                 <input
+                  className="candidate-check__input"
                   type="checkbox"
-                  checked={confirmed || selectedKeys.has(suggestion.key)}
+                  checked={checked}
                   disabled={confirmed}
-                  onChange={(event) => { setHasUnsavedCandidateEdits(true); setSelectedKeys((current) => {
+                  onChange={(event) => { setConfirmationState('idle'); setHasUnsavedCandidateEdits(true); setSelectedKeys((current) => {
                     const next = new Set(current)
                     if (event.target.checked) next.add(suggestion.key); else next.delete(suggestion.key)
                     return next
                   }) }}
                 />
+                <span className="candidate-check__visual" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><path d="m3.5 8 3 3 6-6" /></svg></span>
                 <strong>{suggestion.type_label}：{suggestion.summary}</strong>
               </label>
               {!confirmed && <button className="suggestion-remove" type="button" onClick={() => void removeSuggestion(suggestion.key)}>移除</button>}
@@ -1335,7 +1351,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
           </div>
         </div>}
         {suggestions.length > 0 && <div className="suggestion-actions candidate-review-actions"><span>已选择 {suggestions.filter((item) => selectedKeys.has(item.key) && !item.confirmed_record_id).length} 条待确认候选</span>
-          <button className="source-save" type="button" disabled={confirming || !hasSelectedUnconfirmed} onClick={() => void confirmSelected()}>{confirming ? '正在确认…' : '确认所选'}</button>
+          <button className="source-save state-button" type="button" data-state={confirmationState} aria-busy={confirming} aria-label={confirming ? '正在确认…' : '确认所选'} disabled={confirming || !hasSelectedUnconfirmed} onClick={() => void confirmSelected()}>{confirming && <ThinkingLattice compact />}<span className="state-button__label" aria-live="polite">{confirming ? '正在确认…' : '确认所选'}</span></button>
           <button className="add-manual-suggestion" type="button" onClick={addManualSuggestion}>+ 添加手工记录</button>
         </div>}
         {suggestions.length === 0 && !analyzing && sourceId && <div className="suggestion-actions">

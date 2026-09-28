@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { Select } from './Select'
 import { LazyEChart as EChart } from './LazyEChart'
 import { chartCategoryColors, chartSummary, donutOption, horizontalBarOption, lineOption } from './chartConfig'
@@ -21,6 +21,39 @@ import { recordStatusLabel, recordTypeLabels } from './recordLabels'
 import { formatBeijingDateTime, formatCalendarDate } from './time'
 
 const types = Object.entries(recordTypeLabels)
+
+function useSlidingTabIndicator(activeValue: string) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [style, setStyle] = useState<CSSProperties>({})
+  useLayoutEffect(() => {
+    const update = () => {
+      const activeTab = ref.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      if (!activeTab) return
+      setStyle({
+        '--tab-indicator-left': `${activeTab.offsetLeft}px`,
+        '--tab-indicator-width': `${activeTab.offsetWidth}px`,
+      } as CSSProperties)
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [activeValue])
+  return { ref, style }
+}
+
+function handleTablistKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+  const currentIndex = tabs.indexOf(event.target as HTMLButtonElement)
+  if (currentIndex < 0 || tabs.length === 0) return
+  event.preventDefault()
+  const nextIndex = event.key === 'Home' ? 0
+    : event.key === 'End' ? tabs.length - 1
+      : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+  tabs[nextIndex].focus()
+  tabs[nextIndex].click()
+}
+
 function loadMessage(loading: boolean, error: string, empty: boolean, hint: string) {
   if (loading) return <p className="view-state" role="status">正在加载分析…</p>
   if (error) return <p className="view-state view-state--error" role="alert">{error}</p>
@@ -29,7 +62,7 @@ function loadMessage(loading: boolean, error: string, empty: boolean, hint: stri
 }
 
 function RecordCard({ record, onOpen }: { record: ProjectionRecord; onOpen: (id: string) => void }) {
-  return <button type="button" className="projection-card" onClick={() => onOpen(record.id)}>
+  return <button type="button" className="projection-card immersive-tilt immersive-glass" onClick={() => onOpen(record.id)}>
     <span className="record-type-tag">{recordTypeLabels[record.record_type]}</span>
     <strong>{record.title}</strong>
     <span>{recordStatusLabel(record.record_type, record.status, record.ledger_kind)}</span>
@@ -77,6 +110,7 @@ export function RecordsAnalyticsView({ onOpen, refreshRevision }: { onOpen: (id:
 
   const [filterError, setFilterError] = useState('')
   const [filterRetry, setFilterRetry] = useState(0)
+  const typeTabs = useSlidingTabIndicator(recordType)
   useEffect(() => {
     let active = true
     // 筛选项加载失败要显示重试入口；卸载后忽略迟到的响应。
@@ -103,7 +137,7 @@ export function RecordsAnalyticsView({ onOpen, refreshRevision }: { onOpen: (id:
   const clear = () => { setStatus(''); setSpaceId(''); setStageId(''); setDateFrom(''); setDateTo('') }
   return <section className="view-panel"><header><p className="eyebrow">八类正式记录</p><h2>记录分析</h2><p>从分布和趋势进入同一批真实记录。</p></header>
     {filterError && <p className="view-state view-state--error" role="alert">筛选项加载失败：{filterError} <button type="button" onClick={() => setFilterRetry((value) => value + 1)}>重试</button></p>}
-    <div className="type-tabs" role="tablist" aria-label="记录类型"><button type="button" className={!recordType ? 'is-active' : ''} onClick={() => { setRecordType(''); setStatus('') }}>全部</button>{types.map(([key, label]) => <button type="button" key={key} className={recordType === key ? 'is-active' : ''} onClick={() => { setRecordType(key); setStatus('') }}>{label}</button>)}</div>
+    <div ref={typeTabs.ref} className="type-tabs" role="tablist" aria-label="记录类型" style={typeTabs.style} onKeyDown={handleTablistKeyDown}><button type="button" role="tab" aria-selected={!recordType} tabIndex={!recordType ? 0 : -1} className={!recordType ? 'is-active' : ''} onClick={() => { setRecordType(''); setStatus('') }}>全部</button>{types.map(([key, label]) => <button type="button" role="tab" aria-selected={recordType === key} tabIndex={recordType === key ? 0 : -1} key={key} className={recordType === key ? 'is-active' : ''} onClick={() => { setRecordType(key); setStatus('') }}>{label}</button>)}</div>
     <div className="filter-grid"><label className="field-stack"><span>空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><label className="field-stack"><span>装修阶段</span><Select value={stageId} onChange={(event) => setStageId(event.target.value)}><option value="">全部阶段</option>{stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={clear}>清除筛选</button></div>
     {loadMessage(loading, error, data?.summary.total === 0, '录入并确认正式记录后，可按类型、空间和阶段查看趋势。')}
     {data && data.summary.total > 0 && <><div className="summary-grid"><article className="summary-card summary-card--info"><span>符合条件的记录</span><strong>{data.summary.total}</strong></article><article className="summary-card"><span>日期待补充</span><strong>{data.summary.unknown_date_count}</strong></article>{typeof data.specific.overdue_count === 'number' && <article className="summary-card summary-card--warning"><span>逾期待办</span><strong>{data.specific.overdue_count}</strong></article>}</div><div className="chart-grid"><EChart title="时间趋势" description="按业务发生日期观察记录变化" kind="line" option={lineOption(data.summary.time_trend)} summary={chartSummary('时间趋势', data.summary.time_trend)} /><EChart title="状态分布" description="点击状态可筛选下方记录" kind="donut" option={donutOption(data.summary.status_distribution)} summary={chartSummary('状态分布', data.summary.status_distribution)} onDataClick={setStatus} selectedKey={status} />{data.specific.distribution && <EChart title="类型专属分布" description="当前记录类型的核心分类对比" kind="bar" option={horizontalBarOption(data.specific.distribution)} summary={chartSummary('类型专属分布', data.specific.distribution)} />}</div>{status && <button type="button" className="clear-filter" onClick={() => setStatus('')}>当前按状态筛选，点击取消</button>}<section className="projection-section"><h3>对应记录</h3><div className="card-grid">{data.records.map((record) => <RecordCard key={record.id} record={record} onOpen={onOpen} />)}</div></section></>}

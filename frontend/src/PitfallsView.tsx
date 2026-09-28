@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from 'react'
 
 import pitfallRegretDiorama from './assets/pitfall-regret-diorama.webp'
 import {
@@ -17,6 +17,11 @@ import {
 import { beijingToday, formatCalendarDate } from './time'
 
 type Filter = 'all' | 'unresolved' | 'resolved'
+const filters: Filter[] = ['all', 'unresolved', 'resolved']
+
+function filterLabel(value: Filter): string {
+  return value === 'all' ? '全部' : value === 'unresolved' ? '未处理' : '已处理'
+}
 
 function PitfallRegretTheme() {
   return <div className="pitfall-capture__theme">
@@ -129,6 +134,35 @@ export function PitfallsView() {
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisError, setAnalysisError] = useState('')
   const [revision, setRevision] = useState(0)
+  const filterTabsRef = useRef<HTMLDivElement>(null)
+  const [filterIndicatorStyle, setFilterIndicatorStyle] = useState<CSSProperties>({})
+
+  useLayoutEffect(() => {
+    const update = () => {
+      const activeTab = filterTabsRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+      if (!activeTab) return
+      setFilterIndicatorStyle({
+        '--tab-indicator-left': `${activeTab.offsetLeft}px`,
+        '--tab-indicator-width': `${activeTab.offsetWidth}px`,
+      } as CSSProperties)
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [filter])
+
+  const handleFilterKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+    const currentIndex = tabs.indexOf(event.target as HTMLButtonElement)
+    if (currentIndex < 0 || tabs.length === 0) return
+    event.preventDefault()
+    const nextIndex = event.key === 'Home' ? 0
+      : event.key === 'End' ? tabs.length - 1
+        : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+    tabs[nextIndex].focus()
+    tabs[nextIndex].click()
+  }
 
   useEffect(() => {
     let active = true
@@ -194,7 +228,7 @@ export function PitfallsView() {
 
     <div className="pitfall-toolbar">
       <div className="pitfall-summary" aria-label="踩坑记录摘要"><span><strong>{summary.total}</strong> 全部</span><span><strong>{summary.unresolved}</strong> 未处理</span><span><strong>{summary.resolved}</strong> 已处理</span></div>
-      <div className="segmented-control" aria-label="筛选踩坑记录">{(['all', 'unresolved', 'resolved'] as Filter[]).map((value) => <button key={value} type="button" className={filter === value ? 'is-active' : ''} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === 'all' ? '全部' : value === 'unresolved' ? '未处理' : '已处理'}</button>)}</div>
+      <div ref={filterTabsRef} className="segmented-control" role="tablist" aria-label="筛选踩坑记录" style={filterIndicatorStyle} onKeyDown={handleFilterKeyDown}>{filters.map((value) => <button key={value} type="button" role="tab" aria-selected={filter === value} tabIndex={filter === value ? 0 : -1} className={filter === value ? 'is-active' : ''} onClick={() => setFilter(value)}>{filterLabel(value)}</button>)}</div>
     </div>
 
     {analysisError && <div className="analysis-message analysis-message--error" role="alert"><strong>分析未完成</strong><p>{analysisError}</p><button type="button" className="secondary-button" onClick={runAnalysis}>重试</button></div>}
@@ -205,7 +239,7 @@ export function PitfallsView() {
     {loading && <div className="empty-state" role="status"><h3>正在整理时间记录…</h3><p>稍等片刻。</p></div>}
     {!loading && !loadError && items.length === 0 && <div className="empty-state"><h3>{summary.total === 0 ? '还没有踩坑记录' : '当前筛选下没有记录'}</h3><p>{summary.total === 0 ? '从上方快速记下第一条，之后可以持续追加处理过程。' : '切换筛选条件即可查看其他记录。'}</p></div>}
 
-    {!loading && !loadError && items.length > 0 && <div className="pitfall-timeline">{items.map((item) => <article className="pitfall-entry" key={item.id}>
+    {!loading && !loadError && items.length > 0 && <div className="pitfall-timeline">{items.map((item, motionIndex) => <article className="pitfall-entry timeline-motion-item" data-motion-index={motionIndex} style={{ '--motion-index': motionIndex } as CSSProperties} key={item.id}>
       <div className="pitfall-entry__date"><time dateTime={item.occurred_date}>{formatCalendarDate(item.occurred_date)}</time></div>
       <div className="pitfall-entry__body">
         <header><span className={`status-tag status-tag--${item.status === 'resolved' ? 'success' : 'warning'}`}>{item.status === 'resolved' ? '已处理' : '未处理'}</span><div className="inline-actions"><button type="button" className="text-button" onClick={() => { setEditingId(item.id); setAddingToId('') }}>修改</button><button type="button" className="text-button text-button--danger" onClick={() => void removePitfall(item)}>删除</button></div></header>

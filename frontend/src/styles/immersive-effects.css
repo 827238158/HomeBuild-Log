@@ -1,0 +1,217 @@
+/* 工作区氛围层不参与交互，也不改变业务内容的层级和命中区域。 */
+.workspace-main {
+  position: relative;
+  isolation: isolate;
+}
+
+.workspace-atmosphere {
+  position: fixed;
+  z-index: 0;
+  inset: 0 0 0 224px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.workspace-main > .workspace-content {
+  position: relative;
+  z-index: 1;
+}
+
+.workspace-atmosphere__particles {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.workspace-atmosphere__particles {
+  opacity: .82;
+}
+
+/* 液态玻璃为显式增强类，避免让表单和语义状态卡失去实色对比。 */
+.immersive-glass,
+.workspace-topbar,
+.capture-tabs,
+.filter-grid,
+.type-tabs,
+.segmented-control,
+.candidate-review-list,
+.candidate-review-detail {
+  border: 1px solid color-mix(in srgb, var(--surface) 72%, var(--primary) 28%);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 82%), rgb(244 249 255 / 62%)),
+    color-mix(in srgb, var(--surface) 76%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 86%),
+    0 12px 34px rgb(15 23 42 / 9%);
+  backdrop-filter: saturate(150%) blur(18px);
+  -webkit-backdrop-filter: saturate(150%) blur(18px);
+}
+
+/* 装饰只用于展示卡；不覆盖抽屉、顶栏或表单控件的定位与滚动规则。 */
+.projection-card.immersive-glass {
+  position: relative;
+  overflow: hidden;
+}
+
+.projection-card.immersive-glass::after {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 12% 4%, rgb(255 255 255 / 76%), transparent 31%),
+    linear-gradient(115deg, transparent 26%, rgb(255 255 255 / 24%) 46%, transparent 67%);
+  content: '';
+  pointer-events: none;
+  background-size: 100% 100%, 220% 100%;
+  animation: glass-sheen-drift 8s ease-in-out infinite alternate;
+}
+
+.projection-card.immersive-glass > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes glass-sheen-drift {
+  from { background-position: 0 0, 130% 0; }
+  to { background-position: 0 0, -90% 0; }
+}
+
+/* 摘要卡保留风险、警告等语义底色，只叠加玻璃的透明度与景深。 */
+.summary-card {
+  background: rgb(255 255 255 / 74%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 82%), 0 12px 30px rgb(15 23 42 / 8%);
+  backdrop-filter: saturate(145%) blur(16px);
+  -webkit-backdrop-filter: saturate(145%) blur(16px);
+}
+
+.summary-card--risk { background: color-mix(in srgb, var(--risk-soft) 82%, transparent); }
+.summary-card--warning { background: color-mix(in srgb, var(--warning-soft) 82%, transparent); }
+.summary-card--success { background: color-mix(in srgb, var(--success-soft) 82%, transparent); }
+.summary-card--info { background: color-mix(in srgb, var(--primary-soft) 76%, transparent); }
+
+.immersive-glass--strong {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 91%), rgb(239 247 255 / 72%)),
+    color-mix(in srgb, var(--surface) 86%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 94%),
+    0 20px 52px rgb(15 23 42 / 14%);
+  backdrop-filter: saturate(165%) blur(22px);
+  -webkit-backdrop-filter: saturate(165%) blur(22px);
+}
+
+/* 添加该类即可由 WorkspaceAtmosphere 委托更新倾斜变量。 */
+.immersive-tilt {
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  --tilt-lift: 0px;
+  transform: perspective(900px) translateY(var(--tilt-lift)) rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
+  transform-style: preserve-3d;
+  will-change: transform;
+  transition: transform 220ms var(--ease-out), border-color 160ms ease, box-shadow 220ms var(--ease-out);
+}
+
+.immersive-tilt[data-tilting] {
+  box-shadow: var(--shadow-md);
+  transition: transform 70ms linear, border-color 160ms ease, box-shadow 180ms ease;
+}
+
+.immersive-tilt__content {
+  transform: translateZ(8px);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .immersive-glass,
+  .immersive-glass--strong,
+  .workspace-topbar,
+  .capture-tabs,
+  .filter-grid,
+  .type-tabs,
+  .segmented-control,
+  .candidate-review-list,
+  .candidate-review-detail,
+  .summary-card {
+    background: var(--surface);
+  }
+}
+
+@media (max-width: 900px) {
+  .workspace-atmosphere {
+    left: 0;
+  }
+
+  .workspace-atmosphere__particles {
+    opacity: .58;
+  }
+
+  .immersive-glass,
+  .immersive-glass--strong,
+  .workspace-topbar,
+  .capture-tabs,
+  .filter-grid,
+  .type-tabs,
+  .segmented-control,
+  .candidate-review-list,
+  .candidate-review-detail,
+  .summary-card {
+    backdrop-filter: saturate(135%) blur(10px);
+    -webkit-backdrop-filter: saturate(135%) blur(10px);
+  }
+}
+
+@media (hover: none), (pointer: coarse), (prefers-reduced-motion: reduce) {
+  .immersive-tilt,
+  .immersive-tilt[data-tilting],
+  .immersive-tilt__content {
+    transform: none;
+    will-change: auto;
+    transition: border-color 160ms ease, box-shadow 180ms ease;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-atmosphere__particles {
+    opacity: .46;
+  }
+
+  .immersive-glass::after,
+  .workspace-topbar::after,
+  .capture-tabs::after,
+  .filter-grid::after,
+  .type-tabs::after,
+  .segmented-control::after,
+  .candidate-review-list::after,
+  .candidate-review-detail::after {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .immersive-glass,
+  .immersive-glass--strong,
+  .workspace-topbar,
+  .capture-tabs,
+  .filter-grid,
+  .type-tabs,
+  .segmented-control,
+  .candidate-review-list,
+  .candidate-review-detail,
+  .summary-card {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .immersive-glass::after,
+  .workspace-topbar::after,
+  .capture-tabs::after,
+  .filter-grid::after,
+  .type-tabs::after,
+  .segmented-control::after,
+  .candidate-review-list::after,
+  .candidate-review-detail::after {
+    display: none;
+  }
+}

@@ -4,6 +4,8 @@
 @import './styles/views.css';
 @import './styles/pitfalls.css';
 @import './styles/responsive.css';
+@import './styles/interaction-motion.css';
+@import './styles/immersive-effects.css';
 
 /* 旧规则作为迁移兼容层保留；未分层的新设计规范始终拥有最终优先级。 */
 @layer legacy {

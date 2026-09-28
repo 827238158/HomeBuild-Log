@@ -56,13 +56,17 @@ describe('App', () => {
     const input = await screen.findByPlaceholderText('记录今天发生的事情…') as HTMLTextAreaElement
     const quickTab = screen.getByRole('tab', { name: '快速记录' })
     const reviewTab = screen.getByRole('tab', { name: '待整理' })
+    const tabs = screen.getByRole('tablist', { name: '录入工作区' })
     expect(quickTab.getAttribute('aria-selected')).toBe('true')
+    expect(tabs.getAttribute('data-active')).toBe('quick')
     expect(document.getElementById('capture-panel-review')?.hidden).toBe(true)
     fireEvent.change(input, { target: { value: '尚未保存的现场情况' } })
     fireEvent.click(reviewTab)
     expect(reviewTab.getAttribute('aria-selected')).toBe('true')
+    expect(tabs.getAttribute('data-active')).toBe('review')
     expect(document.getElementById('capture-panel-quick')?.hidden).toBe(true)
     fireEvent.click(quickTab)
+    expect(tabs.getAttribute('data-active')).toBe('quick')
     expect(input.value).toBe('尚未保存的现场情况')
     expect(document.getElementById('capture-panel-quick')?.hidden).toBe(false)
   })
@@ -78,12 +82,52 @@ describe('App', () => {
     render(<App />)
     const input = await screen.findByPlaceholderText('记录今天发生的事情…')
     fireEvent.change(input, { target: { value: '原草稿' } })
-    fireEvent.click(screen.getByText('保存记录'))
+    const saveButton = screen.getByRole('button', { name: '保存记录' })
+    expect(saveButton.getAttribute('data-state')).toBe('idle')
+    fireEvent.click(saveButton)
+    expect(screen.getByRole('button', { name: '正在保存记录' }).getAttribute('data-state')).toBe('saving')
+    expect(screen.getByRole('button', { name: '正在保存记录' }).getAttribute('aria-busy')).toBe('true')
     fireEvent.change(input, { target: { value: '中间编辑' } })
     fireEvent.change(input, { target: { value: nextText } })
     await act(async () => complete({ ok: true, json: async () => ({ id: 'saved', original_text: '原草稿', captured_at: '2026-09-21T00:00:00Z' }) }))
     expect((input as HTMLTextAreaElement).value).toBe(nextText)
     expect(await screen.findByText('已保存')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '记录已保存' }).getAttribute('data-state')).toBe('saved')
+  })
+
+  it('附件选中后显示类型、大小并可移除', async () => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => Promise.resolve({
+      ok: true,
+      json: async () => String(input).endsWith('/sources') ? [] : { status: 'ok' },
+    })))
+    render(<App />)
+
+    const fileInput = await screen.findByLabelText(/附件/)
+    fireEvent.change(fileInput, { target: { files: [new File(['1234'], '报价单.pdf', { type: 'application/pdf' })] } })
+
+    const feedback = screen.getByRole('status', { name: '已选择附件：报价单.pdf' })
+    expect(feedback.textContent).toContain('报价单.pdf')
+    expect(feedback.textContent).toContain('PDF · 4 字节')
+    expect(screen.getByText('更换附件')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '移除附件' }))
+    expect(screen.queryByRole('status', { name: /已选择附件/ })).toBeNull()
+    expect(screen.getByText('选择图片或 PDF')).toBeTruthy()
+    expect((fileInput as HTMLInputElement).value).toBe('')
+  })
+
+  it('附件校验失败时通过 alert 说明原因', async () => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => Promise.resolve({
+      ok: true,
+      json: async () => String(input).endsWith('/sources') ? [] : { status: 'ok' },
+    })))
+    render(<App />)
+
+    const fileInput = await screen.findByLabelText(/附件/)
+    fireEvent.change(fileInput, { target: { files: [new File(['text'], '记录.txt', { type: 'text/plain' })] } })
+    expect(screen.getByRole('alert').textContent).toContain('仅支持 JPG、PNG、WebP、HEIC 和 PDF')
+    expect(screen.queryByRole('status', { name: /已选择附件/ })).toBeNull()
   })
 
   it('保存失败时保留输入并停留在快速记录', async () => {
@@ -130,7 +174,7 @@ describe('App', () => {
     fireEvent.change(fileInput, { target: { files: [new File(['new'], 'new.png', { type: 'image/png' })] } })
     await act(async () => complete({ ok: true, json: async () => ({ id: 'attachment' }) }))
     expect(await screen.findByText('已保存')).toBeTruthy()
-    expect(screen.getByText('已选择：new.png')).toBeTruthy()
+    expect(screen.getByRole('status', { name: '已选择附件：new.png' })).toBeTruthy()
     expect((input as HTMLTextAreaElement).value).toBe('下一条来源')
     const uploads = fetchMock.mock.calls.filter(([url]) => String(url).includes('/attachments'))
     expect(uploads).toHaveLength(retry ? 2 : 1)

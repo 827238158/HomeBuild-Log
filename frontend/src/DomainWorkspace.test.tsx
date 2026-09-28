@@ -121,6 +121,19 @@ beforeEach(() => {
 })
 
 describe('DomainWorkspace', () => {
+  it('分析等待时显示简短中文点阵状态，结束后展示候选结果', async () => {
+    let finish!: (bundle: typeof explicitBundle) => void
+    vi.mocked(api.getLatestCandidateBundle).mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    render(<TestDomainWorkspace refreshKey={0} />)
+    const thinking = await screen.findByRole('status', { name: '思考中…' })
+    expect(thinking.closest('.ai-panel__actions')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '分析中…' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '重新分析' })).toBeNull()
+    await act(async () => finish(explicitBundle))
+    expect(await screen.findByText('问题：主卧门口地砖有一处破裂')).toBeTruthy()
+    expect(screen.queryByRole('status', { name: '思考中…' })).toBeNull()
+  })
+
   it.each(['选择来源', '外部切换'])('%s 后旧来源草稿不能覆盖新来源', async (mode) => {
     vi.mocked(api.listSources).mockResolvedValue([source, anotherSource])
     const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
@@ -434,11 +447,19 @@ describe('DomainWorkspace', () => {
     expect(await screen.findByText('问题：主卧门口地砖有一处破裂')).toBeTruthy()
     const checkbox = screen.getByRole('checkbox') as HTMLInputElement
     const confirmButton = screen.getByRole('button', { name: '确认所选' }) as HTMLButtonElement
+    const candidateCard = checkbox.closest('article')!
     expect(checkbox.checked).toBe(true)
+    expect(checkbox.classList.contains('candidate-check__input')).toBe(true)
+    expect(checkbox.parentElement?.classList.contains('is-checked')).toBe(true)
+    expect(candidateCard.getAttribute('data-selection-state')).toBe('selected')
+    expect(confirmButton.getAttribute('data-state')).toBe('idle')
+    expect(confirmButton.getAttribute('aria-busy')).toBe('false')
     expect(confirmButton.disabled).toBe(false)
     fireEvent.click(checkbox)
+    expect(candidateCard.getAttribute('data-selection-state')).toBe('unselected')
     expect(confirmButton.disabled).toBe(true)
     fireEvent.click(checkbox)
+    expect(candidateCard.getAttribute('data-selection-state')).toBe('selected')
     expect(confirmButton.disabled).toBe(false)
     fireEvent.change(screen.getAllByText('标题')[0].closest('label')!.querySelector('input')!, {
       target: { value: '主卧地砖破裂' },
@@ -449,6 +470,7 @@ describe('DomainWorkspace', () => {
     expect(vi.mocked(api.confirmCandidateBundle).mock.calls[0][2][0]).toMatchObject({
       key: 'issue:1', payload: { title: '主卧地砖破裂' },
     })
+    await waitFor(() => expect(confirmButton.getAttribute('data-state')).toBe('success'))
   })
 
   it('候选摘要列表切换时只展示一条详情并保留上一条编辑', async () => {
@@ -747,6 +769,7 @@ describe('DomainWorkspace', () => {
     expect(await screen.findByText('整批未保存')).toBeTruthy()
     expect((titleInput as HTMLInputElement).value).toBe('保留这个标题')
     expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByRole('button', { name: '确认所选' }).getAttribute('data-state')).toBe('error')
   })
 
   it('添加的手工记录可单独移除且不影响提交', async () => {
