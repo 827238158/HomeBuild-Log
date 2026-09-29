@@ -75,26 +75,27 @@
 .capture-tabs {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  width: min(100%, 288px);
+  grid-template-columns: repeat(2, 1fr);
+  width: fit-content;
+  max-width: 100%;
   gap: 0;
-  padding: 4px;
-  margin-bottom: 24px;
-  border: 1px solid var(--border);
+  padding: 2px;
+  margin-bottom: 16px;
+  border: 0;
   border-radius: var(--radius-sm);
   background: var(--surface-muted);
 }
 
 .capture-tabs::before {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  width: calc((100% - 8px) / 2);
-  border: 1px solid var(--border-strong);
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 2);
+  border: 0;
   border-radius: 6px;
   background: var(--surface);
-  box-shadow: 0 1px 3px rgb(31 35 40 / 8%);
+  box-shadow: none;
   content: '';
   pointer-events: none;
   transition: transform 240ms var(--ease-out);
@@ -107,14 +108,15 @@
 .capture-tab {
   position: relative;
   z-index: 1;
-  min-height: 44px;
-  padding: 8px 12px;
+  min-height: 28px;
+  padding: 4px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--ink-muted);
-  font-size: .95rem;
-  font-weight: 600;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
 }
 
 .capture-tab:hover {
@@ -1111,3 +1113,10 @@
 .run-row small {
   color: var(--ink-muted);
 }
+
+/* 计算说明独立于金额卡按钮，支持键盘展开且不会触发明细。 */
+.ledger-calculation-help { margin: -8px 0 20px; color: var(--ink-muted); font-size: .8rem; }
+.ledger-calculation-help summary { cursor: pointer; width: fit-content; }
+.ledger-calculation-help summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.ledger-calculation-help p { margin: 8px 0 0; }
+@media (pointer: coarse) { .capture-tab { min-height: 44px; } }

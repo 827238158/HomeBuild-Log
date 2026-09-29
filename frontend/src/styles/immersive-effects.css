@@ -31,7 +31,6 @@
 /* 液态玻璃为显式增强类，避免让表单和语义状态卡失去实色对比。 */
 .immersive-glass,
 .workspace-topbar,
-.capture-tabs,
 .filter-grid,
 .type-tabs,
 .segmented-control,
@@ -126,7 +125,6 @@
   .immersive-glass,
   .immersive-glass--strong,
   .workspace-topbar,
-  .capture-tabs,
   .filter-grid,
   .type-tabs,
   .segmented-control,
@@ -149,7 +147,6 @@
   .immersive-glass,
   .immersive-glass--strong,
   .workspace-topbar,
-  .capture-tabs,
   .filter-grid,
   .type-tabs,
   .segmented-control,
@@ -178,7 +175,6 @@
 
   .immersive-glass::after,
   .workspace-topbar::after,
-  .capture-tabs::after,
   .filter-grid::after,
   .type-tabs::after,
   .segmented-control::after,
@@ -192,7 +188,6 @@
   .immersive-glass,
   .immersive-glass--strong,
   .workspace-topbar,
-  .capture-tabs,
   .filter-grid,
   .type-tabs,
   .segmented-control,
@@ -206,7 +201,6 @@
 
   .immersive-glass::after,
   .workspace-topbar::after,
-  .capture-tabs::after,
   .filter-grid::after,
   .type-tabs::after,
   .segmented-control::after,

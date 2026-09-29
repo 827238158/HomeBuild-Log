@@ -222,7 +222,7 @@ export function PitfallsView() {
   }
 
   return <section className="view-panel pitfalls-page">
-    <header className="pitfalls-page__header"><div><p className="eyebrow">独立手工日志</p><h2>踩坑记录</h2></div><button type="button" className="secondary-button" disabled={analyzing || summary.total === 0} onClick={runAnalysis}>{analyzing ? 'AI 分析中…' : '一键分析全部'}</button></header>
+    <header className="pitfalls-page__header"><div><h2>踩坑记录</h2></div><button type="button" className="secondary-button" disabled={analyzing || summary.total === 0} onClick={runAnalysis}>{analyzing ? 'AI 分析中…' : '一键分析全部'}</button></header>
 
     <section className="pitfall-capture" aria-labelledby="pitfall-capture-title"><PitfallRegretTheme /><PitfallForm onSaved={refresh} /></section>
 

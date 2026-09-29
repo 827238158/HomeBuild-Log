@@ -309,7 +309,7 @@ export function App() {
     return <main className="app-workspace">
       <CoreViews onLogout={handleLogout}>
         <section className="capture-workspace">
-          <header className="capture-workspace__header"><p className="eyebrow">装修事实工作台</p><h2>记录装修现场</h2><p>先记下现场发生的事，需要时再整理成正式记录。</p></header>
+          <header className="capture-workspace__header"><h2>记录装修现场</h2></header>
           {sourceListError && <p className="source-error" role="alert">来源列表加载失败：{sourceListError}<button type="button" onClick={() => void refreshSources().catch(() => undefined)}>重试</button></p>}
           <div className="capture-tabs" role="tablist" aria-label="录入工作区" data-active={captureTab}>
             <button id="capture-tab-quick" className="capture-tab" type="button" role="tab" aria-selected={captureTab === 'quick'} aria-controls="capture-panel-quick" tabIndex={captureTab === 'quick' ? 0 : -1} onKeyDown={handleCaptureTabKeyDown} onClick={() => setCaptureTab('quick')}>快速记录</button>

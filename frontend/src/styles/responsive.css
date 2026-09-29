@@ -226,8 +226,9 @@
   }
 
   .capture-tabs {
-    width: min(100%, 288px);
-    margin-bottom: 18px;
+    width: fit-content;
+    max-width: 100%;
+    margin-bottom: 16px;
   }
 
   .capture-tab {

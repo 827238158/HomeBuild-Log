@@ -55,7 +55,7 @@ const viewLabels: Array<{ key: ViewName; label: string }> = [
   { key: 'pitfalls', label: '踩坑记录' },
   { key: 'spaces', label: '空间' },
   { key: 'records', label: '记录分析' },
-  { key: 'ai', label: '智能分析' },
+  { key: 'ai', label: 'AI 运行记录' },
   { key: 'search', label: '搜索' },
 ]
 
@@ -230,10 +230,10 @@ function TimelineView({ onOpen, refreshRevision }: { onOpen: (id: string) => voi
     }
   }, [])
 
-  return <section className="view-panel"><header><p className="eyebrow">阶段 2B</p><h2>装修时间线</h2><p>按真实发生日期查看事件和关联事实，未知时间不会被伪装。</p></header>
+  return <section className="view-panel"><header><h2>装修时间线</h2></header>
     <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} /></label><label className="field-stack"><span>记录类型</span><Select value={recordType} onChange={(event) => setRecordType(event.target.value)}><option value="">全部类型</option>{Object.entries(recordTypeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label><ReferenceFilters spaces={spaces} stages={stages} spaceId={spaceId} stageId={stageId} onSpace={setSpaceId} onStage={setStageId} /><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={applyForm}>应用筛选</button></div>
     <LoadState loading={loading} error={error} empty={data?.total === 0} />
-    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="记录时间趋势" description="点击月份筛选该月记录" kind="line" rows={data.analytics.time_trend} onClick={applyMonth} selectedKey={selectedMonth} /><AnalyticsChart title="记录类型分布" description="点击类型可筛选下方时间线" kind="donut" rows={data.analytics.type_distribution} onClick={applyRecordTypeImmediately} selectedKey={applied.record_type} /></div>}
+    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="记录时间趋势" description="" kind="line" rows={data.analytics.time_trend} onClick={applyMonth} selectedKey={selectedMonth} /><AnalyticsChart title="记录类型分布" description="" kind="donut" rows={data.analytics.type_distribution} onClick={applyRecordTypeImmediately} selectedKey={applied.record_type} /></div>}
     {applied.record_type && <button type="button" className="clear-filter" onClick={() => applyRecordTypeImmediately('')}>当前按记录类型筛选，点击取消</button>}
     {(applied.date_from || applied.date_to) && <button type="button" className="clear-filter" onClick={() => applyMonth('')}>当前日期：{applied.date_from || '不限'} 至 {applied.date_to || '不限'}，点击取消</button>}
     <div className="timeline-list">{motionGroups.map((group) => <section className="timeline-group" key={group.date_key}><h3>{group.label}</h3><div className="timeline-day-items">{group.items.map(({ item, motionIndex }) => <article className="timeline-item timeline-motion-item" data-motion-index={motionIndex} style={{ '--motion-index': motionIndex } as CSSProperties} key={item.record.id}><RecordButton record={item.record} onOpen={onOpen} />{item.related_records.length > 0 && <div className="related-strip"><span>关联事实</span>{item.related_records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div>}</article>)}</div></section>)}</div>
@@ -374,9 +374,6 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
   const [data, setData] = useState<LedgerResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [reload, setReload] = useState(0)
   const [preview, setPreview] = useState<LedgerPreviewState | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const closeTimer = useRef<number | null>(null)
@@ -384,12 +381,12 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
   useEffect(() => {
     let active = true
     setLoading(true)
-    getLedgerSummary({ date_from: dateFrom, date_to: dateTo })
+    getLedgerSummary()
       .then((result) => { if (active) { setData(result); setError('') } })
       .catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '账本加载失败'))
       .finally(() => active && setLoading(false))
     return () => { active = false }
-  }, [reload, refreshRevision])
+  }, [refreshRevision])
   const hasSelectedGroup = selectedGroupId !== null
   useEffect(() => {
     if (!hasSelectedGroup) return
@@ -487,16 +484,15 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
     if (group) openGroup(group)
   }
 
-  return <section className="view-panel"><header><p className="eyebrow">真实资金流水</p><h2>装修账本</h2><p>付款、退款与收入分别记录，净支出按统一口径计算。</p></header>
-    <div className="filter-grid filter-grid--compact"><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => setReload((value) => value + 1)}>应用筛选</button></div>
+  return <section className="view-panel"><header><h2>装修账本</h2></header>
     <LoadState loading={loading} error={error} empty={data ? data.ledger_entries.length === 0 : false} />
     {data && <><div className="summary-grid summary-grid--money">{[
-      ['card:expense', 'summary-card--info', '已出账付款'],
-      ['card:refund', 'summary-card--success', '已入账退款'],
-      ['card:income', 'summary-card--success', '已入账收入'],
-      ['card:net-expense', '', '付款减退款与收入'],
-    ].map(([id, variant, note]) => { const group = groups.get(id)!; return <button className={`summary-card summary-card--interactive immersive-glass immersive-tilt ${variant}`} type="button" key={id} {...cardHandlers(group)}><span>{group.title}</span><strong>{formatMoney(group.amountMinor)}</strong>{note && <small>{note}</small>}</button> })}</div></>}
-    {data && (data.analytics.payment_composition.length > 0 || data.analytics.vendor_distribution.length > 0) && <div className="chart-grid"><AnalyticsChart title="资金构成" interactionHint="点击图形查看明细记录" description="悬停预览，点击查看完整明细" kind="donut" unit="元" rows={data.analytics.payment_composition.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('composition')} onLeave={scheduleClose} onClick={chartClick('composition')} disableTooltip /><AnalyticsChart title="主要商家金额" interactionHint="点击图形查看明细记录" description="悬停预览，点击查看完整明细；支出为正，退款与收入为负" kind="bar" unit="元" rows={data.analytics.vendor_distribution.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('vendor')} onLeave={scheduleClose} onClick={chartClick('vendor')} disableTooltip verticalScrollAfter={8} /></div>}
+      ['card:expense', 'summary-card--info'],
+      ['card:refund', 'summary-card--success'],
+      ['card:income', 'summary-card--success'],
+      ['card:net-expense', ''],
+    ].map(([id, variant]) => { const group = groups.get(id)!; return <button className={`summary-card summary-card--interactive immersive-glass immersive-tilt ${variant}`} type="button" key={id} {...cardHandlers(group)}><span>{group.title}</span><strong>{formatMoney(group.amountMinor)}</strong></button> })}</div><details className="ledger-calculation-help"><summary>净支出怎么算？</summary><p>净支出 = 付款 − 退款 − 收入。</p></details></>}
+    {data && (data.analytics.payment_composition.length > 0 || data.analytics.vendor_distribution.length > 0) && <div className="chart-grid"><AnalyticsChart title="资金构成" interactionHint="点击图形查看明细记录" description="" kind="donut" unit="元" rows={data.analytics.payment_composition.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('composition')} onLeave={scheduleClose} onClick={chartClick('composition')} disableTooltip /><AnalyticsChart title="主要商家金额" interactionHint="点击图形查看明细记录" description="支出为正，退款与收入为负" kind="bar" unit="元" rows={data.analytics.vendor_distribution.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('vendor')} onLeave={scheduleClose} onClick={chartClick('vendor')} disableTooltip verticalScrollAfter={8} /></div>}
     {monthlyNetExpense.length > 0 && <div className="chart-grid chart-grid--single"><AnalyticsChart title="每月净支出趋势" description="按月统计付款减退款与收入后的净支出" kind="line" unit="元" rows={monthlyNetExpense} /></div>}
     {preview && <LedgerDetailPreview state={preview} onEnter={cancelClose} onLeave={scheduleClose} onViewAll={() => openGroup(preview.group)} />}
     {selectedGroup && <LedgerDetailPanel group={selectedGroup} obscured={detailOpen} onClose={() => setSelectedGroupId(null)} onOpenRecord={onOpen} />}
@@ -537,10 +533,10 @@ function IssuesView({ onOpen, refreshRevision }: { onOpen: (id: string) => void;
       setError(reason instanceof Error ? reason.message : '状态更新失败')
     }
   }
-  return <section className="view-panel"><div className="issue-page-header"><header><p className="eyebrow">统一跟踪处理事项</p><h2>问题看板</h2><p>待办、普通问题和施工问题统一在这里处理；完成时登记结果和日期。</p></header>
+  return <section className="view-panel"><div className="issue-page-header"><header><h2>问题看板</h2></header>
     <div className="filter-grid issue-filter-bar"><label className="field-stack"><span>空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><button className="filter-button" type="button" onClick={() => { setApplied((current) => ({ ...current, space_id: spaceId })); setReload((value) => value + 1) }}>应用筛选</button></div></div>
     <LoadState loading={loading} error={error} empty={data?.total === 0} />
-    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="问题状态分布" description="点击状态同步筛选图表与记录" kind="donut" rows={data.analytics.status_distribution} onClick={(key) => applyChart('status', key)} selectedKey={applied.status} /><AnalyticsChart title="问题严重程度" description="点击严重程度同步筛选图表与记录" kind="bar" rows={data.analytics.severity_distribution} onClick={(key) => applyChart('severity', key)} selectedKey={applied.severity} itemColors={{ high: chartPalette.risk }} /></div>}
+    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="问题状态分布" description="" kind="donut" rows={data.analytics.status_distribution} onClick={(key) => applyChart('status', key)} selectedKey={applied.status} /><AnalyticsChart title="问题严重程度" description="" kind="bar" rows={data.analytics.severity_distribution} onClick={(key) => applyChart('severity', key)} selectedKey={applied.severity} itemColors={{ high: chartPalette.risk }} /></div>}
     {applied.status && <button type="button" className="clear-filter" onClick={() => applyChart('status', '')}>状态：{statusLabels[applied.status] || applied.status}，点击取消</button>}
     {applied.severity && <button type="button" className="clear-filter" onClick={() => applyChart('severity', '')}>严重程度：{severityLabels[applied.severity] || applied.severity}，点击取消</button>}
     {(applied.status || applied.severity) && <button type="button" className="clear-filter" onClick={() => setApplied((current) => ({ ...current, status: '', severity: '' }))}>清除全部图表筛选</button>}
@@ -574,10 +570,10 @@ function SpacesView({ onOpen, refreshRevision }: { onOpen: (id: string) => void;
       .finally(() => active && setLoading(false))
     return () => { active = false }
   }, [spaceId, refreshRevision])
-  return <section className="view-panel"><header><p className="eyebrow">房屋 → 房间 → 局部</p><h2>空间档案</h2><p>汇总父级公共记录、当前空间及全部下级空间。</p></header>
+  return <section className="view-panel"><header><h2>空间档案</h2></header>
     <label className="field-stack space-picker"><span>选择空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">请选择空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name} · {spaceKindLabels[item.kind] || '其他空间'}</option>)}</Select></label>
     <LoadState loading={loading} error={error} empty={!loading && spaces.length === 0} />
-    {data && <><p className="breadcrumbs">{data.breadcrumbs.map((item) => item.name).join(' / ')}</p><div className="space-overview"><div><span className="record-type-tag">当前空间</span><h3>{data.space.name}</h3><p>汇总父级、本级及下级空间的正式记录</p></div><dl><div><dt>记录</dt><dd>{data.summary.record_count}</dd></div><div><dt>未关闭问题</dt><dd>{data.summary.unclosed_issue_count}</dd></div><div><dt>尺寸</dt><dd>{data.summary.measurement_count}</dd></div><div><dt>材料</dt><dd>{data.summary.material_count}</dd></div><div><dt>净支出</dt><dd>{formatMoney(data.analytics.net_expense_minor)}</dd></div></dl></div>{data.analytics.type_distribution.length > 0 && <div className="chart-grid"><AnalyticsChart title="空间记录类型" description="点击类型可筛选下方记录" kind="donut" rows={data.analytics.type_distribution} onClick={setTypeFilter} selectedKey={typeFilter} /><AnalyticsChart title="空间问题状态" description="查看该空间问题的处理进度" kind="bar" rows={data.analytics.issue_status_distribution} /></div>}{typeFilter && <button type="button" className="clear-filter" onClick={() => setTypeFilter('')}>当前按记录类型筛选，点击取消</button>}{Object.entries(data.records_by_type).filter(([type]) => !typeFilter || type === typeFilter).map(([type, records]) => <section className="projection-section" key={type}><h3>{recordTypeLabels[type] || '未知类型'}</h3><div className="card-grid">{records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div></section>)}</>}
+    {data && <><p className="breadcrumbs">{data.breadcrumbs.map((item) => item.name).join(' / ')}</p><div className="space-overview"><div><span className="record-type-tag">当前空间</span><h3>{data.space.name}</h3><p>含上级区域的公共记录、当前区域及下属区域记录</p></div><dl><div><dt>记录</dt><dd>{data.summary.record_count}</dd></div><div><dt>未关闭问题</dt><dd>{data.summary.unclosed_issue_count}</dd></div><div><dt>尺寸</dt><dd>{data.summary.measurement_count}</dd></div><div><dt>材料</dt><dd>{data.summary.material_count}</dd></div><div><dt>净支出</dt><dd>{formatMoney(data.analytics.net_expense_minor)}</dd></div></dl></div>{data.analytics.type_distribution.length > 0 && <div className="chart-grid"><AnalyticsChart title="空间记录类型" description="" kind="donut" rows={data.analytics.type_distribution} onClick={setTypeFilter} selectedKey={typeFilter} /><AnalyticsChart title="空间问题状态" description="查看该空间问题的处理进度" kind="bar" rows={data.analytics.issue_status_distribution} /></div>}{typeFilter && <button type="button" className="clear-filter" onClick={() => setTypeFilter('')}>当前按记录类型筛选，点击取消</button>}{Object.entries(data.records_by_type).filter(([type]) => !typeFilter || type === typeFilter).map(([type, records]) => <section className="projection-section" key={type}><h3>{recordTypeLabels[type] || '未知类型'}</h3><div className="card-grid">{records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div></section>)}</>}
   </section>
 }
 
@@ -618,7 +614,7 @@ function SearchView({ onOpen, refreshRevision }: { onOpen: (id: string) => void;
     void requestSearch(submittedParams.current)
   }, [refreshRevision])
   const total = useMemo(() => data ? Object.values(data.counts).reduce((sum, count) => sum + count, 0) : null, [data])
-  return <section className="view-panel"><header><p className="eyebrow">基础搜索</p><h2>查找装修事实</h2><p>搜索原始来源、正式记录、材料、商家和空间；结果保持来源追溯。</p></header>
+  return <section className="view-panel"><header><h2>搜索</h2></header>
     <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void runSearch() }} placeholder="例如：花砖、主卧、门套" /></label><label className="field-stack"><span>记录类型</span><Select value={recordType} onChange={(event) => { setRecordType(event.target.value); setStatus('') }}><option value="">全部类型</option>{Object.entries(recordTypeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label><label className="field-stack"><span>状态</span><Select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option>{statusesForRecordType(recordType).map((value) => <option key={value} value={value}>{recordStatusLabel(recordType, value)}</option>)}</Select></label><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => void runSearch()}>搜索</button></div>
     <LoadState loading={loading} error={error} empty={total === 0} />
     {data && <><p className="result-count">共找到 {total} 项</p>{data.groups.records.length > 0 && <section className="projection-section"><h3>正式记录 · {data.counts.records}</h3><div className="card-grid">{data.groups.records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div></section>}{data.groups.sources.length > 0 && <section className="projection-section"><h3>原始来源 · {data.counts.sources}</h3>{data.groups.sources.map((source) => <article className="source-result" key={source.id}><p>{source.original_text || '仅附件来源'}</p><time>{formatBeijingDateTime(source.captured_at)}</time></article>)}</section>}{(['materials', 'vendors', 'spaces'] as const).map((group) => data.groups[group].length > 0 && <section className="projection-section" key={group}><h3>{{ materials: '材料', vendors: '商家', spaces: '空间' }[group]} · {data.counts[group]}</h3><div className="tag-list">{data.groups[group].map((item) => <span key={item.id}>{item.name}</span>)}</div></section>)}</>}
@@ -733,7 +729,7 @@ function RecordDetail({ recordId, closing, onClose, onChanged, onExitComplete }:
     // 只响应抽屉本身的退出，避免子元素动画冒泡提前结束过渡。
     if (closing && event.target === event.currentTarget) onExitComplete()
   }}>
-    <div className="detail-panel__header"><div><p className="eyebrow">{editing ? '编辑正式记录' : '来源可追溯'}</p><h2>{editing ? '修改记录' : '记录详情'}</h2></div>{!editing && <button type="button" onClick={onClose} aria-label="关闭详情">关闭</button>}</div>
+    <div className="detail-panel__header"><div><h2>{editing ? '修改记录' : '记录详情'}</h2></div>{!editing && <button type="button" onClick={onClose} aria-label="关闭详情">关闭</button>}</div>
     {error && <p role="alert" className="view-state--error">{error}</p>}
     {!record && !error && <p role="status">正在加载详情…</p>}
     {record && editing ? <section className="detail-edit-section"><RecordEditFields recordType={record.record_type as RecordType} payload={editPayload} spaces={spaces} entities={editEntities} records={allRecords} currentRecordId={record.id} onChange={changeEditField} /><div className="record-actions"><button type="button" disabled={busy} onClick={() => void saveEdit()}>{busy ? '保存中…' : '保存修改'}</button><button type="button" disabled={busy} onClick={cancelEdit}>取消</button></div></section> : record && <>

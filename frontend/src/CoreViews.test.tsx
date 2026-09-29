@@ -428,6 +428,12 @@ describe('CoreViews', () => {
     expect(screen.getAllByText(/付款总额/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(/净支出/).length).toBeGreaterThanOrEqual(1)
     expect(screen.queryByText(/待付/)).toBeNull()
+    expect(api.getLedgerSummary).toHaveBeenLastCalledWith()
+    expect(screen.queryByLabelText('开始日期')).toBeNull()
+    expect(screen.queryByRole('button', { name: '应用筛选' })).toBeNull()
+    const help = screen.getByText('净支出怎么算？')
+    fireEvent.click(help)
+    expect(help.parentElement?.hasAttribute('open')).toBe(true)
   })
 
   it('账本用每月净支出趋势替换逐笔资金流水卡片', async () => {
@@ -839,7 +845,7 @@ describe('CoreViews', () => {
     expect(api.searchRecords).toHaveBeenCalledWith(expect.objectContaining({ q: '现场' }))
   })
 
-  it('记录分析和智能分析使用中文导航与摘要', async () => {
+  it('记录分析和AI 运行记录使用中文导航与摘要', async () => {
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '记录分析' }))
     expect(await screen.findByRole('heading', { name: '记录分析' })).toBeTruthy()
@@ -854,8 +860,8 @@ describe('CoreViews', () => {
     expect(issueType.getAttribute('aria-selected')).toBe('true')
     expect(typeTabs.style.getPropertyValue('--tab-indicator-left')).not.toBe('')
 
-    fireEvent.click(screen.getByRole('button', { name: '智能分析' }))
-    expect(await screen.findByRole('heading', { name: '智能分析' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'AI 运行记录' }))
+    expect(await screen.findByRole('heading', { name: 'AI 运行记录' })).toBeTruthy()
     expect(screen.getByText('分析请求')).toBeTruthy()
     expect(screen.getByText('已使用 token')).toBeTruthy()
     expect(screen.getByText('P95 耗时')).toBeTruthy()
