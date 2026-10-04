@@ -295,6 +295,37 @@ class ResearchDetail(Base):
     limitations: Mapped[str | None] = mapped_column(Text)
 
 
+class ResearchEntry(Base):
+    """同一调研主题的追加式研究过程。"""
+
+    __tablename__ = "research_entries"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_id)
+    record_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("records.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    research_date: Mapped[date] = mapped_column(Date, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    sources: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    uncertainties: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+
+
+class ResearchConclusion(Base):
+    """保留每次判断及其修正原因，不覆盖旧结论。"""
+
+    __tablename__ = "research_conclusions"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_id)
+    record_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("records.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    conclusion: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    entry_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("research_entries.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_utcnow)
+
+
 class RecordRelation(Base):
     __tablename__ = "record_relations"
     __table_args__ = (

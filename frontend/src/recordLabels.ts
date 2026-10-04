@@ -1,7 +1,7 @@
 export const recordTypeLabels: Record<string, string> = {
   event: '事件',
   ledger: '账目',
-  issue: '问题',
+  issue: '待办与问题',
   measurement: '尺寸',
   decision: '决策',
   research: '调研',
@@ -19,6 +19,7 @@ const generalStatusLabels: Record<string, string> = {
 const statusOverrides: Record<string, Record<string, string>> = {
   decision: { pending: '待确认' },
   issue: { pending: '待处理' },
+  research: { collecting: '待调研', comparing: '调研中', concluded: '暂有结论' },
 }
 
 export function recordStatusLabel(recordType: string, status: string, _ledgerKind?: unknown): string {

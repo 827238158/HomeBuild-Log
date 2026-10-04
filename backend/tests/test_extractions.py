@@ -174,7 +174,7 @@ def test_confirmation_respects_manual_candidate_type_change(client: TestClient) 
         if item["key"] == research["key"]
     )
     assert confirmed["record_type"] == "issue"
-    assert confirmed["type_label"] == "问题"
+    assert confirmed["type_label"] == "待办与问题"
     assert confirmed["payload"]["record_type"] == "issue"
 
 

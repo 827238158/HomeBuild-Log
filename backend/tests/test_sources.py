@@ -49,6 +49,48 @@ def _make_client() -> TestClient:
     return client
 
 
+class TestAttachmentContent:
+    def test_content_requires_auth_and_returns_original(self):
+        client = _make_client()
+        uploaded = client.post(
+            "/api/v1/attachments",
+            files={"file": ("现场图片.png", b"image-evidence", "image/png")},
+        )
+        assert uploaded.status_code == 201
+        url = f"/api/v1/attachments/{uploaded.json()['id']}/content"
+        response = client.get(url)
+        assert response.status_code == 200
+        assert response.content == b"image-evidence"
+        assert response.headers["content-type"] == "image/png"
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        client.headers.pop("Authorization")
+        assert client.get(url).status_code == 401
+
+    def test_missing_and_outside_original_directory_are_rejected(self):
+        from app.db import create_database_engine, create_session_factory
+        from app.models import Attachment
+
+        client = _make_client()
+        assert client.get("/api/v1/attachments/missing/content").status_code == 404
+        uploaded = client.post(
+            "/api/v1/attachments", files={"file": ("photo.png", b"proof", "image/png")},
+        )
+        attachment_id = uploaded.json()["id"]
+        paths = client.app.state.storage_paths
+        outside = paths.root / "private.txt"
+        outside.write_text("private", encoding="utf-8")
+        engine = create_database_engine(paths.database_file)
+        with create_session_factory(engine)() as db:
+            item = db.get(Attachment, attachment_id)
+            item.storage_path = "private.txt"
+            db.commit()
+        engine.dispose()
+        response = client.get(f"/api/v1/attachments/{attachment_id}/content")
+        assert response.status_code == 404
+        assert "private" not in response.text
+
+
 class TestSourcesAPI:
     def test_create_text_source(self):
         client = _make_client()

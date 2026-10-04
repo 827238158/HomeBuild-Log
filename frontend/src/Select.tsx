@@ -13,9 +13,14 @@ export interface SelectProps {
   required?: boolean
   className?: string
   displayLabel?: string
+  'aria-label'?: string
 }
 
-export function Select({ value, onChange, children, disabled, required, className, displayLabel }: SelectProps) {
+function optionText(node: ReactNode): string {
+  return Children.toArray(node).map((child) => isValidElement<{ children?: ReactNode }>(child) ? optionText(child.props.children) : String(child)).join('')
+}
+
+export function Select({ value, onChange, children, disabled, required, className, displayLabel, 'aria-label': ariaLabel }: SelectProps) {
   const id = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLDivElement>(null)
@@ -26,22 +31,33 @@ export function Select({ value, onChange, children, disabled, required, classNam
   })
   const [open, setOpen] = useState(false)
   const [accessibleLabel, setAccessibleLabel] = useState<string>()
+  const [invalid, setInvalid] = useState(false)
   const [active, setActive] = useState(Math.max(0, options.findIndex((item) => item.value === value)))
+  const searchRef = useRef({ text: '', time: 0 })
   const menuStyle = useDropdownPosition(triggerRef, open)
   const selected = options.find((item) => item.value === value)
+  const selectedText = optionText(displayLabel ?? selected?.label ?? '请选择')
+  const fieldLabel = ariaLabel ?? accessibleLabel
+  const triggerLabel = fieldLabel ? `${fieldLabel}：${selectedText}` : selectedText
 
   useLayoutEffect(() => {
     const label = rootRef.current?.closest('label')?.querySelector(':scope > span')?.textContent?.trim()
     if (label) setAccessibleLabel(label)
   }, [])
 
+  useEffect(() => { if (disabled) setOpen(false) }, [disabled])
+  useEffect(() => { setInvalid(false) }, [value])
+  useEffect(() => {
+    // 长列表中键盘移动时，保证当前活动选项仍在可见区域。
+    if (open) document.getElementById(`${id}-${active}`)?.scrollIntoView?.({ block: 'nearest' })
+  }, [active, id, open])
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       const target = event.target as Node
       if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
     }
     const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && open) { setOpen(false); triggerRef.current?.focus() }
+      if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); triggerRef.current?.focus() }
     }
     const other = (event: Event) => { if ((event as CustomEvent<string>).detail !== id) setOpen(false) }
     document.addEventListener('pointerdown', outside)
@@ -54,25 +70,58 @@ export function Select({ value, onChange, children, disabled, required, classNam
     }
   }, [id, open])
 
-  const choose = (next: string) => { onChange({ target: { value: next } }); setOpen(false); triggerRef.current?.focus() }
+  const showMenu = (nextActive?: number) => {
+    const selectedIndex = options.findIndex((item) => item.value === value && !item.disabled)
+    setActive(nextActive ?? (selectedIndex >= 0 ? selectedIndex : options.findIndex((item) => !item.disabled)))
+    setOpen(true)
+    searchRef.current.text = ''
+    window.dispatchEvent(new CustomEvent('homebuild-dropdown-open', { detail: id }))
+  }
+  const choose = (next: string) => { onChange({ target: { value: next } }); setInvalid(false); setOpen(false); triggerRef.current?.focus() }
   const move = (step: number) => {
+    if (!options.length) return
     let next = active
-    do next = (next + step + options.length) % options.length
-    while (options[next]?.disabled && next !== active)
-    setActive(next)
+    for (let count = 0; count < options.length; count += 1) {
+      next = (next + step + options.length) % options.length
+      if (!options[next].disabled) { setActive(next); return }
+    }
   }
   return <div ref={rootRef} className={`select-control${className ? ` ${className}` : ''}`}>
-    <select className="select-native-proxy" tabIndex={-1} aria-label={accessibleLabel} value={value} disabled={disabled} required={required} onPointerDown={(event) => event.preventDefault()} onClick={(event) => event.preventDefault()} onChange={(event) => onChange({ target: { value: event.target.value } })}>{children}</select>
-    <div ref={triggerRef} role="button" tabIndex={disabled ? -1 : 0} className="select-trigger" aria-disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-required={required} onClick={(event) => {
+    {/* 原生控件只负责表单校验；可访问树与键盘入口由可见 combobox 统一提供。 */}
+    <select className="select-native-proxy" tabIndex={-1} aria-hidden="true" aria-label={fieldLabel} value={value} disabled={disabled} required={required} onInvalid={(event) => { event.preventDefault(); setInvalid(true); triggerRef.current?.focus() }} onPointerDown={(event) => event.preventDefault()} onClick={(event) => event.preventDefault()} onChange={(event) => onChange({ target: { value: event.target.value } })}>{children}</select>
+    <div ref={triggerRef} role="combobox" tabIndex={disabled ? -1 : 0} className="select-trigger" aria-label={triggerLabel} aria-disabled={disabled} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? `${id}-listbox` : undefined} aria-activedescendant={open && active >= 0 ? `${id}-${active}` : undefined} aria-required={required} aria-invalid={invalid || undefined} aria-describedby={invalid ? `${id}-error` : undefined} onBlur={(event) => {
+      if (!menuRef.current?.contains(event.relatedTarget as Node)) setOpen(false)
+    }} onClick={(event) => {
       // Select 常被包在 label 中；阻止 label 在 iOS 上继续激活隐藏的原生选择器。
       event.preventDefault()
       if (disabled) return
-      const next = !open; setOpen(next)
-      if (next) window.dispatchEvent(new CustomEvent('homebuild-dropdown-open', { detail: id }))
+      triggerRef.current?.focus()
+      if (open) setOpen(false); else showMenu()
     }} onKeyDown={(event) => {
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); if (!open) { setOpen(true); window.dispatchEvent(new CustomEvent('homebuild-dropdown-open', { detail: id })) } move(event.key === 'ArrowDown' ? 1 : -1) }
-      if (event.key === 'Enter' && open && options[active] && !options[active].disabled) { event.preventDefault(); choose(options[active].value) }
+      if (disabled) return
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        if (!open) showMenu(); else move(event.key === 'ArrowDown' ? 1 : -1)
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        if (!open) showMenu(); else if (options[active] && !options[active].disabled) choose(options[active].value)
+      } else if (event.key === 'Home' || event.key === 'End') {
+        event.preventDefault()
+        const index = event.key === 'Home' ? options.findIndex((item) => !item.disabled) : options.findLastIndex((item) => !item.disabled)
+        if (!open) showMenu(index); else setActive(index)
+      } else if (event.key === 'Escape' && open) {
+        // 只关闭最上层下拉，避免同一个 Escape 同时关闭所在抽屉。
+        event.preventDefault(); event.stopPropagation(); setOpen(false)
+      } else if (event.key === 'Tab') {
+        setOpen(false)
+      } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const now = Date.now()
+        searchRef.current = { text: (now - searchRef.current.time < 700 ? searchRef.current.text : '') + event.key.toLocaleLowerCase(), time: now }
+        const index = options.findIndex((item) => !item.disabled && optionText(item.label).toLocaleLowerCase().startsWith(searchRef.current.text))
+        if (index >= 0) { event.preventDefault(); if (!open) showMenu(index); else setActive(index) }
+      }
     }}>{displayLabel ?? selected?.label ?? '请选择'}<span aria-hidden="true">⌄</span></div>
-    {open && createPortal(<div ref={menuRef} className="select-menu select-menu--portal dropdown-portal" style={menuStyle} role="listbox" aria-activedescendant={`${id}-${active}`}>{options.map((option, index) => <button id={`${id}-${index}`} key={`${option.value}-${index}`} type="button" role="option" aria-selected={option.value === value} disabled={option.disabled} className={index === active ? 'is-active' : ''} onPointerMove={() => setActive(index)} onClick={() => choose(option.value)}>{option.label}</button>)}</div>, document.body)}
+    {invalid && <span id={`${id}-error`} className="select-validation-error" role="alert">请选择{fieldLabel ?? '一项'}。</span>}
+    {open && createPortal(<div id={`${id}-listbox`} ref={menuRef} className="select-menu select-menu--portal dropdown-portal" style={menuStyle} role="listbox" aria-label={fieldLabel ?? '选项'}>{options.map((option, index) => <button id={`${id}-${index}`} key={`${option.value}-${index}`} type="button" role="option" tabIndex={-1} aria-selected={option.value === value} disabled={option.disabled} className={index === active ? 'is-active' : ''} onPointerDown={(event) => event.preventDefault()} onPointerMove={() => { if (!option.disabled) setActive(index) }} onClick={() => choose(option.value)}>{option.label}</button>)}</div>, document.body)}
   </div>
 }

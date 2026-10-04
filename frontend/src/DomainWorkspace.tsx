@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Select } from './Select'
 import { ThinkingLattice } from './MotionPrimitives'
 import { useDropdownPosition } from './useDropdownPosition'
+import { useNavigationGuard } from './navigationGuard'
 
 import {
   createEntity,
@@ -39,6 +40,7 @@ interface Props {
   refreshKey: number
   preferredSourceId?: string
   sourceRequestKey?: number
+  manageRequestKey?: number
 }
 export type { RecordType } from './recordConfig'
 
@@ -185,7 +187,7 @@ function MultiSelectField({
       if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key === 'Escape' && open) { event.preventDefault(); setOpen(false); triggerRef.current?.focus() }
     }
     const closeOther = (event: Event) => {
       if ((event as CustomEvent<string>).detail !== controlId) setOpen(false)
@@ -198,7 +200,7 @@ function MultiSelectField({
       document.removeEventListener('keydown', closeOnEscape)
       window.removeEventListener('homebuild-dropdown-open', closeOther)
     }
-  }, [controlId])
+  }, [controlId, open])
   const toggleOpen = () => {
     const next = !open
     setOpen(next)
@@ -207,7 +209,7 @@ function MultiSelectField({
   const summary = selected.length === 0
     ? '请选择（可多选）'
     : selected.length <= 2 ? selected.map((item) => item.name).join('、') : `已选择 ${selected.length} 项`
-  return <fieldset ref={rootRef} className="multi-select-field"><legend>{label}</legend><div className="multi-select-control"><button ref={triggerRef} className="multi-select-summary" type="button" id={controlId} aria-haspopup="listbox" aria-expanded={open} onClick={toggleOpen}><span>{summary}</span></button>{open && createPortal(<div ref={menuRef} className="multi-select-options dropdown-portal" style={menuStyle} role="listbox" aria-multiselectable="true">{options.length > 0 ? options.map((item) => <label key={item.id} role="option" aria-selected={selectedIds.includes(item.id)}><input aria-label={item.name} type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggle(item.id)} /><span className="multi-select-option__name">{item.name}</span>{item.trailingText && <span className="multi-select-option__meta">{item.trailingText}</span>}</label>) : <span>暂无可选项</span>}</div>, document.body)}</div></fieldset>
+  return <fieldset ref={rootRef} className="multi-select-field"><legend>{label}</legend><div className="multi-select-control"><button ref={triggerRef} className="multi-select-summary" type="button" id={controlId} aria-label={`${label}：${summary}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? `${controlId}-options` : undefined} onClick={toggleOpen}><span>{summary}</span></button>{open && createPortal(<div id={`${controlId}-options`} ref={menuRef} className="multi-select-options dropdown-portal" style={menuStyle} role="listbox" aria-label={label} aria-multiselectable="true">{options.length > 0 ? options.map((item) => <label key={item.id} role="option" aria-selected={selectedIds.includes(item.id)}><input aria-label={item.name} type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggle(item.id)} /><span className="multi-select-option__name">{item.name}</span>{item.trailingText && <span className="multi-select-option__meta">{item.trailingText}</span>}</label>) : <span>暂无可选项</span>}</div>, document.body)}</div></fieldset>
 }
 
 function recordSelectOption(record: DomainRecord) {
@@ -570,7 +572,17 @@ export function RecordEditFields({
   </div>
 }
 
-export function DomainWorkspace({ sources, refreshSources, refreshKey, preferredSourceId, sourceRequestKey = 0 }: Props) {
+export function DomainWorkspace({ sources, refreshSources, refreshKey, preferredSourceId, sourceRequestKey = 0, manageRequestKey = 0 }: Props) {
+  const managerRef = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    if (!manageRequestKey || !managerRef.current) return
+    managerRef.current.open = true
+    const frame = requestAnimationFrame(() => {
+      managerRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+      managerRef.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [manageRequestKey])
   const [sourceId, setSourceId] = useState('')
   const currentSourceId = useRef(sourceId)
   useLayoutEffect(() => { currentSourceId.current = sourceId }, [sourceId])
@@ -627,7 +639,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
       ).map((item) => item.record_type === 'todo' ? {
       ...item,
       record_type: 'issue',
-      type_label: '问题',
+      type_label: '待办与问题',
       payload: defaultPayload('issue', {
         ...item.payload,
         phenomenon: item.payload.action ?? item.payload.title,
@@ -635,7 +647,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
         severity: item.payload.severity ?? '',
         status: item.payload.status === 'done' ? 'done' : item.payload.status === 'in_progress' ? 'in_progress' : 'pending',
       }),
-      } : item.record_type === 'issue' ? { ...item, type_label: '问题' }
+      } : item.record_type === 'issue' ? { ...item, type_label: '待办与问题' }
       : item.record_type === 'measurement' ? { ...item, payload: {
         ...item.payload,
         status: recordConfig.measurement.statuses.includes(String(item.payload.status) as 'active' | 'superseded' | 'cancelled') ? item.payload.status : 'active',
@@ -750,6 +762,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
     sourceDraft !== (selectedSource?.original_text || '')
     || sourceTimeDraft !== (selectedSource?.reported_time_text || '')
   )
+  useNavigationGuard(hasUnsavedCandidateEdits || sourceEditDirty || Boolean(spaceName.trim() || manageName.trim() || manageBrand.trim()))
   const switchSource = (next: string) => {
     if (next === sourceId) return true
     if ((hasUnsavedCandidateEdits || sourceEditDirty) && !window.confirm('切换来源会丢失当前未保存的编辑，确定切换吗？')) return false
@@ -1361,7 +1374,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
 
       {message && <p className="workspace-message" role="status">{message}</p>}
 
-      <details className="manage-panel review-data-manager">
+      <details ref={managerRef} className="manage-panel review-data-manager">
         <summary>管理空间与共享档案</summary>
         <p className="panel-guide">空间用于标记事情发生的位置；共享档案可在多条记录中重复使用。只能删除尚未被正式记录使用的项目。</p>
         <div className="manage-grid">

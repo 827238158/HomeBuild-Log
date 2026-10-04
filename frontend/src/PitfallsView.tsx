@@ -36,13 +36,33 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : '操作失败，请稍后重试。'
 }
 
+// 会话草稿按表单与记录隔离，输入时立即持久化，避免切导航后丢失。
+function useFormDraft(key: string, initial: { date: string; text: string }) {
+  const [draft, setDraft] = useState(() => {
+    try {
+      const value = JSON.parse(sessionStorage.getItem(key) ?? 'null') as { date?: unknown; text?: unknown } | null
+      if (value && typeof value.date === 'string' && typeof value.text === 'string') return { date: value.date, text: value.text }
+    } catch { /* 存储不可用或旧草稿损坏时仍可正常输入。 */ }
+    return initial
+  })
+  const change = (next: { date: string; text: string }) => {
+    setDraft(next)
+    try { sessionStorage.setItem(key, JSON.stringify(next)) } catch { /* 保留本页输入。 */ }
+  }
+  const clear = () => {
+    try { sessionStorage.removeItem(key) } catch { /* 本页仍可正常取消或保存。 */ }
+    setDraft(initial)
+  }
+  return { draft, change, clear }
+}
+
 function PitfallForm({ item, onSaved, onCancel }: {
   item?: PitfallEntry
   onSaved: () => void
   onCancel?: () => void
 }) {
-  const [occurredDate, setOccurredDate] = useState(item?.occurred_date ?? beijingToday())
-  const [description, setDescription] = useState(item?.description ?? '')
+  const { draft, change, clear } = useFormDraft(`homebuild:pitfall:${item?.id ?? 'new'}`, { date: item?.occurred_date ?? beijingToday(), text: item?.description ?? '' })
+  const { date: occurredDate, text: description } = draft
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -58,7 +78,7 @@ function PitfallForm({ item, onSaved, onCancel }: {
       const payload = { occurred_date: occurredDate, description: description.trim() }
       if (item) await updatePitfall(item.id, payload)
       else await createPitfall(payload)
-      if (!item) setDescription('')
+      clear()
       onSaved()
     } catch (reason) {
       setError(messageOf(reason))
@@ -69,12 +89,12 @@ function PitfallForm({ item, onSaved, onCancel }: {
 
   return <form className={`pitfall-form${item ? ' pitfall-form--edit' : ''}`} onSubmit={submit}>
     <div className="pitfall-form__meta">
-      <label><span>发生日期</span><input type="date" value={occurredDate} required onChange={(event) => setOccurredDate(event.target.value)} /></label>
+      <label><span>发生日期</span><input type="date" value={occurredDate} required onChange={(event) => change({ ...draft, date: event.target.value })} /></label>
     </div>
-    <label className="pitfall-form__content"><span>踩坑经过</span><textarea value={description} maxLength={10000} rows={item ? 4 : 3} placeholder="发生了什么？先记下事实，之后可继续追加处理过程。" onChange={(event) => setDescription(event.target.value)} /></label>
+    <label className="pitfall-form__content"><span>踩坑经过</span><textarea value={description} maxLength={10000} rows={item ? 4 : 3} placeholder="发生了什么？先记下事实，之后可继续追加处理过程。" onChange={(event) => change({ ...draft, text: event.target.value })} /></label>
     <div className="pitfall-form__actions">
       {error && <p className="error-text" role="alert">{error}</p>}
-      {onCancel && <button type="button" className="secondary-button" onClick={onCancel}>取消</button>}
+      {onCancel && <button type="button" className="secondary-button" onClick={() => { clear(); onCancel() }}>放弃修改</button>}
       <button type="submit" disabled={saving}>{saving ? '保存中…' : item ? '保存修改' : '记下这次踩坑'}</button>
     </div>
   </form>
@@ -86,8 +106,8 @@ function ResolutionForm({ pitfallId, item, onSaved, onCancel }: {
   onSaved: () => void
   onCancel: () => void
 }) {
-  const [resolvedDate, setResolvedDate] = useState(item?.resolved_date ?? beijingToday())
-  const [content, setContent] = useState(item?.content ?? '')
+  const { draft, change, clear } = useFormDraft(`homebuild:pitfall:${pitfallId}:resolution:${item?.id ?? 'new'}`, { date: item?.resolved_date ?? beijingToday(), text: item?.content ?? '' })
+  const { date: resolvedDate, text: content } = draft
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const submit = async (event: FormEvent) => {
@@ -102,6 +122,7 @@ function ResolutionForm({ pitfallId, item, onSaved, onCancel }: {
       const payload = { resolved_date: resolvedDate, content: content.trim() }
       if (item) await updatePitfallResolution(item.id, payload)
       else await createPitfallResolution(pitfallId, payload)
+      clear()
       onSaved()
     } catch (reason) {
       setError(messageOf(reason))
@@ -110,9 +131,9 @@ function ResolutionForm({ pitfallId, item, onSaved, onCancel }: {
     }
   }
   return <form className="resolution-form" onSubmit={submit}>
-    <label><span>处理日期</span><input type="date" value={resolvedDate} required onChange={(event) => setResolvedDate(event.target.value)} /></label>
-    <label className="resolution-form__content"><span>处理内容</span><textarea rows={3} maxLength={10000} value={content} placeholder="这次做了什么、结果怎样？" onChange={(event) => setContent(event.target.value)} /></label>
-    <div className="resolution-form__actions"><button type="button" className="secondary-button" onClick={onCancel}>取消</button><button type="submit" disabled={saving}>{saving ? '保存中…' : item ? '保存修改' : '追加处理记录'}</button></div>
+    <label><span>处理日期</span><input type="date" value={resolvedDate} required onChange={(event) => change({ ...draft, date: event.target.value })} /></label>
+    <label className="resolution-form__content"><span>处理内容</span><textarea rows={3} maxLength={10000} value={content} placeholder="这次做了什么、结果怎样？" onChange={(event) => change({ ...draft, text: event.target.value })} /></label>
+    <div className="resolution-form__actions"><button type="button" className="secondary-button" onClick={() => { clear(); onCancel() }}>{item ? '放弃修改' : '放弃本次处理'}</button><button type="submit" disabled={saving}>{saving ? '保存中…' : item ? '保存修改' : '追加处理记录'}</button></div>
     {error && <p className="error-text" role="alert">{error}</p>}
   </form>
 }

@@ -1,7 +1,7 @@
 export const recordConfig = {
   event: { label: '事件', statuses: ['planned', 'occurred', 'completed', 'cancelled'] },
   ledger: { label: '账目', statuses: ['planned', 'paid', 'posted', 'voided'] },
-  issue: { label: '问题', statuses: ['pending', 'in_progress', 'done'] },
+  issue: { label: '待办与问题', statuses: ['pending', 'in_progress', 'done'] },
   measurement: { label: '尺寸', statuses: ['active', 'superseded', 'cancelled'] },
   decision: { label: '决策', statuses: ['pending', 'confirmed', 'cancelled'] },
   research: { label: '调研', statuses: ['collecting', 'comparing', 'concluded', 'archived'] },

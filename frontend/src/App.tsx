@@ -18,6 +18,7 @@ import { formatBeijingDateTime } from './time'
 import { UNAUTHORIZED_EVENT } from './http'
 import { VoiceInput } from './VoiceInput'
 import { ThinkingLattice } from './MotionPrimitives'
+import { useNavigationGuard } from './navigationGuard'
 
 const HIDDEN_RECENT_SOURCES_KEY = 'homebuild-log-hidden-recent-sources'
 
@@ -60,6 +61,8 @@ export function App() {
   const [state, setState] = useState<ViewState>({ kind: 'loading' })
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
+  const [loginPending, setLoginPending] = useState(false)
+  const loginInFlight = useRef(false)
   const [sourceText, setSourceText] = useState('')
   const [sources, setSources] = useState<SourceEntry[]>([])
   const [sourceListError, setSourceListError] = useState('')
@@ -73,9 +76,11 @@ export function App() {
   const [sourceRefreshKey, setSourceRefreshKey] = useState(0)
   const [preferredSourceId, setPreferredSourceId] = useState('')
   const [sourceRequestKey, setSourceRequestKey] = useState(0)
+  const [manageRequestKey, setManageRequestKey] = useState(0)
   const [captureTab, setCaptureTab] = useState<'quick' | 'review'>('quick')
   const [lastSavedSourceId, setLastSavedSourceId] = useState('')
   const [hiddenRecentSourceIds, setHiddenRecentSourceIds] = useState<string[]>(readHiddenRecentSources)
+  useNavigationGuard(Boolean(sourceText.trim() || attachment || pendingUpload))
 
   const visibleRecentSources = sources
     .slice(0, 3)
@@ -162,6 +167,10 @@ export function App() {
   }, [state.kind])
 
   const handleLogin = async () => {
+    if (loginInFlight.current || !password) return
+    // 同一轮渲染内重复按回车也只发送一次登录请求。
+    loginInFlight.current = true
+    setLoginPending(true)
     setLoginError('')
     try {
       const result = await login(password)
@@ -175,6 +184,9 @@ export function App() {
       }
     } catch (error: unknown) {
       setLoginError(error instanceof Error ? error.message : '登录失败')
+    } finally {
+      loginInFlight.current = false
+      setLoginPending(false)
     }
   }
 
@@ -307,7 +319,7 @@ export function App() {
 
   if (state.kind === 'ready') {
     return <main className="app-workspace">
-      <CoreViews onLogout={handleLogout}>
+      <CoreViews onLogout={handleLogout} onOpenSource={openReview} onManageSpaces={() => { openReview(); setManageRequestKey((value) => value + 1) }}>
         <section className="capture-workspace">
           <header className="capture-workspace__header"><h2>记录装修现场</h2></header>
           {sourceListError && <p className="source-error" role="alert">来源列表加载失败：{sourceListError}<button type="button" onClick={() => void refreshSources().catch(() => undefined)}>重试</button></p>}
@@ -317,9 +329,9 @@ export function App() {
           </div>
           <div id="capture-panel-quick" className="capture-panel capture-quick" role="tabpanel" aria-labelledby="capture-tab-quick" hidden={captureTab !== 'quick'}>
           <div className="source-form">
-            <h3>写下今天的情况</h3>
+            <h3 id="quick-source-label">写下今天的情况</h3>
             <VoiceInput active={captureTab === 'quick'} onTranscript={(text) => { textVersion.current += 1; setSourceText((current) => current ? `${current}\n${text}` : text) }}>
-              <textarea className="source-input" placeholder="记录今天发生的事情…" value={sourceText} onChange={(e) => { textVersion.current += 1; setSourceText(e.target.value) }} rows={3} />
+              <textarea aria-labelledby="quick-source-label" className="source-input" placeholder="记录今天发生的事情…" value={sourceText} onChange={(e) => { textVersion.current += 1; setSourceText(e.target.value) }} rows={3} />
             </VoiceInput>
             <div className="source-actions">
               <label className={`attachment-field${attachment ? ' is-selected' : ''}`}><span className="sr-only">附件（可选，单个文件）</span><input ref={attachmentInput} type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)} />{!attachment && <span className="attachment-picker"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M7.5 10.5 12.6 5.4a3 3 0 0 1 4.2 4.2l-7.2 7.2a5 5 0 0 1-7.1-7.1l7.5-7.5" /></svg>选择图片或 PDF</span>}</label>
@@ -339,7 +351,7 @@ export function App() {
             {visibleRecentSources.length > 0 && <div className="source-list"><h3 className="source-list-title">最近记录</h3>{visibleRecentSources.map((s) => <div key={s.id} className="source-item recent-source-row"><p className="source-item-text">{s.original_text}</p><time className="source-item-time">{formatBeijingDateTime(s.captured_at)}</time><div className="recent-source-row__actions"><button type="button" onClick={() => openReview(s.id)}>去整理</button><button className="source-item-close" type="button" aria-label={`关闭最近记录：${s.original_text || '仅附件记录'}`} onClick={() => hideRecentSource(s.id)}>×</button></div></div>)}</div>}
           </div>
           <div id="capture-panel-review" className="capture-panel capture-review" role="tabpanel" aria-labelledby="capture-tab-review" hidden={captureTab !== 'review'}>
-            <DomainWorkspace sources={sources} refreshSources={refreshSources} refreshKey={sourceRefreshKey} preferredSourceId={preferredSourceId} sourceRequestKey={sourceRequestKey} />
+            <DomainWorkspace sources={sources} refreshSources={refreshSources} refreshKey={sourceRefreshKey} preferredSourceId={preferredSourceId} sourceRequestKey={sourceRequestKey} manageRequestKey={manageRequestKey} />
           </div>
         </section>
       </CoreViews>
@@ -364,7 +376,12 @@ export function App() {
             <div>
               <strong>本地管理员登录</strong>
               <div className="login-form">
+                <label className="sr-only" htmlFor="admin-password">管理员密码</label>
                 <input
+                  id="admin-password"
+                  autoComplete="current-password"
+                  aria-describedby={loginError ? 'login-error' : undefined}
+                  aria-invalid={Boolean(loginError)}
                   type="password"
                   className="login-input"
                   placeholder="请输入管理员密码"
@@ -373,12 +390,12 @@ export function App() {
                   onKeyDown={handleKeyDown}
                   autoFocus
                 />
-                <button className="login-button" onClick={handleLogin}>
-                  登录
+                <button className="login-button" disabled={loginPending || !password} aria-busy={loginPending} onClick={handleLogin}>
+                  {loginPending ? '正在登录…' : '登录'}
                 </button>
               </div>
               {loginError && (
-                <p className="login-error">{loginError}</p>
+                <p id="login-error" className="login-error" role="alert">{loginError}</p>
               )}
             </div>
           </div>

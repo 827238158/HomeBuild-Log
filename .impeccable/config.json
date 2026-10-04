@@ -1,0 +1,38 @@
+{
+  "hook": {
+    "enabled": true,
+    "quiet": true
+  },
+  "detector": {
+    "ignoreFiles": [
+      "**/*.test.*",
+      "**/node_modules/**",
+      "**/dist/**",
+      ".local-artifacts/**"
+    ],
+    "designSystem": {
+      "enabled": true
+    },
+    "ignoreRules": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "frontend/src/styles.css"
+        ],
+        "createdAt": "2026-10-04T07:09:15.502Z",
+        "reason": "Agent: existing issue severity, candidate risk and source/evidence borders encode business categories; project AGENTS requires preserving confirmed visual semantics."
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "frontend/src/styles.css"
+        ],
+        "createdAt": "2026-10-04T07:09:15.557Z",
+        "reason": "Agent: existing issue board column top borders encode workflow status; preserve project visual semantics and rounded containers."
+      }
+    ]
+  }
+}

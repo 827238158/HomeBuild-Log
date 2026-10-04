@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { recordStatusDescription, recordStatusLabel } from './recordLabels'
+import { recordStatusDescription, recordStatusLabel, recordTypeLabels } from './recordLabels'
 
 describe('record labels', () => {
+  it('区分行动事项与调研主题并统一调研进度名称', () => {
+    expect(recordTypeLabels.issue).toBe('待办与问题')
+    expect(recordStatusLabel('research', 'collecting')).toBe('待调研')
+    expect(recordStatusLabel('research', 'comparing')).toBe('调研中')
+    expect(recordStatusLabel('research', 'concluded')).toBe('暂有结论')
+  })
   it('区分决策和问题的 pending 语义', () => {
     expect(recordStatusLabel('decision', 'pending')).toBe('待确认')
     expect(recordStatusDescription('decision', 'pending')).toBe('这个决定还没有最终确定。')

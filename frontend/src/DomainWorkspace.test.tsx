@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 
 import * as api from './domainApi'
 import { defaultPayload, DomainWorkspace, normalizeMeasurementValues, payloadForSave } from './DomainWorkspace'
+import { confirmNavigation } from './navigationGuard'
 
 vi.mock('./domainApi', () => ({
   listSources: vi.fn(),
@@ -53,7 +54,7 @@ const anotherSource = {
   ignored_candidate_count: 0,
 }
 
-function TestDomainWorkspace({ initialSources = [source], ...props }: { refreshKey: number; preferredSourceId?: string; sourceRequestKey?: number; initialSources?: api.SourceEntry[] }) {
+function TestDomainWorkspace({ initialSources = [source], ...props }: { refreshKey: number; preferredSourceId?: string; sourceRequestKey?: number; manageRequestKey?: number; initialSources?: api.SourceEntry[] }) {
   const [sources, setSources] = useState<api.SourceEntry[]>(initialSources)
   const refreshSources = async () => {
     const rows = await api.listSources()
@@ -121,6 +122,42 @@ beforeEach(() => {
 })
 
 describe('DomainWorkspace', () => {
+  it('来源原文编辑只有实际改动才保护主导航，取消编辑后解除保护', async () => {
+    render(<TestDomainWorkspace refreshKey={0} />)
+    fireEvent.click(await screen.findByText('来源操作'))
+    fireEvent.click(await screen.findByText('修改原始数据'))
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    expect(confirmNavigation()).toBe(true)
+    fireEvent.change(screen.getByLabelText('原始文字'), { target: { value: '未保存原文' } })
+    expect(confirmNavigation()).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(confirmNavigation()).toBe(true)
+    expect(api.updateSource).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+  it('未保存候选阻止导航，取消后仍保留输入并保护刷新', async () => {
+    render(<TestDomainWorkspace refreshKey={0} />)
+    await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    expect(confirmNavigation()).toBe(true)
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: '尚未确认的候选' } })
+    expect(confirmNavigation()).toBe(false)
+    expect(screen.getByLabelText('标题')).toHaveProperty('value', '尚未确认的候选')
+    const unload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(unload)
+    expect(unload.defaultPrevented).toBe(true)
+    confirm.mockRestore()
+  })
+
+  it('空间管理直达请求展开面板并聚焦空间名称，未保存名称保护导航', async () => {
+    render(<TestDomainWorkspace refreshKey={0} manageRequestKey={1} />)
+    await waitFor(() => expect(screen.getByText('管理空间与共享档案').closest('details')?.open).toBe(true))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('空间名称')))
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    fireEvent.change(screen.getByLabelText('空间名称'), { target: { value: '尚未保存的房间' } })
+    expect(confirmNavigation()).toBe(false)
+    confirm.mockRestore()
+  })
   it('分析等待时显示简短中文点阵状态，结束后展示候选结果', async () => {
     let finish!: (bundle: typeof explicitBundle) => void
     vi.mocked(api.getLatestCandidateBundle).mockReturnValue(new Promise((resolve) => { finish = resolve }))
@@ -130,7 +167,7 @@ describe('DomainWorkspace', () => {
     expect(screen.queryByRole('button', { name: '分析中…' })).toBeNull()
     expect(screen.queryByRole('button', { name: '重新分析' })).toBeNull()
     await act(async () => finish(explicitBundle))
-    expect(await screen.findByText('问题：主卧门口地砖有一处破裂')).toBeTruthy()
+    expect(await screen.findByText('待办与问题：主卧门口地砖有一处破裂')).toBeTruthy()
     expect(screen.queryByRole('status', { name: '思考中…' })).toBeNull()
   })
 
@@ -306,7 +343,7 @@ describe('DomainWorkspace', () => {
     fireEvent.wheel(sourceMenu)
     expect(screen.getByRole('listbox')).toBe(sourceMenu)
 
-    fireEvent.click(screen.getAllByRole('button', { name: '请选择（可多选）' })[0])
+    fireEvent.click(screen.getByRole('button', { name: '空间：请选择（可多选）' }))
     const multiMenu = screen.getByRole('listbox')
     fireEvent.scroll(multiMenu)
     fireEvent.wheel(multiMenu)
@@ -355,7 +392,7 @@ describe('DomainWorkspace', () => {
     })
     render(<TestDomainWorkspace refreshKey={0} />)
 
-    expect(await screen.findByText('问题：主卧门口地砖有一处破裂')).toBeTruthy()
+    expect(await screen.findByText('待办与问题：主卧门口地砖有一处破裂')).toBeTruthy()
     expect(screen.getByLabelText('实际完成日期')).toHaveProperty('value', '2026-06-30')
     fireEvent.change(screen.getByLabelText('严重程度'), { target: { value: 'low' } })
     fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
@@ -382,7 +419,7 @@ describe('DomainWorkspace', () => {
     render(<TestDomainWorkspace refreshKey={0} />)
     await screen.findByText('模型选择')
     if (engine !== 'auto') {
-      fireEvent.click(screen.getByRole('button', { name: /自动主备/ }))
+      fireEvent.click(screen.getByRole('combobox', { name: /模型选择：自动主备/ }))
       fireEvent.click(within(screen.getByRole('listbox')).getByRole('option', { name: label }))
     }
     fireEvent.click(screen.getByRole('button', { name: '重新分析' }))
@@ -444,7 +481,7 @@ describe('DomainWorkspace', () => {
     render(<TestDomainWorkspace refreshKey={0} />)
 
     expect(screen.getByRole('heading', { name: '智能拆分' })).toBeTruthy()
-    expect(await screen.findByText('问题：主卧门口地砖有一处破裂')).toBeTruthy()
+    expect(await screen.findByText('待办与问题：主卧门口地砖有一处破裂')).toBeTruthy()
     const checkbox = screen.getByRole('checkbox') as HTMLInputElement
     const confirmButton = screen.getByRole('button', { name: '确认所选' }) as HTMLButtonElement
     const candidateCard = checkbox.closest('article')!
@@ -516,7 +553,7 @@ describe('DomainWorkspace', () => {
     })
     render(<TestDomainWorkspace refreshKey={0} />)
 
-    await screen.findByText('问题：主卧门口地砖有一处破裂')
+    await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
     const confirmButton = screen.getByRole('button', { name: '确认所选' }) as HTMLButtonElement
     expect(confirmButton.disabled).toBe(true)
 
@@ -545,7 +582,7 @@ describe('DomainWorkspace', () => {
 
   it('记录类型中不再提供待办并可切换其他类型', async () => {
     render(<TestDomainWorkspace refreshKey={0} />)
-    await screen.findByText('问题：主卧门口地砖有一处破裂')
+    await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
 
     const typeSelect = screen.getAllByLabelText('记录类型')[0].closest('label')!.querySelector('select')!
     expect(Array.from(typeSelect.options).some((option) => option.value === 'todo')).toBe(false)
@@ -592,7 +629,7 @@ describe('DomainWorkspace', () => {
 
   it('问题业务时间只提交年月日', async () => {
     render(<TestDomainWorkspace refreshKey={0} />)
-    await screen.findByText('问题：主卧门口地砖有一处破裂')
+    await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
 
     fireEvent.change(screen.getByLabelText('严重程度'), { target: { value: 'medium' } })
     fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'done' } })
@@ -608,7 +645,7 @@ describe('DomainWorkspace', () => {
 
   it('添加手工记录后显示示例且确认时调用 createRecord', async () => {
     render(<TestDomainWorkspace refreshKey={0} />)
-    await screen.findByText('问题：主卧门口地砖有一处破裂')
+    await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
     const panels = screen.getAllByLabelText('标题')
@@ -663,7 +700,7 @@ describe('DomainWorkspace', () => {
     render(<TestDomainWorkspace refreshKey={0} />)
     fireEvent.click(screen.getByText('管理空间与共享档案'))
     expect(await screen.findByText(/用于建立“房屋 → 房间 → 局部构件\/表面”层级/)).toBeTruthy()
-    await waitFor(() => expect(screen.getByLabelText(/上级空间/)).toHaveProperty('value', house.id))
+    await waitFor(() => expect(screen.getByLabelText(/上级空间/, { selector: 'select' })).toHaveProperty('value', house.id))
     expect(screen.getByText('房间 · 上级：房屋')).toBeTruthy()
     expect(screen.getByText('房屋 · 系统根空间')).toBeTruthy()
     expect(screen.getByText('系统根空间不可删除')).toBeTruthy()
@@ -703,7 +740,7 @@ describe('DomainWorkspace', () => {
 
     render(<TestDomainWorkspace refreshKey={0} />)
     fireEvent.click(screen.getByText('管理空间与共享档案'))
-    await screen.findByText('问题：主卧门口地砖有一处破裂')
+    await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
     fireEvent.click(within(screen.getByLabelText('已有材料')).getByText('删除'))
 
     expect(await screen.findByText('该材料已被正式记录使用，请先解除记录关联。')).toBeTruthy()
@@ -722,7 +759,7 @@ describe('DomainWorkspace', () => {
     expect(screen.getByText('2026-06-30').classList.contains('multi-select-option__meta')).toBe(true)
     expect(screen.queryByText('时间格式无效')).toBeNull()
     fireEvent.click(await screen.findByLabelText('账目 · 500 元预付款'))
-    expect(within(relationField).getByRole('button', { name: '账目 · 500 元预付款' })).toBeTruthy()
+    expect(within(relationField).getByRole('button', { name: '关联记录（可选）：账目 · 500 元预付款' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
 
     await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
@@ -749,7 +786,7 @@ describe('DomainWorkspace', () => {
     fireEvent.click(within(firstCard).getByText('更多信息与关联'))
     const relationField = within(firstCard).getByRole('group', { name: '关联本批候选（可选）' })
     fireEvent.click(within(relationField).getByRole('button'))
-    const relatedOption = await screen.findByLabelText('问题 · 第二个问题')
+    const relatedOption = await screen.findByLabelText('待办与问题 · 第二个问题')
     expect(relatedOption).toHaveProperty('checked', true)
     fireEvent.click(relatedOption)
     fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
@@ -761,7 +798,7 @@ describe('DomainWorkspace', () => {
   it('批量确认失败时保留勾选和编辑内容', async () => {
     vi.mocked(api.confirmCandidateBundle).mockRejectedValue(new Error('整批未保存'))
     render(<TestDomainWorkspace refreshKey={0} />)
-    await screen.findByText('问题：主卧门口地砖有一处破裂')
+    await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
     const titleInput = screen.getAllByText('标题')[0].closest('label')!.querySelector('input')!
     fireEvent.change(titleInput, { target: { value: '保留这个标题' } })
     fireEvent.click(screen.getByText('确认所选'))
@@ -774,7 +811,7 @@ describe('DomainWorkspace', () => {
 
   it('添加的手工记录可单独移除且不影响提交', async () => {
     render(<TestDomainWorkspace refreshKey={0} />)
-    await screen.findByText('问题：主卧门口地砖有一处破裂')
+    await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
     expect(screen.getAllByLabelText('标题').length).toBe(2)
@@ -792,7 +829,7 @@ describe('DomainWorkspace', () => {
 
   it('AI 候选移除后持久化，确认其他记录时不会重新出现', async () => {
     render(<TestDomainWorkspace refreshKey={0} />)
-    await screen.findByText('问题：主卧门口地砖有一处破裂')
+    await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
     expect(screen.getAllByLabelText('标题').length).toBe(2)
@@ -801,7 +838,7 @@ describe('DomainWorkspace', () => {
     const aiPanel = panels[0]!.closest('article')!
     fireEvent.click(within(aiPanel).getByText('移除'))
 
-    await waitFor(() => expect(screen.queryByText('问题：主卧门口地砖有一处破裂')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('待办与问题：主卧门口地砖有一处破裂')).toBeNull())
     expect(api.deferCandidate).toHaveBeenCalledWith('bundle-1', 'issue:1', 1)
     expect(screen.getAllByLabelText('标题').length).toBe(1)
     fireEvent.click(screen.getByText('确认所选'))
@@ -891,7 +928,7 @@ describe('DomainWorkspace', () => {
 
   it('录入界面不再展示已保存记录组件', async () => {
     render(<TestDomainWorkspace refreshKey={0} />)
-    await screen.findByText('问题：主卧门口地砖有一处破裂')
+    await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
     expect(screen.queryByText('已保存的记录')).toBeNull()
   })
 
@@ -916,7 +953,7 @@ describe('DomainWorkspace', () => {
 
   it('手工记录未填写标题时确认提交兜底标题', async () => {
     render(<TestDomainWorkspace refreshKey={0} />)
-    await screen.findByText('问题：主卧门口地砖有一处破裂')
+    await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
     fireEvent.click(screen.getByText('确认所选'))

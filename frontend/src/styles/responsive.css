@@ -303,3 +303,45 @@
     transition-duration: .01ms !important;
   }
 }
+
+/* 触屏上扩大操作区域，桌面仍沿用紧凑的 42px 控件。 */
+@media (max-width: 900px), (pointer: coarse) {
+  :root {
+    --control-height: 44px;
+  }
+
+  button,
+  .select-trigger,
+  .multi-select-summary,
+  .source-picker__trigger,
+  .attachment-picker,
+  .capture-tab,
+  .filter-button,
+  .review-source-actions__trigger,
+  .record-actions button,
+  .record-edit button,
+  .manage-panel button,
+  .relation-form button,
+  .relation-row button,
+  .detail-record-actions button,
+  .recent-source-row__actions .source-item-close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .recent-source-row__actions .source-item-close {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+.select-trigger[aria-invalid='true'] {
+  border-color: var(--risk);
+}
+
+.select-validation-error {
+  display: block;
+  margin-top: 4px;
+  color: var(--risk);
+  font-size: .875rem;
+}

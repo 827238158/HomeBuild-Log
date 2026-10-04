@@ -229,6 +229,8 @@ class ResearchUpdate(RecordCommonUpdate):
     evidence_sources: list[str] | None = None
     conclusion: str | None = None
     limitations: str | None = None
+    conclusion_reason: str | None = Field(default=None, max_length=10000)
+    conclusion_entry_id: str | None = None
 
 
 RecordCreate = Annotated[

@@ -4,6 +4,7 @@
 
 | 日期 | 事项 | 摘要 |
 | --- | --- | --- |
+| 2026-10-04 | 调研笔记第一版与本地数据库升级 | 独立页面复用 research 正式记录，新增追加式调研过程和结论历史；通用 PATCH 同样保护历史并要求修正原因，旧结论注明原形成时间未知。原 issue 显示名称统一为“待办与问题”，不迁移类型枚举。升级前创建 SQLite 在线一致性备份 `.local-data/backups/pre-research-20261004-092558.sqlite3`（完整性 ok），本地从 0019 升至 `0020_add_research_history`；所有旧表逐行核对不变，包括 60 条正式记录、53 条来源、2 条调研、15 条问题、4 条关系、1 条踩坑和 2 条处理记录。新表均 0 行（现有调研的 conclusion 均为空），未修改真实业务内容。前端 145、后端 134 全量测试通过；迁移测试覆盖 0019 旧结论/空白结论、原字段保留、降级再升级。未部署 Ubuntu。 |
 | 2026-07-20 | 文档系统替换为 AI 外部记忆层 | 旧项目管理式文档系统改为极简活文档；默认入口后续收敛为 `AGENTS.md`、`memory/MEMORY.md`、`memory/CURRENT.md`。 |
 | 2026-07-21 | 记忆文件收纳到专门目录 | 将运行记忆文件移动到 `memory/`，根目录保留 `AGENTS.md`、`README.md`、`DESIGN.md`。 |
 | 2026-08-03 | Ubuntu Docker 验证环境初始化 | `ubuntu26`（Ubuntu 26.04）已安装 Docker Engine 29.7.1、Buildx 0.36.0、Compose 5.3.1；Docker 服务开机自启，`hello-world` 容器验证通过。Docker Hub 拉取需临时启动 Mihomo，验证后代理已关闭；HomeBuild Log 项目镜像与持久化部署尚未验收。 |
@@ -39,3 +40,5 @@
 | 2026-09-28 | UI 修复版更新至 Ubuntu HTTPS 容器 | 服务器源码经完整 Git bundle 校验并 fast-forward 到 `a20cfdab4cde`（GitHub 直连超时、临时 Mihomo 又遇 GnuTLS 握手中止，结束后 Mihomo 已关闭）。使用一次性临时 Dockerfile、DaoCloud、npmmirror 和阿里云 PyPI 构建并切换 `homebuild-log:a20cfdab4cde`，无迁移变化。停写后归档 `.local-data`，SHA-256 `5c9041d5bcf0af90cdeb6b1fbab11794f853cdc966774d95d7be75e372260d6a` 与归档结构通过；应用健康，revision `0019_add_pitfall_logs`、SQLite 完整性及 98 条记录、81 条来源、23 条问题、23 条关系、1 条旧待办备份、2 条踩坑和 2 条处理记录在切换前后完全一致。仅替换 app，Caddy 容器及 CA 卷保留；Ubuntu HTTP/HTTPS 和 Windows 同网段 HTTP 健康接口通过。Windows curl 的 Schannel TLS 凭据错误未作为证书链验收，手机/平板与浏览器真实验收仍待完成。 |
 
 - 2026-09-28：按用户确认重写 DESIGN.md，定位为可复用设计经验及体验底线；页面按实际任务选择组件，取消固定页面顺序与摘要卡必须三层的模板要求。同步完成本地界面精简，尚未部署。
+
+- 2026-10-04：按用户要求项目级接入 Impeccable 4.5.0；保留官方技能与许可证，添加产品事实与项目约束，Windows 引擎 0.1.11 校验摘要并缓存于项目忽略目录。追加设计检测 Hook，保留现有三条记忆 Hook；不修改业务界面，不推送或部署。Hook 信任与真实自动触发待验收。

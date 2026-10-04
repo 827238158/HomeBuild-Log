@@ -162,6 +162,178 @@ beforeEach(() => {
 })
 
 describe('CoreViews', () => {
+  it('主导航保护未保存处理结果，取消导航保持草稿，确认后切换', async () => {
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '待办与问题' }))
+    fireEvent.change(await screen.findByLabelText('处理状态'), { target: { value: 'done' } })
+    fireEvent.change(screen.getByLabelText('实际处理结果'), { target: { value: '未提交的处理经过' } })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    fireEvent.click(screen.getByRole('button', { name: '概览' }))
+    expect(screen.getByLabelText('实际处理结果')).toHaveProperty('value', '未提交的处理经过')
+    fireEvent.click(screen.getByRole('button', { name: '概览' }))
+    expect(await screen.findByRole('heading', { name: '装修概览' })).toBeTruthy()
+    expect(screen.queryByLabelText('实际处理结果')).toBeNull()
+    expect(api.updateRecord).not.toHaveBeenCalled()
+    expect(confirm).toHaveBeenCalledTimes(2)
+    confirm.mockRestore()
+  })
+  it('附件经鉴权读取可预览原件，关闭详情释放blob地址', async () => {
+    const source = await vi.mocked(api.getSource).mock.results.at(-1)?.value
+    vi.mocked(api.getSource).mockResolvedValue({ ...(source ?? { id: 'source-1', project_id: 'project-1', input_type: 'text', original_text: '附件来源', captured_at: '2026-06-28T10:00:00Z', reported_time_text: null, updated_at: '2026-06-28T10:00:00Z', revision: 1 }), attachments: [{ id: 'attachment-1', source_id: 'source-1', original_filename: '现场照片.png', media_type: 'image/png', size_bytes: 1024, sha256_hex: 'test', created_at: '2026-06-28T10:00:00Z' }] })
+    const revoke = vi.fn()
+    const OriginalURL = URL
+    vi.stubGlobal('URL', class extends OriginalURL { static createObjectURL = vi.fn(() => 'blob:attachment-test'); static revokeObjectURL = revoke })
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['image']) })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '查看附件' }))
+    expect(await screen.findByRole('img', { name: '现场照片.png' })).toHaveProperty('src', 'blob:attachment-test')
+    expect(screen.getByRole('link', { name: '下载原件' }).getAttribute('download')).toBe('现场照片.png')
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/attachments/attachment-1/content'), expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer test-token' }) }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭详情' }))
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:attachment-test'))
+    sessionStorage.clear()
+  })
+
+  it('时间线与搜索可一键恢复筛选', async () => {
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    await screen.findByText('现场查看')
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '花砖' } })
+    fireEvent.change(screen.getByLabelText('记录类型'), { target: { value: 'ledger' } })
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
+    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }))
+    await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ q: '', record_type: '', date_from: '', date_to: '' })))
+    expect(screen.getByLabelText('关键词')).toHaveProperty('value', '')
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '现场' } })
+    fireEvent.change(screen.getByLabelText('记录类型'), { target: { value: 'ledger' } })
+    fireEvent.click(screen.getAllByRole('button', { name: '搜索' }).at(-1)!)
+    await screen.findByText('原始来源 · 1')
+    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }))
+    expect(screen.queryByText('原始来源 · 1')).toBeNull()
+    expect(screen.getByLabelText('关键词')).toHaveProperty('value', '')
+    expect(screen.getByLabelText('记录类型')).toHaveProperty('value', '')
+  })
+  it.each([
+    [{ record_type: 'ledger', amount_minor: 12345, direction: 'expense', vendor: { id: 'vendor-1', name: '事实商家' } }, ['¥123.45', '事实商家']],
+    [{ record_type: 'measurement', object_name: '门洞', values: [{ axis: 'width', value: 90, unit: 'cm' }] }, ['门洞', '90 cm']],
+    [{ record_type: 'decision', topic: '铺贴方向', options: ['横贴', '竖贴'], selected_option: '横贴' }, ['铺贴方向', '横贴、竖贴', '横贴']],
+  ])('只读详情直接展示类型核心事实：%j', async (fields, facts) => {
+    vi.mocked(api.getRecord).mockResolvedValue({ ...record, ...fields } as ProjectionRecord)
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
+    const dialog = await screen.findByRole('dialog', { name: '记录详情' })
+    for (const fact of facts) expect(await within(dialog).findByText(fact)).toBeTruthy()
+    expect(vi.mocked(api.listEntities).mock.calls.filter(([type]) => type !== 'stages')).toHaveLength(0)
+  })
+
+  it('详情主体不依赖编辑档案或来源成功，并可独立重试来源', async () => {
+    vi.mocked(api.listEntities).mockImplementation(async type => { if (type === 'materials') throw new Error('编辑档案不可用'); return [] })
+    vi.mocked(api.getSource).mockRejectedValueOnce(new Error('来源暂不可用'))
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
+    const dialog = await screen.findByRole('dialog', { name: '记录详情' })
+    expect(await within(dialog).findByRole('heading', { name: '现场查看' })).toBeTruthy()
+    expect(await within(dialog).findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('来源暂不可用'))
+    expect(vi.mocked(api.listEntities).mock.calls.filter(([type]) => type === 'materials')).toHaveLength(0)
+    fireEvent.click(within(dialog).getByRole('button', { name: '重试读取' }))
+    expect(await within(dialog).findByRole('button', { name: '打开原始来源' })).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: '修改记录' }))
+    expect(await within(dialog).findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('编辑档案不可用'))
+    expect(within(dialog).getByRole('button', { name: '保存修改' })).toHaveProperty('disabled', true)
+  })
+
+  it('详情来源可直达录入，搜索来源也可直达', async () => {
+    const openSource = vi.fn()
+    render(<CoreViews onOpenSource={openSource}><p>录入工作台</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '打开原始来源' }))
+    expect(openSource).toHaveBeenLastCalledWith('source-1')
+    expect(screen.getByText('录入工作台')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '现场' } })
+    fireEvent.click(screen.getAllByRole('button', { name: '搜索' }).at(-1)!)
+    fireEvent.click(await screen.findByRole('button', { name: '打开原始来源' }))
+    expect(openSource).toHaveBeenCalledTimes(2)
+  })
+
+  it('详情隔离背景、Tab循环且Esc关闭后恢复记录焦点', async () => {
+    const { container } = render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    const opener = await screen.findByRole('button', { name: /现场查看/ })
+    opener.focus(); fireEvent.click(opener)
+    const dialog = await screen.findByRole('dialog', { name: '记录详情' })
+    await within(dialog).findByRole('button', { name: '打开原始来源' })
+    expect(container.inert).toBe(true)
+    const buttons = within(dialog).getAllByRole('button')
+    const first = buttons[0]; const last = buttons.at(-1)!
+    last.focus(); fireEvent.keyDown(document, { key: 'Tab' })
+    expect(document.activeElement).toBe(first)
+    first.focus(); fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(last)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(Boolean(container.inert)).toBe(false)
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('详情脏输入取消离开保留，确认后关闭且不提交', async () => {
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
+    const dialog = await screen.findByRole('dialog', { name: '记录详情' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '修改记录' }))
+    fireEvent.change(await within(dialog).findByLabelText('标题'), { target: { value: '未保存编辑' } })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(within(dialog).getByLabelText('标题')).toHaveProperty('value', '未保存编辑')
+    fireEvent.click(within(dialog).getByRole('button', { name: '关闭详情' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(api.updateRecord).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it('完成问题使用多行表单，空结果提示且保存失败保留内容', async () => {
+    vi.mocked(api.updateRecord).mockRejectedValueOnce(new Error('完成保存失败'))
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '待办与问题' }))
+    fireEvent.change(await screen.findByLabelText('处理状态'), { target: { value: 'done' } })
+    const result = screen.getByLabelText('实际处理结果')
+    expect(result.tagName).toBe('TEXTAREA')
+    fireEvent.click(screen.getByRole('button', { name: '登记完成' }))
+    expect(screen.getByRole('alert')).toHaveProperty('textContent', expect.stringContaining('请填写'))
+    expect(api.updateRecord).not.toHaveBeenCalled()
+    fireEvent.change(result, { target: { value: '复核完成\n现场已处理' } })
+    fireEvent.click(screen.getByRole('button', { name: '登记完成' }))
+    expect(await screen.findByText('完成保存失败')).toBeTruthy()
+    expect(result).toHaveProperty('value', '复核完成\n现场已处理')
+    expect(api.updateRecord).toHaveBeenCalledWith('issue-1', expect.objectContaining({ record_type: 'issue', status: 'done', actual_result: '复核完成\n现场已处理' }))
+  })
+
+  it('手机关闭导航时隔离侧栏，打开后隔离工作区并用Esc返回菜单焦点', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((media: string) => ({ matches: media.includes('max-width: 900px'), media, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    const { container } = render(<CoreViews><p>录入</p></CoreViews>)
+    const sidebar = container.querySelector<HTMLElement>('.workspace-sidebar')!
+    const main = container.querySelector<HTMLElement>('.workspace-main')!
+    expect(sidebar.hasAttribute('inert')).toBe(true)
+    expect(screen.queryByRole('button', { name: '时间线' })).toBeNull()
+    const menu = screen.getByRole('button', { name: '打开导航' })
+    menu.focus(); fireEvent.click(menu)
+    expect(await screen.findByRole('dialog', { name: '核心功能导航' })).toBe(sidebar)
+    expect(sidebar.hasAttribute('inert')).toBe(false)
+    expect(main.inert).toBe(true)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(sidebar.hasAttribute('inert')).toBe(true)
+    expect(Boolean(main.inert)).toBe(false)
+    expect(document.activeElement).toBe(menu)
+  })
   it('编辑中切换记录不会将上一条草稿提交到新记录', async () => {
     const second = { ...record, id: 'event-2', title: '复核尺寸' }
     vi.mocked(api.getTimeline).mockResolvedValue({ total: 2, analytics, groups: [{ date_key: '2026-06', label: '2026年6月', items: [record, second].map((entry) => ({ record: entry, related_records: [] })) }] })
@@ -171,11 +343,15 @@ describe('CoreViews', () => {
     fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
     const firstDetail = await screen.findByLabelText('记录详情')
     fireEvent.click(await within(firstDetail).findByRole('button', { name: '修改记录' }))
-    fireEvent.change(within(firstDetail).getByLabelText('标题'), { target: { value: '不能覆盖其他记录的草稿' } })
+    fireEvent.change(await within(firstDetail).findByLabelText('标题'), { target: { value: '不能覆盖其他记录的草稿' } })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    fireEvent.click(within(firstDetail).getByRole('button', { name: '关闭详情' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    confirm.mockRestore()
     fireEvent.click(screen.getByRole('button', { name: /复核尺寸/ }))
-    const secondDetail = screen.getByLabelText('记录详情')
+    const secondDetail = await screen.findByLabelText('记录详情')
     fireEvent.click(await within(secondDetail).findByRole('button', { name: '修改记录' }))
-    expect((within(secondDetail).getByLabelText('标题') as HTMLInputElement).value).toBe(second.title)
+    expect((await within(secondDetail).findByLabelText('标题') as HTMLInputElement).value).toBe(second.title)
     fireEvent.click(within(secondDetail).getByRole('button', { name: '保存修改' }))
     await waitFor(() => expect(api.updateRecord).toHaveBeenLastCalledWith(second.id, expect.objectContaining({ title: second.title })))
   })
@@ -195,8 +371,9 @@ describe('CoreViews', () => {
     await within(detail).findByRole('button', { name: '修改记录' })
     if (operation === '编辑') {
       fireEvent.click(within(detail).getByRole('button', { name: '修改记录' }))
-      fireEvent.change(within(detail).getByLabelText('标题'), { target: { value: changed.title } })
-      fireEvent.click(within(detail).getByRole('button', { name: '保存修改' }))
+      fireEvent.change(await within(detail).findByLabelText('标题'), { target: { value: changed.title } })
+      await waitFor(() => expect(within(detail).getByRole('button', { name: '保存修改' })).toHaveProperty('disabled', false))
+    fireEvent.click(within(detail).getByRole('button', { name: '保存修改' }))
       fireEvent.click(await within(detail).findByRole('button', { name: '关闭详情' }))
     } else {
       const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -235,7 +412,7 @@ describe('CoreViews', () => {
   it('问题图表按交集请求，空间草稿不生效，分别清除与全部清除保留已应用空间', async () => {
     vi.mocked(api.listSpaces).mockResolvedValue([{ id: 'room-1', name: '主卧', kind: 'room', parent_id: null }])
     render(<CoreViews><p>录入</p></CoreViews>)
-    fireEvent.click(screen.getByRole('button', { name: '问题' }))
+    fireEvent.click(screen.getByRole('button', { name: '待办与问题' }))
     await screen.findByText('地砖破裂')
     fireEvent.change(screen.getByLabelText('空间'), { target: { value: 'room-1' } })
     fireEvent.click(screen.getByRole('button', { name: '问题状态分布测试数据项' }))
@@ -245,7 +422,7 @@ describe('CoreViews', () => {
     fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
     await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: 'room-1', status: 'pending', severity: 'high' }))
     const select = screen.getByLabelText('处理状态')
-    expect(within(select).getAllByRole('option')).toHaveLength(3)
+    expect(within(select).getAllByRole('option', { hidden: true })).toHaveLength(3)
     fireEvent.change(select, { target: { value: 'in_progress' } })
     await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('issue-1', { record_type: 'issue', status: 'in_progress' }))
     await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: 'room-1', status: 'pending', severity: 'high' }))
@@ -260,7 +437,7 @@ describe('CoreViews', () => {
 
   it('问题筛选空结果仍可清除，迟到的旧响应不能覆盖最新结果', async () => {
     render(<CoreViews><p>录入</p></CoreViews>)
-    fireEvent.click(screen.getByRole('button', { name: '问题' }))
+    fireEvent.click(screen.getByRole('button', { name: '待办与问题' }))
     await screen.findByText('地砖破裂')
     const initial = await vi.mocked(api.getIssueBoard).mock.results.at(-1)!.value
     let resolveOld!: (value: api.IssueBoardResponse) => void
@@ -322,7 +499,7 @@ describe('CoreViews', () => {
   it('无需加载更多即可回顶，减少动态效果时直接定位页面零点', async () => {
     const scrollYSpy = vi.spyOn(window, 'scrollY', 'get').mockReturnValue(321)
     const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }))
+    vi.stubGlobal('matchMedia', vi.fn((media: string) => ({ matches: media.includes('prefers-reduced-motion'), media, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '时间线' }))
     fireEvent.click(await screen.findByRole('button', { name: '回到顶部' }))
@@ -569,6 +746,7 @@ describe('CoreViews', () => {
     fireEvent.click(screen.getByText('编辑刷新记录 1').closest('button')!)
     const detail = await screen.findByLabelText('记录详情')
     fireEvent.click(within(detail).getByRole('button', { name: '修改记录' }))
+    await waitFor(() => expect(within(detail).getByRole('button', { name: '保存修改' })).toHaveProperty('disabled', false))
     fireEvent.click(within(detail).getByRole('button', { name: '保存修改' }))
 
     await waitFor(() => expect(vi.mocked(api.getTimeline).mock.calls.length).toBeGreaterThan(callsBeforeOpen + 1))
@@ -672,7 +850,7 @@ describe('CoreViews', () => {
     await waitFor(() => expect(api.getRecord).toHaveBeenCalledWith('ledger-1'))
     fireEvent.click(await screen.findByRole('button', { name: '关闭详情' }))
     expect(await screen.findByRole('dialog', { name: '付款总额' })).toBeTruthy()
-    expect(document.activeElement).toBe(ledgerRecordButton)
+    await waitFor(() => expect(document.activeElement).toBe(ledgerRecordButton))
     rectSpy.mockRestore()
   })
 
@@ -724,6 +902,7 @@ describe('CoreViews', () => {
     expect(detail.classList.contains('record-detail-panel')).toBe(true)
     expect(document.querySelector('.ledger-detail-panel')?.classList.contains('is-obscured')).toBe(true)
     fireEvent.click(within(detail).getByRole('button', { name: '修改记录' }))
+    await within(detail).findByLabelText('标题')
 
     const openSingleSelect = (label: string, option: string) => {
       const native = within(detail).getByLabelText(label)
@@ -785,9 +964,7 @@ describe('CoreViews', () => {
   })
 
   it('移动端点击统计卡片直接打开底部明细而不显示 hover 预览', async () => {
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
-      matches: true, media: '(hover: none)', addEventListener: vi.fn(), removeEventListener: vi.fn(),
-    }))
+    vi.stubGlobal('matchMedia', vi.fn((media: string) => ({ matches: media.includes('hover: none'), media, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     const ledger = {
       ...record, id: 'ledger-mobile', record_type: 'ledger', ledger_kind: 'payment', title: '移动端付款', status: 'paid',
       direction: 'expense' as const, amount_minor: 50000, vendor: { id: 'vendor-1', name: '砖世界' },
@@ -819,7 +996,7 @@ describe('CoreViews', () => {
 
   it('问题状态更新只提交问题记录类型和新状态', async () => {
     render(<CoreViews><p>录入</p></CoreViews>)
-    fireEvent.click(screen.getByRole('button', { name: '问题' }))
+    fireEvent.click(screen.getByRole('button', { name: '待办与问题' }))
     const statusSelect = await screen.findByLabelText('处理状态')
     expect(document.querySelector('.issue-page-header .issue-filter-bar')).toBeTruthy()
     fireEvent.change(statusSelect, { target: { value: 'in_progress' } })
@@ -852,7 +1029,7 @@ describe('CoreViews', () => {
     expect(screen.getByText('符合条件的记录')).toBeTruthy()
     const typeTabs = screen.getByRole('tablist', { name: '记录类型' })
     const allTypes = within(typeTabs).getByRole('tab', { name: '全部' })
-    const issueType = within(typeTabs).getByRole('tab', { name: '问题' })
+    const issueType = within(typeTabs).getByRole('tab', { name: '待办与问题' })
     expect(allTypes.getAttribute('aria-selected')).toBe('true')
     fireEvent.keyDown(allTypes, { key: 'End' })
     expect(within(typeTabs).getAllByRole('tab').at(-1)?.getAttribute('aria-selected')).toBe('true')
@@ -894,7 +1071,7 @@ describe('CoreViews', () => {
     const detail = await screen.findByLabelText('记录详情')
     const updateCallsBeforeEdit = vi.mocked(api.updateRecord).mock.calls.length
     fireEvent.click(within(detail).getByRole('button', { name: '修改记录' }))
-    expect(within(detail).queryByRole('button', { name: '关闭详情' })).toBeNull()
+    expect(within(detail).getByRole('button', { name: '关闭详情' })).toBeTruthy()
     expect(within(detail).queryByRole('button', { name: '删除记录' })).toBeNull()
     expect(within(detail).queryByText('原始来源与附件')).toBeNull()
     fireEvent.click(within(detail).getByRole('button', { name: '取消' }))
@@ -903,19 +1080,20 @@ describe('CoreViews', () => {
     expect(vi.mocked(api.updateRecord).mock.calls).toHaveLength(updateCallsBeforeEdit)
 
     fireEvent.click(within(detail).getByRole('button', { name: '修改记录' }))
-    fireEvent.change(within(detail).getByLabelText('状态'), { target: { value: 'completed' } })
+    fireEvent.change(await within(detail).findByLabelText('状态'), { target: { value: 'completed' } })
     fireEvent.change(within(detail).getByLabelText('发生日期'), { target: { value: '2026-07-01' } })
     const spaces = within(detail).getByRole('group', { name: '空间' })
     fireEvent.click(within(spaces).getByText('请选择（可多选）'))
     fireEvent.click(screen.getByLabelText('主卧'))
     fireEvent.click(screen.getByLabelText('次卧'))
-    expect(within(spaces).getByRole('button', { name: '主卧、次卧' })).toBeTruthy()
+    expect(within(spaces).getByRole('button', { name: '空间：主卧、次卧' })).toBeTruthy()
     // 已选项只保留在输入框摘要中，通过下拉选项取消选择。
     fireEvent.click(screen.getByLabelText('次卧'))
     const participants = within(detail).getByRole('group', { name: '参与者' })
     fireEvent.click(within(participants).getByText('请选择（可多选）'))
     fireEvent.click(screen.getByLabelText('张师傅'))
     fireEvent.click(screen.getByLabelText('李师傅'))
+    await waitFor(() => expect(within(detail).getByRole('button', { name: '保存修改' })).toHaveProperty('disabled', false))
     fireEvent.click(within(detail).getByRole('button', { name: '保存修改' }))
 
     await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('event-1', expect.objectContaining({
@@ -933,11 +1111,12 @@ describe('CoreViews', () => {
     fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
     const detail = await screen.findByLabelText('记录详情')
     fireEvent.click(within(detail).getByRole('button', { name: '修改记录' }))
+    await waitFor(() => expect(within(detail).getByRole('button', { name: '保存修改' })).toHaveProperty('disabled', false))
     fireEvent.click(within(detail).getByRole('button', { name: '保存修改' }))
 
     expect((await within(detail).findByRole('alert')).textContent).toContain('保存失败测试')
     expect(within(detail).getByRole('button', { name: '保存修改' })).toBeTruthy()
-    expect(within(detail).queryByRole('button', { name: '关闭详情' })).toBeNull()
+    expect(within(detail).getByRole('button', { name: '关闭详情' })).toBeTruthy()
   })
 
   it('记录详情二次确认后删除记录', async () => {

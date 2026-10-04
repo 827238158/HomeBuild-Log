@@ -176,3 +176,7 @@ D:\Anaconda\python.exe -X utf8 -B -m unittest discover -s .codex\hooks -p "test_
 ```
 
 项目 Hook 已做有意的本地精简；技能安装器 `--check` 比较的是模板一致性，可能报告差异，不等同于运行测试失败。不要为消除模板差异直接覆盖本地实现。
+
+## Impeccable UI 工具
+
+项目接入、已验证命令和引擎迁移步骤见 docs/impeccable.md。Windows 从根目录运行 scripts/impeccable.cmd context、hooks status、detect；引擎缓存固定在 .local-artifacts/impeccable，不自动下载。更新 Hook 后按 Codex 提示核对信任，保留现有记忆 Hook。

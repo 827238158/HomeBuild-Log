@@ -14,7 +14,7 @@ from app.domain_models import (
 TYPE_LABELS: dict[str, str] = {
     "event": "事件",
     "ledger": "账目",
-    "issue": "问题",
+    "issue": "待办与问题",
     "measurement": "尺寸",
     "decision": "决策",
     "research": "调研",

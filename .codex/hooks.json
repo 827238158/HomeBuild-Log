@@ -24,6 +24,18 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|apply_patch",
+        "hooks": [
+          {
+            "statusMessage": "Checking UI changes",
+            "timeout": 5,
+            "commandWindows": "cmd.exe /d /c scripts\\impeccable.cmd hook",
+            "type": "command",
+            "command": "[ ! -f .agents/skills/impeccable/scripts/impeccable ] || IMPECCABLE_HOME=.local-artifacts/impeccable .agents/skills/impeccable/scripts/impeccable hook"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -34,6 +46,17 @@
             "command": "D:\\Anaconda\\python.exe -X utf8 -B \"G:\\BackUp\\AI+网络项目孵化\\HomeBuild Log\\.codex\\hooks\\memory_gate.py\"",
             "statusMessage": "Reviewing project memory",
             "timeout": 15
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "statusMessage": "Design deep pass",
+            "timeout": 30,
+            "commandWindows": "cmd.exe /d /c scripts\\impeccable.cmd hook",
+            "type": "command",
+            "command": "[ ! -f .agents/skills/impeccable/scripts/impeccable ] || IMPECCABLE_HOME=.local-artifacts/impeccable .agents/skills/impeccable/scripts/impeccable hook"
           }
         ]
       }

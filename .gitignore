@@ -29,3 +29,12 @@ backend/dist/
 
 # 本地设计需求稿不进入版本库
 踩坑记录-设计Brief.md
+
+# Impeccable 临时输出与个人配置；技能和共享配置纳入版本管理
+**/.impeccable/config.local.json
+**/.impeccable/hook.cache.json
+**/.impeccable/hook.pending.json
+**/.impeccable/*.png
+**/.impeccable/review/
+**/.impeccable/questions/
+**/.impeccable/live/

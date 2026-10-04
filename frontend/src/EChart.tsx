@@ -31,6 +31,7 @@ export interface EChartProps {
   option: EChartsCoreOption
   summary: string
   onDataClick?: (key: string) => void
+  accessibleItems?: Array<{ key: string; label: string }>
   title: string
   description?: string
   kind: 'line' | 'bar' | 'donut'
@@ -62,6 +63,7 @@ export function EChart({
   option,
   summary,
   onDataClick,
+  accessibleItems,
   title,
   description,
   kind,
@@ -147,5 +149,6 @@ export function EChart({
       <div ref={containerRef} className={`chart-canvas${scrollable ? ' chart-canvas--scroll-content' : ''}`} aria-hidden="true" />
     </div>
     <figcaption className="sr-only">{summary}</figcaption>
+    {onDataClick && accessibleItems && accessibleItems.length > 0 && <details className="chart-keyboard-actions"><summary>按分类操作</summary><div className="tag-list">{accessibleItems.map(item => <button type="button" key={item.key} aria-pressed={selectedKey === item.key} onClick={() => onDataClick(item.key)}>{item.label}</button>)}</div></details>}
   </figure>
 }

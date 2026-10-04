@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -521,6 +522,36 @@ def delete_source(
             "file_cleanup_warnings": warnings,
         }
     )
+
+
+@router.get("/attachments/{attachment_id}/content")
+def read_attachment_content(
+    attachment_id: str,
+    request: Request,
+    user: Annotated[CurrentUser, Depends(require_user)],
+) -> FileResponse:
+    db = _get_db(request)
+    try:
+        attachment = db.get(AttachmentModel, attachment_id)
+        if attachment is None:
+            raise HTTPException(status_code=404, detail="附件不存在。")
+        paths: StoragePaths = request.app.state.storage_paths
+        # 数据库路径也必须校验，禁止越界或通过符号链接读取其他本地文件。
+        root = paths.attachment_originals.resolve()
+        target = (paths.root / attachment.storage_path).resolve()
+        if not target.is_relative_to(root) or not target.is_file():
+            raise HTTPException(status_code=404, detail="附件原件暂时无法读取。")
+        if attachment.media_type not in _ALLOWED_TYPES:
+            raise HTTPException(status_code=400, detail="不支持查看此附件类型。")
+        return FileResponse(
+            target,
+            media_type=attachment.media_type,
+            filename=attachment.original_filename,
+            content_disposition_type="inline",
+            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        )
+    finally:
+        db.close()
 
 
 @router.post("/attachments", response_model=AttachmentResponse, status_code=201)

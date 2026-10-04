@@ -25,6 +25,25 @@ afterEach(() => {
 })
 
 describe('App', () => {
+  it('登录等待期间重复回车只发送一次请求并播报错误', async () => {
+    let rejectLogin!: (reason: Error) => void
+    const pending = new Promise((_, reject) => { rejectLogin = reject })
+    const fetchMock = vi.fn((input: RequestInfo | URL) => String(input).endsWith('/auth/login')
+      ? pending
+      : Promise.resolve({ ok: true, json: async () => ({ status: 'ok' }) }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<App />)
+    const password = await screen.findByLabelText('管理员密码')
+    fireEvent.change(password, { target: { value: 'example-password' } })
+    fireEvent.keyDown(password, { key: 'Enter' })
+    fireEvent.keyDown(password, { key: 'Enter' })
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/auth/login'))).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '正在登录…' })).toHaveProperty('disabled', true)
+    await act(async () => { rejectLogin(new Error('密码错误')) })
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', '密码错误')
+    expect(password.getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByRole('button', { name: '登录' })).toHaveProperty('disabled', false)
+  })
   it('来源列表加载失败后可重试，整理页共享刷新结果', async () => {
     sessionStorage.setItem('homebuild-log-token', 'test-token')
     let sourceRequests = 0

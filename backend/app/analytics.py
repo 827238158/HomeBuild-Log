@@ -11,7 +11,7 @@ from app.projections import effective_date
 TYPE_LABELS = {
     "event": "事件",
     "ledger": "账目",
-    "issue": "问题",
+    "issue": "待办与问题",
     "measurement": "尺寸",
     "decision": "决策",
     "research": "调研",
@@ -34,9 +34,9 @@ STATUS_LABELS = {
     "pending": "待处理",
     "confirmed": "已确认",
     "paid": "已出账",
-    "collecting": "收集中",
-    "comparing": "比较中",
-    "concluded": "已有结论",
+    "collecting": "待调研",
+    "comparing": "调研中",
+    "concluded": "暂有结论",
     "archived": "已归档",
     "done": "已完成",
 }

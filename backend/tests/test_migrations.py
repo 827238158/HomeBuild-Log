@@ -31,7 +31,7 @@ def test_migrations_upgrade_temporary_database_to_head(
     finally:
         engine.dispose()
 
-    assert revision == "0019_add_pitfall_logs"
+    assert revision == "0020_add_research_history"
 
     engine = create_engine(url)
     try:
@@ -58,6 +58,50 @@ def test_migrations_upgrade_temporary_database_to_head(
     finally:
         engine.dispose()
     assert {"pitfalls", "pitfall_resolutions"} <= tables
+    assert {"research_entries", "research_conclusions"} <= tables
+
+
+def test_research_history_migration_preserves_existing_conclusions(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    url = database_url(tmp_path / "research-migration.sqlite3")
+    monkeypatch.setenv("HOMEBUILD_DATABASE_URL", url)
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    command.upgrade(config, "0019_add_pitfall_logs")
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        for record_id, conclusion in [("existing-research", "之前的结论"),
+                                      ("blank-research", " \n\t ")]:
+            connection.execute(text(
+                "INSERT INTO records "
+                "(id, project_id, record_type, title, timezone, status, created_at, updated_at) "
+                "VALUES (:id, '00000000000000000000000000000001', 'research', "
+                "'原始主题', 'Asia/Shanghai', 'comparing', '2020-01-01', '2020-01-01')"
+            ), {"id": record_id})
+            connection.execute(text(
+                "INSERT INTO research_details "
+                "(record_id, question, options_json, dimensions_json, sources_json, conclusion) "
+                "VALUES (:id, '原始问题', '[]', '[]', '[]', :conclusion)"
+            ), {"id": record_id, "conclusion": conclusion})
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        history = connection.execute(text(
+            "SELECT record_id, conclusion, reason, created_at FROM research_conclusions"
+        )).all()
+        assert len(history) == 1
+        assert history[0][:2] == ("existing-research", "之前的结论")
+        assert "原形成时间未知" in history[0][2]
+        assert not history[0][3].startswith("2020")
+        assert connection.execute(text(
+            "SELECT r.title, r.status, d.question, d.conclusion FROM records r "
+            "JOIN research_details d ON r.id=d.record_id WHERE r.id='existing-research'"
+        )).one() == ("原始主题", "comparing", "原始问题", "之前的结论")
+    # 降级只撤销新增表，保留当前结论与原主题；重新升级仍能保留已有判断。
+    command.downgrade(config, "0019_add_pitfall_logs")
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT count(*) FROM research_conclusions")).scalar() == 1
+    engine.dispose()
 
 
 def test_relation_migration_normalizes_direction_and_merges_duplicates(

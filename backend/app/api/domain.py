@@ -30,6 +30,7 @@ from app.domain_models import (
     ProjectStage,
     Record,
     RecordRelation,
+    ResearchConclusion,
     Space,
     Vendor,
     record_attachments,
@@ -43,6 +44,7 @@ from app.local_suggestions import suggest_from_text
 from app.models import Attachment, SourceEntry
 from app.projections import serialize_records
 from app.record_schemas import RecordCreate, RecordUpdate
+from app.research_history import append_conclusion
 
 router = APIRouter(tags=["domain"])
 User = Annotated[CurrentUser, Depends(require_user)]
@@ -548,7 +550,9 @@ def _validate_record_refs(db: Session, payload: dict[str, Any]) -> None:
 
 
 def _detail_values(record_type: str, payload: dict[str, Any]) -> dict[str, Any]:
-    excluded = COMMON_FIELDS | ASSOCIATION_FIELDS | {"record_type", "values"}
+    excluded = COMMON_FIELDS | ASSOCIATION_FIELDS | {
+        "record_type", "values", "conclusion_reason", "conclusion_entry_id"
+    }
     values = {key: value for key, value in payload.items() if key not in excluded}
     renames = DETAIL_RENAMES_TO_DB.get(record_type, {})
     return {renames.get(key, key): value for key, value in values.items()}
@@ -756,6 +760,11 @@ def _create_record_in_session(
     db.flush()
     detail_model = DETAIL_MODELS[record.record_type]
     db.add(detail_model(record_id=record.id, **_detail_values(record.record_type, payload)))
+    if record.record_type == "research" and str(payload.get("conclusion") or "").strip():
+        # 候选确认和通用录入也进入历史，避免只有独立页面能追溯结论。
+        db.add(ResearchConclusion(
+            record_id=record.id, conclusion=payload["conclusion"], reason="创建时的初始结论",
+        ))
     _replace_associations(db, record.id, payload)
     _replace_record_relations(db, record.id, payload)
     if record.record_type == "measurement":
@@ -1020,6 +1029,12 @@ def update_record(
         }:
             raise HTTPException(status_code=422, detail="问题必须选择低、中或高严重程度。")
         _validate_record_refs(db, validation_payload)
+        if record.record_type == "research" and "conclusion" in payload:
+            append_conclusion(
+                db, record, payload["conclusion"], payload.get("conclusion_reason"),
+                payload.get("conclusion_entry_id"),
+            )
+            payload["conclusion"] = db.get(DETAIL_MODELS["research"], record.id).conclusion
         for key in COMMON_FIELDS & payload.keys():
             setattr(record, key, payload[key])
         record.updated_at = _now()

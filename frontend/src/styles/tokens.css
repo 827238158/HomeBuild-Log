@@ -16,7 +16,7 @@
   --sidebar-active: #293746;
   --ink: #1f2328;
   --ink-muted: #667085;
-  --ink-subtle: #8a94a3;
+  --ink-subtle: #667085;
   --muted: #667085;
   --border: #e1e6eb;
   --border-strong: #cfd6de;
@@ -65,4 +65,3 @@ body {
   outline: 0;
   box-shadow: 0 0 0 3px rgb(23 105 194 / 22%);
 }
-

@@ -1,0 +1,12 @@
+.record-core-facts dd, .detail-list dd { overflow-wrap: anywhere; white-space: pre-wrap; }
+.attachment-viewer { padding-block: 12px; }
+.attachment-viewer img { display: block; max-width: 100%; height: auto; margin-block: 12px; }
+.attachment-viewer a { display: inline-block; margin: 8px 12px 8px 0; text-underline-offset: 3px; }
+.issue-completion-form { display: grid; gap: 10px; margin-top: 12px; }
+.issue-completion-form textarea { width: 100%; }
+.source-result > button { margin-top: 8px; }
+.detail-record-actions + .record-type-tag { margin-top: 8px; }
+.record-detail-panel { z-index: 180; }
+.record-detail-backdrop { position: fixed; inset: 0; z-index: 179; border: 0; padding: 0; border-radius: 0; background: rgb(15 23 42 / 26%); }
+.detail-section-state { padding-block: 10px; }
+.issue-keyboard-filters { margin-bottom: 16px; }
