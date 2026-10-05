@@ -107,10 +107,15 @@ export function ResearchView({ initialTopicId }: { initialTopicId?: string } = {
   const focusList = useRef(false)
   const openedInitialTopic = useRef('')
   useEffect(() => {
-    if (focusDetail.current) { detailPane.current?.focus(); detailPane.current?.scrollIntoView?.({ block: 'start' }); focusDetail.current = false }
+    if (focusDetail.current) {
+      // 桌面详情与列表并排，只转移键盘焦点；避免长卡片获焦时把页面拉到底部。
+      detailPane.current?.focus({ preventScroll: true })
+      if (window.matchMedia?.('(max-width: 760px)').matches) detailPane.current?.scrollIntoView?.({ block: 'start' })
+      focusDetail.current = false
+    }
     if (focusList.current) {
       const target = listPane.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]') ?? searchInput.current
-      target?.focus(); target?.scrollIntoView?.({ block: 'nearest' }); focusList.current = false
+      target?.focus({ preventScroll: true }); target?.scrollIntoView?.({ block: 'nearest' }); focusList.current = false
     }
   }, [detailMode, selected?.id])
   const detailRequest = useRef(0)

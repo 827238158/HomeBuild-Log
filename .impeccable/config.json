@@ -32,6 +32,15 @@
         ],
         "createdAt": "2026-10-04T07:09:15.557Z",
         "reason": "Agent: existing issue board column top borders encode workflow status; preserve project visual semantics and rounded containers."
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "frontend/src/styles/views.css"
+        ],
+        "createdAt": "2026-10-04T13:55:52.348Z",
+        "reason": "Agent: candidate-review-detail suggestion-card--risk border marks records requiring careful human review; project rules preserve necessary risk indicators. Existing semantic style, unrelated to ledger spacing or particle removal."
       }
     ]
   }

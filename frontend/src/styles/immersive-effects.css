@@ -1,31 +1,12 @@
-/* 工作区氛围层不参与交互，也不改变业务内容的层级和命中区域。 */
+/* 工作区保持独立层级，展示卡片的交互不改变业务内容的命中区域。 */
 .workspace-main {
   position: relative;
   isolation: isolate;
 }
 
-.workspace-atmosphere {
-  position: fixed;
-  z-index: 0;
-  inset: 0 0 0 224px;
-  overflow: hidden;
-  pointer-events: none;
-}
-
 .workspace-main > .workspace-content {
   position: relative;
   z-index: 1;
-}
-
-.workspace-atmosphere__particles {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.workspace-atmosphere__particles {
-  opacity: .82;
 }
 
 /* 液态玻璃为显式增强类，避免让表单和语义状态卡失去实色对比。 */
@@ -136,14 +117,6 @@
 }
 
 @media (max-width: 900px) {
-  .workspace-atmosphere {
-    left: 0;
-  }
-
-  .workspace-atmosphere__particles {
-    opacity: .58;
-  }
-
   .immersive-glass,
   .immersive-glass--strong,
   .workspace-topbar,
@@ -169,10 +142,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .workspace-atmosphere__particles {
-    opacity: .46;
-  }
-
   .immersive-glass::after,
   .workspace-topbar::after,
   .filter-grid::after,

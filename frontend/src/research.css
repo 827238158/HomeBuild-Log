@@ -16,10 +16,11 @@
 .research-topic { display: grid; gap: 8px; width: 100%; text-align: left; background: #fff; color: #1f2328; border: 1px solid #e1e6eb; border-radius: 10px; padding: 16px; overflow-wrap: anywhere; }
 .research-topic[aria-pressed=true] { border-color: #1769c2; background: #e8f2ff; }
 .research-topic small { color: #667085; }
-.research-detail { display: grid; gap: 24px; }
+.research-detail { display: grid; gap: 16px; }
 .research-detail h3, .research-detail h4 { margin: 0 0 10px; }
 .research-detail h3 { overflow-wrap: anywhere; }
-.research-detail p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.research-detail p { margin: 0 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.research-detail > p { margin: 0; }
 .research-detail header { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 12px; }
 .research-detail header label { max-width: 180px; }
 .research-form { display: grid; gap: 12px; margin-top: 12px; }
@@ -49,6 +50,7 @@
 .research-conclusion-history summary:focus-visible { outline: 2px solid var(--primary, #1769c2); outline-offset: 3px; }
 @media (max-width: 760px) {
   .research-page:not(.research-show-detail) .research-detail-pane { display: none; }
+  .research-detail-pane { scroll-margin-top: 80px; }
   .research-show-detail > .research-capture, .research-show-detail > .research-toolbar, .research-show-detail > .research-empty, .research-show-detail .research-list { display: none; }
   .research-show-detail .research-back { display: inline-block; }
 }

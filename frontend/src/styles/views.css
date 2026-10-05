@@ -1115,7 +1115,7 @@
 }
 
 /* 计算说明独立于金额卡按钮，支持键盘展开且不会触发明细。 */
-.ledger-calculation-help { margin: -8px 0 20px; color: var(--ink-muted); font-size: .8rem; }
+.ledger-calculation-help { margin: 16px 0 20px; color: var(--ink-muted); font-size: .8rem; }
 .ledger-calculation-help summary { cursor: pointer; width: fit-content; }
 .ledger-calculation-help summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .ledger-calculation-help p { margin: 8px 0 0; }

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from './researchApi'
 import { ResearchView } from './ResearchView'
 
@@ -8,10 +8,27 @@ const topic = (id: string): api.ResearchTopic => ({ id, title: `主题${id}`, qu
 const a = topic('A'); const b = topic('B')
 const openA = async () => { render(<ResearchView />); fireEvent.click(await screen.findByRole('button', { name: /主题A/ })); await waitFor(() => expect(api.getResearch).toHaveBeenCalledWith('A')) }
 describe('调研笔记', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
   beforeEach(() => {
     sessionStorage.clear(); vi.clearAllMocks()
     vi.mocked(api.listResearch).mockResolvedValue({ items: [a, b], summary: { total: 2, collecting: 2, comparing: 0, concluded: 0, archived: 0 } })
     vi.mocked(api.getResearch).mockImplementation(async id => topic(id))
+  })
+  it.each([false, true])('打开详情阻止默认获焦滚动，只有窄屏显式定位顶部：%s', async compact => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: compact })))
+    render(<ResearchView />)
+    const button = await screen.findByRole('button', { name: /主题A/ })
+    const pane = screen.getByLabelText('调研详情')
+    const focus = vi.spyOn(pane, 'focus')
+    const scroll = vi.fn()
+    pane.scrollIntoView = scroll
+    fireEvent.click(button)
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+    if (compact) expect(scroll).toHaveBeenCalledWith({ block: 'start' })
+    else expect(scroll).not.toHaveBeenCalled()
+    await waitFor(() => expect(api.getResearch).toHaveBeenCalledWith('A'))
+    // 详情刷新不能重复定位并覆盖用户已移动的阅读位置。
+    expect(focus).toHaveBeenCalledTimes(1)
   })
   it('只需一句话创建，失败保留输入', async () => {
     vi.mocked(api.createResearch).mockRejectedValue(new Error('保存失败'))
