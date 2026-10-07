@@ -80,7 +80,9 @@ export function App() {
   const [captureTab, setCaptureTab] = useState<'quick' | 'review'>('quick')
   const [lastSavedSourceId, setLastSavedSourceId] = useState('')
   const [hiddenRecentSourceIds, setHiddenRecentSourceIds] = useState<string[]>(readHiddenRecentSources)
-  useNavigationGuard(Boolean(sourceText.trim() || attachment || pendingUpload))
+  const [captureActive, setCaptureActive] = useState(false)
+  // 草稿跨页面保留，只在离开录入页时提醒；刷新保护仍覆盖未提交输入。
+  useNavigationGuard(Boolean(sourceText.trim() || attachment || pendingUpload), '录入内容尚未提交，切换页面后会保留在本次会话中；刷新或关闭页面可能丢失，确定继续吗？', captureActive)
 
   const visibleRecentSources = sources
     .slice(0, 3)
@@ -319,7 +321,7 @@ export function App() {
 
   if (state.kind === 'ready') {
     return <main className="app-workspace">
-      <CoreViews onLogout={handleLogout} onOpenSource={openReview} onManageSpaces={() => { openReview(); setManageRequestKey((value) => value + 1) }}>
+      <CoreViews onCaptureActiveChange={setCaptureActive} onLogout={handleLogout} onOpenSource={openReview} onManageSpaces={() => { openReview(); setManageRequestKey((value) => value + 1) }}>
         <section className="capture-workspace">
           <header className="capture-workspace__header"><h2>记录装修现场</h2></header>
           {sourceListError && <p className="source-error" role="alert">来源列表加载失败：{sourceListError}<button type="button" onClick={() => void refreshSources().catch(() => undefined)}>重试</button></p>}

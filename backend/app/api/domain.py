@@ -16,7 +16,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.audit import log_audit as _write_audit
 from app.auth import CurrentUser, require_user
 from app.candidate_fields import candidate_validation_message, normalize_measurement_role
-from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_DB
+from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_DB, effective_record_status
 from app.db import create_session_factory
 from app.domain_models import (
     DEFAULT_PROJECT_ID,
@@ -30,7 +30,6 @@ from app.domain_models import (
     ProjectStage,
     Record,
     RecordRelation,
-    ResearchConclusion,
     Space,
     Vendor,
     record_attachments,
@@ -44,7 +43,6 @@ from app.local_suggestions import suggest_from_text
 from app.models import Attachment, SourceEntry
 from app.projections import serialize_records
 from app.record_schemas import RecordCreate, RecordUpdate
-from app.research_history import append_conclusion
 
 router = APIRouter(tags=["domain"])
 User = Annotated[CurrentUser, Depends(require_user)]
@@ -551,7 +549,7 @@ def _validate_record_refs(db: Session, payload: dict[str, Any]) -> None:
 
 def _detail_values(record_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     excluded = COMMON_FIELDS | ASSOCIATION_FIELDS | {
-        "record_type", "values", "conclusion_reason", "conclusion_entry_id"
+        "record_type", "values", "conclusion", "conclusion_reason", "conclusion_entry_id"
     }
     values = {key: value for key, value in payload.items() if key not in excluded}
     renames = DETAIL_RENAMES_TO_DB.get(record_type, {})
@@ -710,7 +708,7 @@ def _record_json(db: Session, record: Record) -> dict[str, Any]:
         "original_time_text": record.original_time_text,
         "timezone": record.timezone,
         "stage_id": record.stage_id,
-        "status": record.status,
+        "status": effective_record_status(record.record_type, record.status),
         "archived_at": record.archived_at,
         "source_refs": _source_refs(db, record.id),
         "space_ids": _association_ids(db, record_spaces, "space_id", record.id),
@@ -760,11 +758,6 @@ def _create_record_in_session(
     db.flush()
     detail_model = DETAIL_MODELS[record.record_type]
     db.add(detail_model(record_id=record.id, **_detail_values(record.record_type, payload)))
-    if record.record_type == "research" and str(payload.get("conclusion") or "").strip():
-        # 候选确认和通用录入也进入历史，避免只有独立页面能追溯结论。
-        db.add(ResearchConclusion(
-            record_id=record.id, conclusion=payload["conclusion"], reason="创建时的初始结论",
-        ))
     _replace_associations(db, record.id, payload)
     _replace_record_relations(db, record.id, payload)
     if record.record_type == "measurement":
@@ -1029,12 +1022,6 @@ def update_record(
         }:
             raise HTTPException(status_code=422, detail="问题必须选择低、中或高严重程度。")
         _validate_record_refs(db, validation_payload)
-        if record.record_type == "research" and "conclusion" in payload:
-            append_conclusion(
-                db, record, payload["conclusion"], payload.get("conclusion_reason"),
-                payload.get("conclusion_entry_id"),
-            )
-            payload["conclusion"] = db.get(DETAIL_MODELS["research"], record.id).conclusion
         for key in COMMON_FIELDS & payload.keys():
             setattr(record, key, payload[key])
         record.updated_at = _now()

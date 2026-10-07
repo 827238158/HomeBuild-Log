@@ -85,7 +85,7 @@ VALID_ENUMS: dict[str, dict[str, set[str]]] = {
         "issue":       {"pending", "in_progress", "done"},
         "measurement": {"active", "superseded", "cancelled"},
         "decision":    {"pending", "confirmed", "cancelled"},
-        "research":    {"collecting", "comparing", "concluded", "archived"},
+        "research":    {"collecting", "comparing", "archived"},
     },
     "direction": {
         "ledger": {"expense", "refund", "income"},
@@ -99,3 +99,8 @@ VALID_ENUMS: dict[str, dict[str, set[str]]] = {
         },
     },
 }
+
+
+def effective_record_status(record_type: str, status: str) -> str:
+    """旧调研状态只在投影时归一，不触碰持久化事实。"""
+    return "comparing" if record_type == "research" and status == "concluded" else status

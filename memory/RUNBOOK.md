@@ -106,6 +106,7 @@ Windows 生成离线包：
 - 临时 Dockerfile 应以本次仓库 Dockerfile 为基础，只替换镜像/包源；版本、构建阶段与应用内容保持一致。镜像标签取目标提交的短 SHA，并传入 `APP_VERSION`。具体替换命令需要核对本次 Dockerfile 后生成。
 - 镜像构建完成后再按已确认的恢复方案切换 Compose；验证容器目标标签、健康、数据库 revision、数据完整性及访问情况，结束时清理临时代理。
 - HTTPS 环境的手工源码更新：停写后从 `deploy` 目录把整个 `.local-data` 作为顶层目录归档（`tar -czf <备份路径> .local-data`），校验 SHA-256、归档可读性及首项为 `.local-data/`；更新 `.env` 镜像标签，用 `docker compose --profile https --env-file .env up --detach --no-build --no-deps app` 切换，比较前后数据库完整性和数量，再验证 443。验收后让 `.last-upgrade` 配对直接上一版镜像和本次升级前归档，保留 CA 卷。真正使用 `sudo sh ./rollback.sh` 前还需确认当前数据备份；本轮仅验证脚本语法与恢复点结构，未演练破坏性恢复。
+- 若本次含 Alembic 迁移，数据计数比较不得包含 `alembic_version`：应单独断言新 revision 等于目标值，再比较业务表和附件。新 revision 已写入后，旧镜像通常无法启动；不能把“自动切回旧镜像”当作迁移失败的恢复方案，应先从本次 `.local-data` 归档恢复数据，再使用兼容镜像。
 - `deploy/upgrade.sh` 面向含 `SHA256SUMS` 的离线镜像包，不能直接用于只有源码构建镜像的更新。
 
 ### Docker Hub 代理构建备选

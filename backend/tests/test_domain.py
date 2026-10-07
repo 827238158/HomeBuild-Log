@@ -501,9 +501,9 @@ def test_issue_completion_date_follows_status_transitions() -> None:
             "research",
             "collecting",
             {"question": "选哪种砖"},
-            {"conclusion": "选柔光砖", "conclusion_reason": "对比反光与清洁成本"},
-            "conclusion",
-            "选柔光砖",
+            {"limitations": "仍需现场对比"},
+            "limitations",
+            "仍需现场对比",
         ),
     ],
 )

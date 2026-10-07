@@ -2,6 +2,7 @@ import type { ProjectionRecord } from './domainApi'
 import { formatMoney } from './currency'
 import { eventKindLabel, paymentKindLabel } from './recordLabels'
 import { measurementRoleLabels, normalizeMeasurementRole } from './recordFields'
+import { formatBeijingDateTime } from './time'
 
 function text(value: unknown, fallback = '待补充'): string {
   return typeof value === 'string' && value.trim() ? value : fallback
@@ -24,6 +25,9 @@ export function RecordFacts({ record }: { record: ProjectionRecord }) {
       rows.push([({ width: '宽度', height: '高度', length: '长度', depth: '深度', diameter: '直径', area: '面积' } as Record<string, string>)[axis] ?? (axis || '尺寸'), value.value === null || value.value === undefined ? '待补充' : `${String(value.value)} ${String(value.unit ?? '')}`.trim()])
     }
     if (!values.length) rows.push(['尺寸数值', '待补充'])
+    rows.push(['数值口径', record.approximate === true ? '近似值／粗测' : '未标记为近似值'])
+    rows.push(['误差与参照说明', text(record.tolerance_text)], ['测量方法', text(record.method)])
+    rows.push(['测量时间', typeof record.measured_at === 'string' && record.measured_at ? formatBeijingDateTime(record.measured_at) : '未记录'])
   } else if (record.record_type === 'decision') {
     rows.push(['决策事项', text(record.topic)], ['备选方案', Array.isArray(record.options) ? record.options.map(String).join('、') || '待补充' : text(record.options)], ['当前选择', text(record.selected_option, '尚未确定')])
   } else if (record.record_type === 'event') {

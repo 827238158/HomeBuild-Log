@@ -1192,20 +1192,6 @@ h1 {
   grid-column: 1 / -1;
 }
 
-.measurement-triplet {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  padding: 10px 12px 12px;
-  border: 1px solid var(--line, #d9ddd3);
-  border-radius: 10px;
-}
-
-.measurement-triplet label {
-  display: grid;
-  gap: 6px;
-}
-
 .detail-edit-section .record-form-grid > * {
   min-width: 0;
   align-self: start;
@@ -1651,10 +1637,6 @@ h1 {
     grid-column: auto;
   }
 
-  .measurement-triplet {
-    grid-template-columns: repeat(3, minmax(72px, 1fr));
-    overflow-x: auto;
-  }
 
   .record-edit-form .record-actions {
     grid-column: auto;

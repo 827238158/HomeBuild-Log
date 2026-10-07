@@ -9,6 +9,15 @@ from pydantic import BaseModel, Field, model_validator
 from app.ledger_rules import LEDGER_DIRECTION_BY_KIND, valid_statuses_for_ledger_kind
 
 
+def normalize_ledger_currency(data: object) -> object:
+    """仅归一化明确的人民币别名，外币仍交由枚举校验拒绝。"""
+    if isinstance(data, dict) and isinstance(data.get("currency"), str):
+        currency = data["currency"].strip()
+        if currency.upper() in {"CNY", "RMB", "人民币"}:
+            return {**data, "currency": "CNY"}
+    return data
+
+
 class SourceRef(BaseModel):
     source_id: str
     evidence_excerpt: str | None = None
@@ -81,6 +90,7 @@ class LedgerCreate(RecordCommonCreate):
     @model_validator(mode="before")
     @classmethod
     def infer_legacy_ledger_kind(cls, data: object) -> object:
+        data = normalize_ledger_currency(data)
         if isinstance(data, dict) and not data.get("ledger_kind"):
             data = dict(data)
             data["ledger_kind"] = {
@@ -112,6 +122,11 @@ class LedgerUpdate(RecordCommonUpdate):
     payment_date: date | None = None
     payment_method: str | None = None
     vendor_id: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_currency(cls, data: object) -> object:
+        return normalize_ledger_currency(data)
 
 
 class IssueCreate(RecordCommonCreate):
@@ -209,9 +224,24 @@ class DecisionUpdate(RecordCommonUpdate):
     confirmed_at: datetime | None = None
 
 
+def reject_conclusion_writes(data: object) -> object:
+    """空旧字段只用于兼容，不得覆盖已保留的结论。"""
+    if isinstance(data, dict):
+        conclusion = data.get("conclusion")
+        if (conclusion is not None and
+                (not isinstance(conclusion, str) or conclusion.strip())) or any(
+            key in data for key in ("conclusion_reason", "conclusion_entry_id")
+        ):
+            raise ValueError("结论功能已停用，请将内容追加为调研。")
+        return {key: value for key, value in data.items() if key != "conclusion"}
+    return data
+
+
 class ResearchCreate(RecordCommonCreate):
+    _reject_conclusion = model_validator(mode="before")(reject_conclusion_writes)
+
     record_type: Literal["research"]
-    status: Literal["collecting", "comparing", "concluded", "archived"]
+    status: Literal["collecting", "comparing", "archived"]
     question: str
     options: list[str] = []
     dimensions: list[str] = []
@@ -221,8 +251,10 @@ class ResearchCreate(RecordCommonCreate):
 
 
 class ResearchUpdate(RecordCommonUpdate):
+    _reject_conclusion = model_validator(mode="before")(reject_conclusion_writes)
+
     record_type: Literal["research"]
-    status: Literal["collecting", "comparing", "concluded", "archived"] | None = None
+    status: Literal["collecting", "comparing", "archived"] | None = None
     question: str | None = None
     options: list[str] | None = None
     dimensions: list[str] | None = None

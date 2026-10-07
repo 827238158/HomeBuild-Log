@@ -935,6 +935,23 @@
 }
 
 /* 时间线 */
+/* 等高关联卡片只拉伸外壳，内容行与类型胶囊保持自然高度。 */
+.timeline-list .projection-card {
+  align-content: start;
+}
+
+.timeline-list .record-type-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  align-self: start;
+  width: max-content;
+  padding: 3px 8px;
+  line-height: 1.4;
+  white-space: nowrap;
+  border-radius: 9999px;
+}
+
 .timeline-group h3 {
   position: sticky;
   z-index: 2;

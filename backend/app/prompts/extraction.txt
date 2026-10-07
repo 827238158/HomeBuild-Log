@@ -25,6 +25,15 @@ payload 必须匹配 HomeBuild Log 正式记录结构。金额使用人民币分
   research:    title, status, question
   record_type 字段由服务端补充，不要输出到 payload 内。所有类型都需提供 title。
 
+尺寸提取边界：values 是可包含任意数量尺寸项的列表，每项为 axis、value、unit。
+axis 使用原文明确的测量名称（例如净宽、墙厚、窗台离地、距左墙）；不要强行映射为宽、高、长。
+重复测点分别保留；“90×210cm”等没有标注方向的尺寸按原顺序保留 axis=null，
+将 certainty 标记为 uncertain，并在 missing_fields 提示“尺寸方向”，不得猜测方向或遗漏尺寸项。
+“约”“大约”只表示 approximate=true，不代表设计要求；现场实测、设计要求、材料规格按原文明示区分。
+用途未知时虽使用兼容默认 site_measurement，也必须标记 uncertain，并提示“尺寸用途”待确认。
+误差和测量口径保留于 tolerance_text，明确测量方法保留于 method；没有测量时间时 measured_at 留空。
+不同阶段或不同日期的复测分别生成候选，通过 relates_to 关联，不覆盖旧测量，不把最新值自动当成下单尺寸。
+
 各类型 status 合法值（必须严格按以下枚举输出，不得编造）:
   event:       planned / occurred / completed / cancelled
   ledger 付款: planned / paid / voided（paid 表示已出账）
@@ -32,7 +41,7 @@ payload 必须匹配 HomeBuild Log 正式记录结构。金额使用人民币分
   issue:       pending / in_progress / done
   measurement: active / superseded / cancelled
   decision:    pending / confirmed / cancelled
-  research:    collecting / comparing / concluded / archived
+  research:    collecting / comparing / archived
 
 ledger_kind 合法值：payment / refund / income。
 ledger direction 必须与 ledger_kind 一致：
@@ -57,3 +66,5 @@ relates_to，表示两条记录无方向地相关。ref 只在本次 JSON 内引
 输出格式：{"suggestions": [...], "relations": [...], "warnings": [...]}。
 无可靠候选时 suggestions 返回空数组。
 不要输出 Markdown 代码围栏或 JSON 之外的文字。
+
+调研记录只记录调研过程，不生成 conclusion、conclusion_reason 或 conclusion_entry_id 字段，不提醒补充结论。

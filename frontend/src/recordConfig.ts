@@ -4,7 +4,7 @@ export const recordConfig = {
   issue: { label: '待办与问题', statuses: ['pending', 'in_progress', 'done'] },
   measurement: { label: '尺寸', statuses: ['active', 'superseded', 'cancelled'] },
   decision: { label: '决策', statuses: ['pending', 'confirmed', 'cancelled'] },
-  research: { label: '调研', statuses: ['collecting', 'comparing', 'concluded', 'archived'] },
+  research: { label: '调研', statuses: ['collecting', 'comparing', 'archived'] },
 } as const
 
 export type RecordType = keyof typeof recordConfig

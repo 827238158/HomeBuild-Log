@@ -10,6 +10,59 @@ function Fixture() {
 }
 
 describe('Select', () => {
+  it('点击标签文字不会激活隐藏代理，焦点直接给可见入口', () => {
+    render(<label><span>状态</span><Select value="a" onChange={() => {}}><option value="a">待处理</option></Select></label>)
+    const trigger = screen.getByRole('combobox')
+    const focus = vi.spyOn(trigger, 'focus')
+    expect(fireEvent.pointerDown(screen.getByText('状态'))).toBe(false)
+    expect(fireEvent.click(screen.getByText('状态'))).toBe(false)
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true })
+    expect(document.activeElement).toBe(trigger)
+    focus.mockRestore()
+  })
+
+  it('打开、选择和 Escape 恢复焦点均禁止浏览器滚动，箭头随展开改变方向', () => {
+    render(<Fixture />)
+    const trigger = screen.getByRole('combobox', { name: /甲/ })
+    const focus = vi.spyOn(trigger, 'focus')
+    fireEvent.pointerDown(trigger)
+    fireEvent.click(trigger)
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true })
+    expect(trigger.querySelector('.dropdown-chevron')!.getAttribute('data-open')).toBe('true')
+    fireEvent.click(screen.getByRole('option', { name: '乙' }))
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true })
+    expect(trigger.querySelector('.dropdown-chevron')!.getAttribute('data-open')).toBe('false')
+    fireEvent.click(trigger)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true })
+    focus.mockRestore()
+  })
+
+  it('长列表仅滚动菜单内部，不调用会滚动页面祖先的 scrollIntoView', () => {
+    render(<Select value="a" onChange={() => {}}><option value="a">甲</option><option value="b">乙</option></Select>)
+    const trigger = screen.getByRole('combobox')
+    fireEvent.click(trigger)
+    const menu = screen.getByRole('listbox')
+    const option = screen.getByRole('option', { name: '乙' })
+    Object.defineProperty(menu, 'clientHeight', { configurable: true, value: 80 })
+    vi.spyOn(menu, 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect)
+    vi.spyOn(option, 'getBoundingClientRect').mockReturnValue({ top: 200, bottom: 240 } as DOMRect)
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(option, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+    expect(menu.scrollTop).toBe(60)
+    expect(scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  it('required 错误焦点恢复同样禁止页面移动', () => {
+    render(<Select value="" required onChange={() => {}}><option value="">请选择</option></Select>)
+    const trigger = screen.getByRole('combobox')
+    const focus = vi.spyOn(trigger, 'focus')
+    act(() => { trigger.parentElement!.querySelector('select')!.checkValidity() })
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true })
+    focus.mockRestore()
+  })
+
   it('可见入口提供唯一 combobox，并把字段名和活动选项关联到列表', () => {
     render(<label><span>状态</span><Select value="a" onChange={() => {}}><option value="a">待处理</option><option value="b">已完成</option></Select></label>)
     const trigger = screen.getByRole('combobox', { name: '状态：待处理' })

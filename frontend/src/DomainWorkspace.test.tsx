@@ -6,6 +6,13 @@ import * as api from './domainApi'
 import { defaultPayload, DomainWorkspace, normalizeMeasurementValues, payloadForSave } from './DomainWorkspace'
 import { confirmNavigation } from './navigationGuard'
 
+it('旧调研候选按调研中编辑且不提交已停用的结论字段', () => {
+  const legacy = { title: '材料比较', status: 'concluded', conclusion: '旧判断', conclusion_reason: '旧原因', conclusion_entry_id: 'entry' }
+  expect(defaultPayload('research', legacy).status).toBe('comparing')
+  expect(defaultPayload('research', legacy)).not.toHaveProperty('conclusion')
+  expect(payloadForSave('research', legacy)).toEqual({ title: '材料比较', status: 'comparing' })
+})
+
 vi.mock('./domainApi', () => ({
   listSources: vi.fn(),
   listRecords: vi.fn(),
@@ -260,7 +267,7 @@ describe('DomainWorkspace', () => {
     expect(await screen.findByText('所选建议已保存为正式记录。')).toBeTruthy()
   })
 
-  it('尺寸默认状态与轴顺序稳定并统一换算为毫米', () => {
+  it('尺寸保留原顺序与名称并统一换算为毫米', () => {
     const payload = defaultPayload('measurement', { status: 'planned' })
     expect(payload.status).toBe('active')
 
@@ -269,13 +276,12 @@ describe('DomainWorkspace', () => {
       { axis: 'width', value: 60, unit: 'cm' },
     ])
     expect(values.map((item) => [item.axis, item.value, item.unit])).toEqual([
-      ['width', 600, 'mm'],
       ['height', 2000, 'mm'],
-      ['length', null, 'mm'],
+      ['width', 600, 'mm'],
     ])
     expect(payloadForSave('measurement', { ...payload, values }).values).toEqual([
-      { axis: 'width', value: 600, unit: 'mm' },
       { axis: 'height', value: 2000, unit: 'mm' },
+      { axis: 'width', value: 600, unit: 'mm' },
     ])
   })
 
@@ -429,7 +435,11 @@ describe('DomainWorkspace', () => {
   it('来源操作菜单浮于卡片外，并可用 Escape 关闭', async () => {
     render(<TestDomainWorkspace refreshKey={0} />)
     const trigger = await screen.findByRole('button', { name: '来源操作' })
+    const focus = vi.spyOn(trigger, 'focus')
+    expect(trigger.querySelector('.dropdown-chevron')?.getAttribute('data-open')).toBe('false')
     fireEvent.click(trigger)
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+    expect(trigger.querySelector('.dropdown-chevron')?.getAttribute('data-open')).toBe('true')
     const menu = screen.getByRole('menu', { name: '来源操作' })
     expect(menu.parentElement).toBe(document.body)
     expect(screen.getByRole('menuitem', { name: '修改原始数据' })).toBeTruthy()
@@ -437,6 +447,8 @@ describe('DomainWorkspace', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(trigger.querySelector('.dropdown-chevron')?.getAttribute('data-open')).toBe('false')
+    expect(document.activeElement).toBe(trigger)
   })
 
   it('修改原始数据后提示重新分析和复核', async () => {
@@ -671,9 +683,10 @@ describe('DomainWorkspace', () => {
     ])
 
     fireEvent.change(typeSelect, { target: { value: 'measurement' } })
-    expect(form.getByLabelText('宽度')).toHaveProperty('type', 'number')
-    expect(form.getByLabelText('高度')).toHaveProperty('type', 'number')
-    expect(form.getByLabelText('长度')).toHaveProperty('type', 'number')
+    expect(form.getByLabelText('尺寸数值 1')).toHaveProperty('type', 'number')
+    fireEvent.click(form.getByRole('button', { name: '门洞' }))
+    expect(form.getByLabelText('尺寸名称 1')).toHaveProperty('value', '净宽')
+    expect(form.getByLabelText('尺寸名称 3')).toHaveProperty('value', '墙厚')
 
     fireEvent.change(typeSelect, { target: { value: 'decision' } })
     fireEvent.change(form.getByLabelText('标题'), { target: { value: '铺贴方案' } })
@@ -949,6 +962,24 @@ describe('DomainWorkspace', () => {
 
     const role = await screen.findByLabelText('尺寸用途') as HTMLSelectElement
     expect(role.value).toBe('site_measurement')
+  })
+
+  it('确认尺寸候选保留五项名称、近似值与测量口径', async () => {
+    const values = ['上部净宽', '中部净宽', '下部净宽', '净高', '墙厚'].map((axis, index) => ({ axis, value: 90 + index, unit: 'cm' }))
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({
+      ...explicitBundle,
+      suggestions: [{ ...explicitBundle.suggestions[0], key: 'measurement:1', record_type: 'measurement', type_label: '尺寸',
+        payload: { record_type: 'measurement', title: '门洞尺寸', status: 'active', object_name: '门洞', measurement_role: 'site_measurement', values, approximate: true, tolerance_text: '未含门框', method: '卷尺' },
+      }],
+    })
+    render(<TestDomainWorkspace refreshKey={0} />)
+    expect(await screen.findByLabelText('尺寸名称 5')).toHaveProperty('value', '墙厚')
+    fireEvent.change(screen.getByLabelText('尺寸数值 5'), { target: { value: '180' } })
+    fireEvent.click(screen.getByText('确认所选'))
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
+    const payload = vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)![2][0].payload
+    expect(payload).toMatchObject({ approximate: true, tolerance_text: '未含门框', method: '卷尺' })
+    expect(payload.values).toEqual(values.map((item, index) => ({ ...item, value: index === 4 ? 180 : item.value * 10, unit: 'mm' })))
   })
 
   it('手工记录未填写标题时确认提交兜底标题', async () => {

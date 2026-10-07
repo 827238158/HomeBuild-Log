@@ -4,7 +4,7 @@ from datetime import date
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from app.api.domain import (
     _record_json,
     log_audit,
 )
+from app.core.constants import effective_record_status
 from app.domain_models import (
     DEFAULT_PROJECT_ID,
     Record,
@@ -25,19 +26,22 @@ from app.domain_models import (
     ResearchEntry,
 )
 from app.models import SourceEntry
-from app.record_schemas import ResearchCreate
-from app.research_history import append_conclusion
+from app.record_schemas import ResearchCreate, reject_conclusion_writes
 
 router = APIRouter(prefix="/research", tags=["research"])
-ResearchState = Literal["collecting", "comparing", "concluded", "archived"]
+ResearchState = Literal["collecting", "comparing", "archived"]
 
 
 class TopicInput(BaseModel):
+    _reject_conclusion = model_validator(mode="before")(reject_conclusion_writes)
+
     title: str = Field(min_length=1, max_length=300)
     description: str | None = Field(default=None, max_length=10000)
 
 
 class TopicUpdate(BaseModel):
+    _reject_conclusion = model_validator(mode="before")(reject_conclusion_writes)
+
     title: str | None = Field(default=None, min_length=1, max_length=300)
     description: str | None = Field(default=None, max_length=10000)
     status: ResearchState | None = None
@@ -48,12 +52,6 @@ class EntryInput(BaseModel):
     content: str = Field(min_length=1, max_length=20000)
     sources: list[str] = Field(default_factory=list, max_length=100)
     uncertainties: str | None = Field(default=None, max_length=10000)
-
-
-class ConclusionInput(BaseModel):
-    conclusion: str | None = Field(max_length=20000)
-    reason: str = Field(min_length=1, max_length=10000)
-    entry_id: str | None = None
 
 
 def _required(value: str | None, label: str) -> str:
@@ -95,7 +93,7 @@ def _serialize(db: Session, item: Record) -> dict[str, Any]:
 @router.get("")
 def list_topics(
     request: Request, user: User,
-    state: Literal["all", "collecting", "comparing", "concluded", "archived"] = "all",
+    state: Literal["all", "collecting", "comparing", "archived"] = "all",
 ) -> dict[str, Any]:
     db = _db(request)
     try:
@@ -104,11 +102,12 @@ def list_topics(
             Record.archived_at.is_(None),
         ).order_by(Record.updated_at.desc(), Record.id)).all()
         summary = {"total": len(records), **{
-            key: sum(row.status == key for row in records)
-            for key in ("collecting", "comparing", "concluded", "archived")
+            key: sum(effective_record_status(row.record_type, row.status) == key for row in records)
+            for key in ("collecting", "comparing", "archived")
         }}
-        return {"items": [_serialize(db, row) for row in records
-                          if state == "all" or row.status == state], "summary": summary}
+        items = [_serialize(db, row) for row in records if state == "all"
+                 or effective_record_status(row.record_type, row.status) == state]
+        return {"items": items, "summary": summary}
     finally:
         db.close()
 
@@ -196,21 +195,6 @@ def append_entry(
         db.close()
 
 
-@router.post("/{record_id}/conclusions", status_code=201)
-def revise_conclusion(
-    record_id: str, request: Request, body: ConclusionInput, user: User,
-) -> dict[str, Any]:
-    db = _db(request)
-    try:
-        item = _topic(db, record_id)
-        before = _record_json(db, item)
-        append_conclusion(db, item, body.conclusion, _required(body.reason, "修正原因"),
-                          body.entry_id)
-        item.updated_at = _now()
-        db.flush()
-        result = _serialize(db, item)
-        log_audit(db, "update", "records", item.id, before=before, after=result)
-        db.commit()
-        return result
-    finally:
-        db.close()
+@router.post("/{record_id}/conclusions")
+def revise_conclusion(record_id: str, user: User) -> None:
+    raise HTTPException(status_code=410, detail="结论功能已停用，请将内容追加为调研。")

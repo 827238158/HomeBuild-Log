@@ -5,6 +5,17 @@ import { getToken, saveToken } from './token'
 describe('requestJson', () => {
   beforeEach(() => sessionStorage.clear())
 
+  it('逐项显示字段校验原因，不回显原始输入', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: [
+      { loc: ['body', 'issue', 'severity'], type: 'literal_error', input: 'private' },
+      { loc: ['body', 'title'], type: 'missing' },
+      { loc: ['body', 'occurred_date'], type: 'date_from_datetime_parsing' },
+    ] }), { status: 422 })))
+    const error = await requestJson('/records').catch((reason: unknown) => reason)
+    expect((error as Error).message).toContain('严重程度请选择低、中或高；标题未填写，请补齐；发生日期格式不正确')
+    expect((error as Error).message).not.toContain('private')
+  })
+
   it('401 清除令牌并广播全局退出事件', async () => {
     saveToken('expired')
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: '登录已失效' }), { status: 401, headers: { 'Content-Type': 'application/json' } })))

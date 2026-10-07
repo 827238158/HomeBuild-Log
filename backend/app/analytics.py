@@ -36,7 +36,6 @@ STATUS_LABELS = {
     "paid": "已出账",
     "collecting": "待调研",
     "comparing": "调研中",
-    "concluded": "暂有结论",
     "archived": "已归档",
     "done": "已完成",
 }

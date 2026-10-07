@@ -19,7 +19,7 @@ const generalStatusLabels: Record<string, string> = {
 const statusOverrides: Record<string, Record<string, string>> = {
   decision: { pending: '待确认' },
   issue: { pending: '待处理' },
-  research: { collecting: '待调研', comparing: '调研中', concluded: '暂有结论' },
+  research: { collecting: '待调研', comparing: '调研中', concluded: '调研中' },
 }
 
 export function recordStatusLabel(recordType: string, status: string, _ledgerKind?: unknown): string {

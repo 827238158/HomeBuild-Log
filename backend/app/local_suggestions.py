@@ -10,7 +10,8 @@ from app.core.constants import TYPE_LABELS
 
 AMOUNT_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*元")
 DIMENSION_PATTERN = re.compile(
-    r"(\d+(?:\.\d+)?)\s*[*xX×]\s*(\d+(?:\.\d+)?)\s*(cm|厘米|mm|毫米|m|米)",
+    r"(?P<values>\d+(?:\.\d+)?(?:\s*[*xX×]\s*\d+(?:\.\d+)?)+)"
+    r"\s*(?P<unit>cm|厘米|mm|毫米|m|米)",
     re.IGNORECASE,
 )
 QUANTITY_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*(片|块|个|件|套|米)")
@@ -53,6 +54,21 @@ def _item_name(text: str) -> str:
         "门套",
     )
     return next((name for name in names if name.lower() in text.lower()), "装修材料")
+
+
+def _measurement_context(evidence: str) -> tuple[str, str, bool]:
+    # 用途只能依据明确措辞判断；“约”和乘号本身都不代表设计或材料规格。
+    object_name = next(
+        (name for name in ("厨房门", "门洞", "窗户", "窗台", "柜体", "插座") if name in evidence),
+        _item_name(evidence),
+    )
+    if re.search(r"实测|测量|测得|量得|量了|现场|复测", evidence):
+        return object_name, "site_measurement", True
+    if re.search(r"设计|要求|需要|预留|计划|应为", evidence):
+        return object_name, "design_requirement", True
+    if "规格" in evidence or _item_name(evidence) != "装修材料":
+        return object_name, "material_spec", True
+    return object_name, "site_measurement", False
 
 
 def _short_title(text: str, fallback: str) -> str:
@@ -118,9 +134,7 @@ def resolve_date_text(text: str, reference: date) -> tuple[date | None, str | No
         return None, raw, False
 
 
-def unique_resolved_date(
-    text: str, reference: date
-) -> tuple[date | None, str | None, bool]:
+def unique_resolved_date(text: str, reference: date) -> tuple[date | None, str | None, bool]:
     """仅在整段原文能唯一解析为同一日期时提供安全回退。"""
     resolved = [
         result
@@ -211,9 +225,9 @@ def suggest_from_text(
         re.finditer(r"(?:已交|已付|支付|付款|付了|交了)\s*(\d+(?:\.\d+)?)\s*元", text)
     )
     refund_matches = list(re.finditer(r"(?:已退款|退款|退回)\s*(\d+(?:\.\d+)?)\s*元", text))
-    income_matches = list(re.finditer(
-        r"(?:到账|报销|回收款|转入|收到)\s*(\d+(?:\.\d+)?)\s*元", text
-    ))
+    income_matches = list(
+        re.finditer(r"(?:到账|报销|回收款|转入|收到)\s*(\d+(?:\.\d+)?)\s*元", text)
+    )
     for match, direction, kind, verb in [
         *((item, "expense", "其他款项", "已支付") for item in payment_matches),
         *((item, "refund", "退款", "已退款") for item in refund_matches),
@@ -235,60 +249,94 @@ def suggest_from_text(
         )
         add("ledger", f"{verb} {amount} 元", evidence, "explicit", payload)
 
-    # 多维规格和单值近似尺寸分别保留语义角色。
+    # 无方向的多维数字保留原顺序，不把第一项、第二项臆断为宽和高。
     for match in DIMENSION_PATTERN.finditer(text):
         evidence = _evidence_clause(text, match.group(0))
-        object_name = _item_name(evidence)
+        object_name, role, explicit_role = _measurement_context(evidence)
         payload = _base_payload(
             source_id, evidence, "measurement", f"{object_name}{match.group(0)}", "active"
         )
         payload.update(
             object_name=object_name,
-            measurement_role="material_spec",
-            approximate=False,
+            measurement_role=role,
+            approximate="约" in evidence,
             tolerance_text=None,
             measured_at=None,
             method=None,
             values=[
-                {"axis": "width", "value": float(match.group(1)), "unit": _unit(match.group(3))},
-                {"axis": "height", "value": float(match.group(2)), "unit": _unit(match.group(3))},
+                {"axis": None, "value": float(value), "unit": _unit(match.group("unit"))}
+                for value in re.split(r"\s*[*xX×]\s*", match.group("values"))
             ],
         )
-        add("measurement", f"{object_name}规格 {match.group(0)}", evidence, "explicit", payload)
+        add(
+            "measurement",
+            f"{object_name} {match.group(0)}",
+            evidence,
+            "uncertain",
+            payload,
+            ["尺寸方向"] + ([] if explicit_role else ["尺寸用途"]),
+        )
 
-    approx_match = re.search(
-        r"(?P<object>厨房门|门洞|宽度|长度|高度)[^，。]{0,12}(?:约|大约|需要约)\s*(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>cm|厘米|mm|毫米|m|米)",
+    approx_matches = re.finditer(
+        r"(?P<object>厨房门|门洞|窗户|窗台|柜体|插座|宽度|长度|高度|墙厚|离地)[^，。；;\d]{0,12}?(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>cm|厘米|mm|毫米|m|米)",
         text,
         re.IGNORECASE,
     )
-    if approx_match:
+    for approx_match in approx_matches:
+        if any(
+            start <= approx_match.start("value") < end
+            for start, end in (item.span() for item in DIMENSION_PATTERN.finditer(text))
+        ):
+            continue
         evidence = _evidence_clause(text, approx_match.group(0))
-        payload = _base_payload(source_id, evidence, "measurement", "近似设计尺寸", "active")
+        object_name, role, explicit_role = _measurement_context(evidence)
+        prefix = approx_match.group(0).split(approx_match.group("value"))[0]
+        axis = next(
+            (
+                label
+                for label in ("离地", "墙厚", "宽度", "长度", "高度", "宽", "长", "高", "深")
+                if label in prefix
+            ),
+            None,
+        )
+        axis = {
+            "宽度": "width",
+            "宽": "width",
+            "长度": "length",
+            "长": "length",
+            "高度": "height",
+            "高": "height",
+            "深": "depth",
+        }.get(axis, axis)
+        payload = _base_payload(
+            source_id, evidence, "measurement", _short_title(evidence, "尺寸"), "active"
+        )
         payload.update(
-            object_name=approx_match.group("object"),
-            measurement_role="design_requirement",
-            approximate=True,
+            object_name=object_name if object_name != "装修材料" else approx_match.group("object"),
+            measurement_role=role,
+            approximate="约" in prefix,
             tolerance_text=None,
             measured_at=None,
             method=None,
             values=[
                 {
-                    "axis": "width",
+                    "axis": axis,
                     "value": float(approx_match.group("value")),
                     "unit": _unit(approx_match.group("unit")),
                 }
             ],
         )
         summary = (
-            f"{approx_match.group('object')}约 {approx_match.group('value')}"
+            f"{approx_match.group('object')} {approx_match.group('value')}"
             f"{_unit(approx_match.group('unit'))}"
         )
         add(
             "measurement",
             summary,
             evidence,
-            "explicit",
+            "explicit" if explicit_role and axis else "uncertain",
             payload,
+            ([] if axis else ["尺寸方向"]) + ([] if explicit_role else ["尺寸用途"]),
         )
 
     issue_key: str | None = None
@@ -386,11 +434,10 @@ def suggest_from_text(
             else [],
             dimensions=[],
             evidence_sources=[],
-            conclusion=None,
             limitations=None,
         )
         research_key = add(
-            "research", evidence, evidence, "uncertain", payload, ["比较依据", "结论"]
+            "research", evidence, evidence, "uncertain", payload, ["比较依据"]
         )
 
     event_keys: list[str] = []

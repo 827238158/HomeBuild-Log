@@ -115,9 +115,10 @@ function LoadState({ loading, error, empty, onRetry }: { loading: boolean; error
   return null
 }
 
-function RecordButton({ record, onOpen }: { record: ProjectionRecord; onOpen: (id: string) => void }) {
+/** 时间线阅读卡片保持平面，避免滚动时残留指针倾斜。 */
+function RecordButton({ record, onOpen, stable = false }: { record: ProjectionRecord; onOpen: (id: string) => void; stable?: boolean }) {
   return (
-    <button className="projection-card immersive-tilt immersive-glass" type="button" onClick={() => onOpen(record.id)}>
+    <button className={`projection-card immersive-glass${stable ? '' : ' immersive-tilt'}`} type="button" onClick={() => onOpen(record.id)}>
       <span className="record-type-tag">{recordTypeLabels[record.record_type] || '未知类型'}</span>
       <strong>{record.title}</strong>
       <span>{recordStatusLabel(record.record_type, record.status, record.ledger_kind)}</span>
@@ -234,7 +235,7 @@ function TimelineView({ onOpen, refreshRevision }: { onOpen: (id: string) => voi
     {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="记录时间趋势" description="" kind="line" rows={data.analytics.time_trend} onClick={applyMonth} selectedKey={selectedMonth} /><AnalyticsChart title="记录类型分布" description="" kind="donut" rows={data.analytics.type_distribution} onClick={applyRecordTypeImmediately} selectedKey={applied.record_type} /></div>}
     {applied.record_type && <button type="button" className="clear-filter" onClick={() => applyRecordTypeImmediately('')}>当前按记录类型筛选，点击取消</button>}
     {(applied.date_from || applied.date_to) && <button type="button" className="clear-filter" onClick={() => applyMonth('')}>当前日期：{applied.date_from || '不限'} 至 {applied.date_to || '不限'}，点击取消</button>}
-    <div className="timeline-list">{motionGroups.map((group) => <section className="timeline-group" key={group.date_key}><h3>{group.label}</h3><div className="timeline-day-items">{group.items.map(({ item, motionIndex }) => <article className="timeline-item timeline-motion-item" data-motion-index={motionIndex} style={{ '--motion-index': motionIndex } as CSSProperties} key={item.record.id}><RecordButton record={item.record} onOpen={onOpen} />{item.related_records.length > 0 && <div className="related-strip"><span>关联事实</span>{item.related_records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div>}</article>)}</div></section>)}</div>
+    <div className="timeline-list">{motionGroups.map((group) => <section className="timeline-group" key={group.date_key}><h3>{group.label}</h3><div className="timeline-day-items">{group.items.map(({ item, motionIndex }) => <article className="timeline-item timeline-motion-item" data-motion-index={motionIndex} style={{ '--motion-index': motionIndex } as CSSProperties} key={item.record.id}><RecordButton record={item.record} onOpen={onOpen} stable />{item.related_records.length > 0 && <div className="related-strip"><span>关联事实</span>{item.related_records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} stable />)}</div>}</article>)}</div></section>)}</div>
     {visibleCount < totalTimelineItems && <button type="button" className="timeline-load-more" onClick={() => setVisibleCount((count) => Math.min(count + timelineBatchSize, totalTimelineItems))}>查看更多</button>}
     {showBackToTop && <button type="button" className="timeline-back-to-top" aria-label="回到顶部" onClick={() => window.scrollTo({ top: 0, left: 0, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg></button>}
   </section>
@@ -624,8 +625,9 @@ function SearchView({ onOpen, refreshRevision, onOpenSource }: { onOpen: (id: st
   </section>
 }
 
-export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces }: { children: ReactNode; onLogout?: () => void; onOpenSource?: (id: string) => void; onManageSpaces?: () => void }) {
+export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces, onCaptureActiveChange }: { children: ReactNode; onLogout?: () => void; onOpenSource?: (id: string) => void; onManageSpaces?: () => void; onCaptureActiveChange?: (active: boolean) => void }) {
   const [view, setView] = useState<ViewName>('overview')
+  useEffect(() => { onCaptureActiveChange?.(view === 'capture') }, [view, onCaptureActiveChange])
   const [detailId, setDetailId] = useState('')
   const [detailClosing, setDetailClosing] = useState(false)
   const [viewRevision, setViewRevision] = useState(0)

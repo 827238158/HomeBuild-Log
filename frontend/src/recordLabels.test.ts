@@ -7,7 +7,7 @@ describe('record labels', () => {
     expect(recordTypeLabels.issue).toBe('待办与问题')
     expect(recordStatusLabel('research', 'collecting')).toBe('待调研')
     expect(recordStatusLabel('research', 'comparing')).toBe('调研中')
-    expect(recordStatusLabel('research', 'concluded')).toBe('暂有结论')
+    expect(recordStatusLabel('research', 'concluded')).toBe('调研中')
   })
   it('区分决策和问题的 pending 语义', () => {
     expect(recordStatusLabel('decision', 'pending')).toBe('待确认')

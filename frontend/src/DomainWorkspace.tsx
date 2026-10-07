@@ -1,8 +1,10 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { Select } from './Select'
 import { ThinkingLattice } from './MotionPrimitives'
 import { useDropdownPosition } from './useDropdownPosition'
+import { useDropdown } from './useDropdown'
+import { DropdownChevron } from './DropdownChevron'
 import { useNavigationGuard } from './navigationGuard'
 
 import {
@@ -32,6 +34,7 @@ import {
 import { recordStatusLabel } from './recordLabels'
 import { completedStatusForLedgerKind, recordConfig, statusesForRecord, type RecordType } from './recordConfig'
 import { measurementRoleLabels, normalizeMeasurementRole } from './recordFields'
+import { MeasurementFields } from './MeasurementFields'
 import { formatBeijingDate, formatBeijingDateTime } from './time'
 
 interface Props {
@@ -136,12 +139,21 @@ function normalizeOptions(value: unknown): string[] {
 export function payloadForSave(recordType: string, payload: Record<string, unknown>) {
   const next = { ...payload }
   delete next.related_candidate_keys
+  if (recordType === 'research') {
+    // 旧候选只带入调研过程，不再提交独立结论字段。
+    delete next.conclusion
+    delete next.conclusion_reason
+    delete next.conclusion_entry_id
+    if (next.status === 'concluded') next.status = 'comparing'
+  }
   if (recordType === 'measurement') {
     next.measurement_role = normalizeMeasurementRole(next.measurement_role)
-    next.values = normalizeMeasurementValues(next.values).filter((item) => {
-      const value = Number(item.value)
-      return item.value !== null && item.value !== '' && Number.isFinite(value) && value > 0
-    }).map((item) => ({ ...item, unit: 'mm' }))
+    // 只省略未填写的数值；非法值必须报错，不能静默丢掉用户填写的尺寸。
+    next.values = normalizeMeasurementValues(next.values).filter(item => item.value !== null && item.value !== '' && item.value !== undefined).map((item, index) => {
+      if (!Number.isFinite(Number(item.value)) || Number(item.value) <= 0) throw new Error(`第 ${index + 1} 项尺寸数值必须大于 0。`)
+      if (item.unit !== 'mm') throw new Error(`第 ${index + 1} 项尺寸单位请选择毫米、厘米或米。`)
+      return { ...item, axis: String(item.axis ?? '').trim() || null }
+    })
   }
   return next
 }
@@ -171,45 +183,19 @@ function MultiSelectField({
   options: Array<{ id: string; name: string; trailingText?: string }>
   onChange: (ids: string[]) => void
 }) {
-  const controlId = useId()
   const rootRef = useRef<HTMLFieldSetElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
+  const { id: controlId, open, toggleMenu } = useDropdown({ rootRef, triggerRef, menuRef })
   const menuStyle = useDropdownPosition(triggerRef, open)
   const selected = options.filter((item) => selectedIds.includes(item.id))
   const toggle = (id: string) => onChange(selectedIds.includes(id)
     ? selectedIds.filter((item) => item !== id)
     : [...selectedIds, id])
-  useEffect(() => {
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as Node
-      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && open) { event.preventDefault(); setOpen(false); triggerRef.current?.focus() }
-    }
-    const closeOther = (event: Event) => {
-      if ((event as CustomEvent<string>).detail !== controlId) setOpen(false)
-    }
-    document.addEventListener('pointerdown', closeOutside)
-    document.addEventListener('keydown', closeOnEscape)
-    window.addEventListener('homebuild-dropdown-open', closeOther)
-    return () => {
-      document.removeEventListener('pointerdown', closeOutside)
-      document.removeEventListener('keydown', closeOnEscape)
-      window.removeEventListener('homebuild-dropdown-open', closeOther)
-    }
-  }, [controlId, open])
-  const toggleOpen = () => {
-    const next = !open
-    setOpen(next)
-    if (next) window.dispatchEvent(new CustomEvent('homebuild-dropdown-open', { detail: controlId }))
-  }
   const summary = selected.length === 0
     ? '请选择（可多选）'
     : selected.length <= 2 ? selected.map((item) => item.name).join('、') : `已选择 ${selected.length} 项`
-  return <fieldset ref={rootRef} className="multi-select-field"><legend>{label}</legend><div className="multi-select-control"><button ref={triggerRef} className="multi-select-summary" type="button" id={controlId} aria-label={`${label}：${summary}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? `${controlId}-options` : undefined} onClick={toggleOpen}><span>{summary}</span></button>{open && createPortal(<div id={`${controlId}-options`} ref={menuRef} className="multi-select-options dropdown-portal" style={menuStyle} role="listbox" aria-label={label} aria-multiselectable="true">{options.length > 0 ? options.map((item) => <label key={item.id} role="option" aria-selected={selectedIds.includes(item.id)}><input aria-label={item.name} type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggle(item.id)} /><span className="multi-select-option__name">{item.name}</span>{item.trailingText && <span className="multi-select-option__meta">{item.trailingText}</span>}</label>) : <span>暂无可选项</span>}</div>, document.body)}</div></fieldset>
+  return <fieldset ref={rootRef} className="multi-select-field"><legend>{label}</legend><div className="multi-select-control"><button ref={triggerRef} className="multi-select-summary" type="button" id={controlId} aria-label={`${label}：${summary}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? `${controlId}-options` : undefined} onPointerDown={event => event.preventDefault()} onClick={toggleMenu}><span>{summary}</span><DropdownChevron open={open} /></button>{open && createPortal(<div id={`${controlId}-options`} ref={menuRef} className="multi-select-options dropdown-portal" style={menuStyle} role="listbox" aria-label={label} aria-multiselectable="true">{options.length > 0 ? options.map((item) => <label key={item.id} role="option" aria-selected={selectedIds.includes(item.id)}><input aria-label={item.name} type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggle(item.id)} /><span className="multi-select-option__name">{item.name}</span>{item.trailingText && <span className="multi-select-option__meta">{item.trailingText}</span>}</label>) : <span>暂无可选项</span>}</div>, document.body)}</div></fieldset>
 }
 
 function recordSelectOption(record: DomainRecord) {
@@ -228,12 +214,11 @@ function SourcePicker({
   value: string
   onChange: (value: string) => void
 }) {
-  const id = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [open, setOpen] = useState(false)
+  const { id, open, closeMenu, toggleMenu } = useDropdown({ rootRef, triggerRef, menuRef })
   const [expandedText, setExpandedText] = useState<string | null>(null)
   const menuStyle = useDropdownPosition(triggerRef, open, 360)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -270,102 +255,46 @@ function SourcePicker({
   }, [expandedText])
 
   useEffect(() => {
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as Node
-      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
-        setOpen(false)
-        clearExpandedText()
-      }
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setOpen(false); clearExpandedText() }
-    }
-    const closeOther = (event: Event) => {
-      if ((event as CustomEvent<string>).detail !== id) {
-        setOpen(false)
-        clearExpandedText()
-      }
-    }
+    // 菜单关闭或页面滚动时清理长按提示，菜单内部仍允许独立滚动。
+    if (!open) clearExpandedText()
     const closeOnScroll = (event: Event) => {
-      // 来源列表内部滚动不应触发关闭。
-      const target = event.target
-      if (target instanceof Node && menuRef.current?.contains(target)) return
-      setOpen(false)
-      clearExpandedText()
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return
+      closeMenu(); clearExpandedText()
     }
-    document.addEventListener('pointerdown', closeOutside)
-    document.addEventListener('keydown', closeOnEscape)
     document.addEventListener('scroll', closeOnScroll, true)
-    window.addEventListener('homebuild-dropdown-open', closeOther)
     return () => {
-      document.removeEventListener('pointerdown', closeOutside)
-      document.removeEventListener('keydown', closeOnEscape)
       document.removeEventListener('scroll', closeOnScroll, true)
-      window.removeEventListener('homebuild-dropdown-open', closeOther)
       if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [id])
+  }, [open, closeMenu])
   const beginLongPress = (text: string) => {
     clearExpandedText()
     timerRef.current = setTimeout(() => setExpandedText(text), 520)
   }
   return <div ref={rootRef} className="source-picker field-stack">
     <span>原始数据来源</span>
-    <button ref={triggerRef} type="button" className="source-picker__trigger" aria-haspopup="listbox" aria-expanded={open} onClick={() => {
-      const next = !open
-      setOpen(next)
-      if (next) window.dispatchEvent(new CustomEvent('homebuild-dropdown-open', { detail: id }))
-    }}><span className="source-picker__text">{selected?.original_text || '请选择'}</span>{selected && <span className={`source-picker__status source-picker__status--${selected.analysis_status || 'unprocessed'}`}>{status(selected)}</span>}</button>
-    {open && createPortal(<div ref={menuRef} className="source-picker__menu dropdown-portal" style={menuStyle} role="listbox">{sources.map((source) => {
+    <button ref={triggerRef} type="button" className="source-picker__trigger" aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? `${id}-options` : undefined} onPointerDown={event => event.preventDefault()} onClick={toggleMenu}><span className="source-picker__text">{selected?.original_text || '请选择'}</span>{selected && <span className={`source-picker__status source-picker__status--${selected.analysis_status || 'unprocessed'}`}>{status(selected)}</span>}<DropdownChevron open={open} /></button>
+    {open && createPortal(<div id={`${id}-options`} ref={menuRef} aria-label="原始数据来源" className="source-picker__menu dropdown-portal" style={menuStyle} role="listbox">{sources.map((source) => {
       const text = source.original_text || '仅附件来源'
-      return <button key={source.id} type="button" role="option" aria-selected={source.id === value} className="source-picker__option" onClick={() => { onChange(source.id); clearExpandedText(); setOpen(false) }} onPointerDown={() => beginLongPress(text)} onPointerUp={clearExpandedText} onPointerCancel={clearExpandedText} onPointerLeave={clearExpandedText}><span className="source-picker__text" title={text}>{text}</span><span className={`source-picker__status source-picker__status--${source.analysis_status || 'unprocessed'}`}>{status(source)}</span></button>
+      return <button key={source.id} type="button" role="option" aria-selected={source.id === value} className="source-picker__option" onClick={() => { onChange(source.id); clearExpandedText(); closeMenu(true) }} onPointerDown={() => beginLongPress(text)} onPointerUp={clearExpandedText} onPointerCancel={clearExpandedText} onPointerLeave={clearExpandedText}><span className="source-picker__text" title={text}>{text}</span><span className={`source-picker__status source-picker__status--${source.analysis_status || 'unprocessed'}`}>{status(source)}</span></button>
     })}</div>, document.body)}
     {expandedText && createPortal(<div ref={popoverRef} className="source-picker__popover" role="tooltip" style={popoverStyle}>{expandedText}</div>, document.body)}
   </div>
 }
 
 function SourceActionsMenu({ busy, onEdit, onDelete }: { busy: boolean; onEdit: () => void; onDelete: () => void }) {
-  const id = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const [open, setOpen] = useState(false)
+  const { id, open, closeMenu, toggleMenu } = useDropdown({ rootRef, triggerRef, menuRef, disabled: busy })
   const menuStyle = useDropdownPosition(triggerRef, open, 160, 176)
-
-  useEffect(() => {
-    if (!open) return
-    const closeOutside = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setOpen(false); triggerRef.current?.focus() }
-    }
-    const closeOther = (event: Event) => {
-      if ((event as CustomEvent<string>).detail !== id) setOpen(false)
-    }
-    document.addEventListener('pointerdown', closeOutside)
-    document.addEventListener('keydown', closeOnEscape)
-    window.addEventListener('homebuild-dropdown-open', closeOther)
-    return () => {
-      document.removeEventListener('pointerdown', closeOutside)
-      document.removeEventListener('keydown', closeOnEscape)
-      window.removeEventListener('homebuild-dropdown-open', closeOther)
-    }
-  }, [id, open])
-
-  useEffect(() => { if (busy) setOpen(false) }, [busy])
   const choose = (action: () => void) => {
-    setOpen(false)
-    triggerRef.current?.focus()
+    closeMenu(true)
     action()
   }
 
   return <div ref={rootRef} className="review-source-actions">
-    <button id={id} ref={triggerRef} type="button" className="review-source-actions__trigger" disabled={busy} aria-haspopup="menu" aria-expanded={open} onClick={() => {
-      const next = !open
-      setOpen(next)
-      if (next) window.dispatchEvent(new CustomEvent('homebuild-dropdown-open', { detail: id }))
-    }}>来源操作<span aria-hidden="true">⌄</span></button>
+    <button id={id} ref={triggerRef} type="button" className="review-source-actions__trigger" disabled={busy} aria-haspopup="menu" aria-expanded={open} onPointerDown={event => event.preventDefault()} onClick={toggleMenu}>来源操作<DropdownChevron open={open} /></button>
     {open && createPortal(<div ref={menuRef} className="review-source-actions__menu dropdown-portal" style={menuStyle} role="menu" aria-labelledby={id}>
       <button type="button" role="menuitem" onClick={() => choose(onEdit)}>修改原始数据</button>
       <button type="button" role="menuitem" className="danger-button" onClick={() => choose(onDelete)}>删除原始数据</button>
@@ -375,7 +304,8 @@ function SourceActionsMenu({ busy, onEdit, onDelete }: { busy: boolean; onEdit: 
 
 export function normalizeMeasurementValues(values: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(values)) return []
-  const normalized = values.map((entry) => {
+  // 按原顺序保留任意名称、重复测点和无轴项，禁止以三维槽位重写事实。
+  return values.map((entry) => {
     if (typeof entry !== 'object' || entry === null) return {}
     const next = { ...(entry as Record<string, unknown>) }
     const unit = String(next.unit ?? 'mm').toLowerCase()
@@ -385,32 +315,18 @@ export function normalizeMeasurementValues(values: unknown): Array<Record<string
       if (unit === 'cm') next.value = numeric * 10
       else if (unit === 'm') next.value = numeric * 1000
       else next.value = numeric
-    } else {
+    } else if (!hasValue) {
       next.value = null
     }
-    next.unit = 'mm'
+    next.unit = ['mm', 'cm', 'm'].includes(unit) ? 'mm' : unit
     return next
   })
-  const axes = ['width', 'height', 'length']
-  const slots: Array<Record<string, unknown> | null> = [null, null, null]
-  const unassigned: Array<Record<string, unknown>> = []
-  normalized.forEach((entry) => {
-    const index = axes.indexOf(String(entry.axis ?? ''))
-    if (index >= 0 && slots[index] === null) slots[index] = { ...entry, axis: axes[index] }
-    else unassigned.push(entry)
-  })
-  axes.forEach((axis, index) => {
-    if (slots[index] !== null) return
-    const fallback = unassigned.shift()
-    slots[index] = { ...(fallback ?? {}), axis, value: fallback?.value ?? null, unit: 'mm' }
-  })
-  return slots as Array<Record<string, unknown>>
 }
 
 export function defaultPayload(recordType: RecordType, base: Record<string, unknown> = {}): Record<string, unknown> {
   const ledgerKind = String(base.ledger_kind ?? 'payment')
   const allowedStatuses = statusesForRecord(recordType, ledgerKind)
-  const requestedStatus = String(base.status ?? '')
+  const requestedStatus = recordType === 'research' && base.status === 'concluded' ? 'comparing' : String(base.status ?? '')
   const common: Record<string, unknown> = {
     record_type: recordType,
     title: base.title ?? '',
@@ -455,12 +371,14 @@ export function defaultPayload(recordType: RecordType, base: Record<string, unkn
       ...common,
       object_name: base.object_name ?? '',
       measurement_role: normalizeMeasurementRole(base.measurement_role),
+      approximate: base.approximate ?? false,
+      tolerance_text: base.tolerance_text ?? null,
+      measured_at: base.measured_at ?? null,
+      method: base.method ?? null,
       values: values.length
         ? values
         : [
-            { axis: 'width', value: null, unit: 'mm' },
-            { axis: 'height', value: null, unit: 'mm' },
-            { axis: 'length', value: null, unit: 'mm' },
+            { axis: null, value: null, unit: 'mm' },
           ],
     }
   }
@@ -504,14 +422,11 @@ export function RecordEditFields({
     : recordType === 'decision' ? String(payload.topic ?? '')
     : String(payload.question ?? '')
   const detailB = recordType === 'ledger' ? (payload.amount_minor ? String(Number(payload.amount_minor) / 100) : '')
-    : recordType === 'measurement' ? String(normalizeMeasurementValues(payload.values)[0]?.value ?? '')
     : recordType === 'decision' || recordType === 'research' ? normalizeOptions(payload.options).join('，')
     : recordType === 'event' ? String(payload.result ?? '')
     : String(payload.handling_plan ?? '')
-  const detailC = recordType === 'measurement' ? String(normalizeMeasurementValues(payload.values)[1]?.value ?? '')
-    : recordType === 'decision' ? String(payload.selected_option ?? '')
+  const detailC = recordType === 'decision' ? String(payload.selected_option ?? '')
     : ''
-  const detailD = recordType === 'measurement' ? String(normalizeMeasurementValues(payload.values)[2]?.value ?? '') : ''
 
   const setDetailA = (value: string) => onChange({
     event: 'event_kind', ledger: 'payment_kind', issue: 'phenomenon', measurement: 'object_name',
@@ -519,25 +434,12 @@ export function RecordEditFields({
   }[recordType], value)
   const setDetailB = (value: string) => {
     if (recordType === 'ledger') onChange('amount_minor', value.trim() ? Math.round(Number(value) * 100) : null)
-    else if (recordType === 'measurement') {
-      const values = normalizeMeasurementValues(payload.values)
-      if (values[0]) values[0].value = value.trim() ? Number(value) : null
-      onChange('values', values)
-    } else if (recordType === 'decision' || recordType === 'research') onChange('options', normalizeOptions(value))
+    else if (recordType === 'decision' || recordType === 'research') onChange('options', normalizeOptions(value))
     else if (recordType === 'event') onChange('result', value)
     else if (recordType === 'issue') onChange('handling_plan', value)
   }
   const setDetailC = (value: string) => {
-    if (recordType === 'measurement') {
-      const values = normalizeMeasurementValues(payload.values)
-      if (values[1]) values[1].value = value.trim() ? Number(value) : null
-      onChange('values', values)
-    } else if (recordType === 'decision') onChange('selected_option', value)
-  }
-  const setMeasurementValue = (index: number, value: string) => {
-    const values = normalizeMeasurementValues(payload.values)
-    values[index] = { ...(values[index] ?? {}), axis: ['width', 'height', 'length'][index], value: value.trim() ? Number(value) : null, unit: 'mm' }
-    onChange('values', values)
+    if (recordType === 'decision') onChange('selected_option', value)
   }
 
   return <div className="record-form-grid">
@@ -552,7 +454,7 @@ export function RecordEditFields({
     }}><option value="payment">付款</option><option value="refund">退款</option><option value="income">收入</option></Select></label>}
     <label className="field-stack"><span>{cfg.detailALabel}</span><input value={detailA} placeholder={cfg.detailAPlaceholder} onChange={(event) => setDetailA(event.target.value)} /></label>
     {recordType === 'measurement'
-      ? <fieldset className="measurement-triplet record-form-grid__wide"><legend>尺寸（mm，未知可不填）</legend><label><span>宽度</span><input type="number" min="0" step="any" value={detailB} onChange={(event) => setMeasurementValue(0, event.target.value)} /></label><label><span>高度</span><input type="number" min="0" step="any" value={detailC} onChange={(event) => setMeasurementValue(1, event.target.value)} /></label><label><span>长度</span><input type="number" min="0" step="any" value={detailD} onChange={(event) => setMeasurementValue(2, event.target.value)} /></label></fieldset>
+      ? <MeasurementFields payload={payload} onChange={onChange} />
       : recordType === 'decision' || recordType === 'research'
       ? <OptionsTextInput label={cfg.detailBLabel} placeholder={cfg.detailBPlaceholder} value={payload.options} onCommit={(options) => onChange('options', options)} />
       : <label className="field-stack"><span>{cfg.detailBLabel}</span><input type={cfg.detailBType || 'text'} min={cfg.detailBType === 'number' ? '0' : undefined} step="any" value={detailB} placeholder={cfg.detailBPlaceholder} onChange={(event) => setDetailB(event.target.value)} /></label>}
@@ -1237,14 +1139,11 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
             : recordType === 'decision' ? String(payload.topic ?? '')
             : String(payload.question ?? '')
           const detailB = recordType === 'ledger' ? (payload.amount_minor ? String(Number(payload.amount_minor) / 100) : '')
-            : recordType === 'measurement' ? String((normalizeMeasurementValues(payload.values)[0]?.value) ?? '')
             : recordType === 'decision' || recordType === 'research' ? (Array.isArray(payload.options) ? payload.options.join('，') : String(payload.options ?? ''))
             : recordType === 'event' ? String(payload.result ?? '')
             : String(payload.handling_plan ?? '')
-          const detailC = recordType === 'measurement' ? String((normalizeMeasurementValues(payload.values)[1]?.value) ?? '')
-            : recordType === 'decision' ? String(payload.selected_option ?? '')
+          const detailC = recordType === 'decision' ? String(payload.selected_option ?? '')
             : ''
-          const detailD = recordType === 'measurement' ? String((normalizeMeasurementValues(payload.values)[2]?.value) ?? '') : ''
 
           const checked = confirmed || selectedKeys.has(suggestion.key)
           return <article className={`record-card suggestion-card${highRisk ? ' suggestion-card--risk' : ''}${checked ? ' is-selected' : ''}`} data-selection-state={confirmed ? 'confirmed' : checked ? 'selected' : 'unselected'} key={suggestion.key} hidden={displayedSuggestionKey !== suggestion.key}>
@@ -1302,7 +1201,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
                   else if (recordType === 'research') updateSuggestion(suggestion.key, 'question', value)
                 }}                 /></label>
                 {recordType === 'measurement'
-                  ? <fieldset className="measurement-triplet record-form-grid__wide"><legend>尺寸（mm，未知可不填）</legend>{[['宽度', detailB], ['高度', detailC], ['长度', detailD]].map(([label, current], index) => <label key={label}><span>{label}</span><input type="number" min="0" step="any" value={current} onChange={(event) => { const values = normalizeMeasurementValues(payload.values); values[index] = { ...(values[index] ?? {}), axis: ['width', 'height', 'length'][index], value: event.target.value.trim() ? Number(event.target.value) : null, unit: 'mm' }; updateSuggestion(suggestion.key, 'values', values) }} /></label>)}</fieldset>
+                  ? <MeasurementFields payload={payload} onChange={(field, value) => updateSuggestion(suggestion.key, field, value)} />
                   : recordType === 'decision' || recordType === 'research'
                   ? <OptionsTextInput label={cfg.detailBLabel} placeholder={cfg.detailBPlaceholder} value={payload.options} onCommit={(options) => updateSuggestion(suggestion.key, 'options', options)} />
                   : <label className="field-stack"><span>{cfg.detailBLabel}</span><input

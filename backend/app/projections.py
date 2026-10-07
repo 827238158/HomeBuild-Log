@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_JSON
+from app.core.constants import DETAIL_MODELS, DETAIL_RENAMES_TO_JSON, effective_record_status
 from app.domain_models import (
     DEFAULT_PROJECT_ID,
     Material,
@@ -184,7 +184,7 @@ def serialize_records(db: Session, records: list[Record]) -> dict[str, dict[str,
             "timezone": record.timezone,
             "stage_id": record.stage_id,
             "stage": stages.get(record.stage_id),
-            "status": record.status,
+            "status": effective_record_status(record.record_type, record.status),
             "archived_at": _plain(record.archived_at),
             "created_at": _plain(record.created_at),
             "updated_at": _plain(record.updated_at),

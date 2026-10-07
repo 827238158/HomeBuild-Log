@@ -8,14 +8,14 @@ export function confirmNavigation(): boolean {
   return !message || window.confirm(message)
 }
 
-export function useNavigationGuard(dirty: boolean, message = defaultMessage) {
+export function useNavigationGuard(dirty: boolean, message = defaultMessage, navigationActive = true) {
   const id = useId()
   useLayoutEffect(() => {
     // 在导航发生前登记草稿；卸载后移除，避免旧页面阻止后续操作。
-    if (dirty) guards.set(id, message)
+    if (dirty && navigationActive) guards.set(id, message)
     else guards.delete(id)
     return () => { guards.delete(id) }
-  }, [dirty, id, message])
+  }, [dirty, id, message, navigationActive])
   useEffect(() => {
     if (!dirty) return
     const preventUnload = (event: BeforeUnloadEvent) => {
