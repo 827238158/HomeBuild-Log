@@ -8,6 +8,7 @@ from sqlalchemy import engine_from_config, pool
 
 import app.domain_models  # noqa: F401 — 加载阶段 2A 领域模型
 import app.models  # noqa: F401 — 确保 Alembic 可发现所有模型表
+import app.topic_models  # noqa: F401 — 加载主题归属与待办活动模型
 from app.core.paths import ensure_storage_directories, get_storage_paths
 from app.db import Base, database_url
 

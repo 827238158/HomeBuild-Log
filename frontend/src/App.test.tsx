@@ -291,7 +291,7 @@ describe('App', () => {
 
     render(<App />)
 
-    expect(await screen.findByText('记录装修现场')).toBeTruthy()
+    expect(await screen.findByText('随手记与整理')).toBeTruthy()
   })
 
   it('token 过期时显示登录页', async () => {
@@ -370,7 +370,7 @@ describe('App', () => {
     })
 
     // 应显示健康状态
-    expect(await screen.findByText('记录装修现场')).toBeTruthy()
+    expect(await screen.findByText('随手记与整理')).toBeTruthy()
   })
 
   it('保存文字来源后上传所选附件', async () => {
@@ -415,7 +415,7 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
-    await screen.findByText('记录装修现场')
+    await screen.findByText('随手记与整理')
     expect(screen.queryByText('保存并分析')).toBeNull()
     fireEvent.change(screen.getByPlaceholderText('记录今天发生的事情…'), {
       target: { value: '现场记录' },
@@ -478,7 +478,7 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
-    await screen.findByText('记录装修现场')
+    await screen.findByText('随手记与整理')
     fireEvent.change(screen.getByPlaceholderText('记录今天发生的事情…'), {
       target: { value: '带附件记录' },
     })

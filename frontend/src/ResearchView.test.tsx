@@ -1,10 +1,13 @@
+vi.mock('./TopicSelect', () => ({ TopicSelect: ({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) => <div><output data-testid="topics">{value.join(',')}</output><button type="button" onClick={() => onChange([])}>清空主题归属</button></div> }))
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from './researchApi'
+import { confirmNavigation } from './navigationGuard'
 import { ResearchView } from './ResearchView'
 
-vi.mock('./researchApi', () => ({ listResearch: vi.fn(), getResearch: vi.fn(), createResearch: vi.fn(), appendResearchEntry: vi.fn(), updateResearchStatus: vi.fn() }))
-const topic = (id: string): api.ResearchTopic => ({ id, title: `主题${id}`, question: '', description: null, status: 'collecting', conclusion: '原结论', limitations: null, created_at: '2026-10-03T00:00:00Z', updated_at: '2026-10-03T00:00:00Z', entries: [], conclusion_history: [] })
+vi.mock('./domainApi', () => ({ listSpaces: vi.fn(async () => []), listEntities: vi.fn(async () => []), listRecords: vi.fn(async () => []) }))
+vi.mock('./researchApi', () => ({ listResearch: vi.fn(), getResearch: vi.fn(), createResearch: vi.fn(), appendResearchEntry: vi.fn(), updateResearchStatus: vi.fn(), updateResearchTopics: vi.fn() }))
+const topic = (id: string): api.ResearchTopic => ({ id, version: 1, title: `主题${id}`, question: '', description: null, status: 'collecting', conclusion: '原结论', limitations: null, created_at: '2026-10-03T00:00:00Z', updated_at: '2026-10-03T00:00:00Z', entries: [], conclusion_history: [] })
 const a = topic('A'); const b = topic('B')
 // 通过实际可见的下拉入口选择，避免隐藏原生代理掩盖交互问题。
 const chooseStatus = (label: string, option: string) => {
@@ -38,11 +41,12 @@ describe('调研笔记', () => {
   it('只需一句话创建，失败保留输入', async () => {
     vi.mocked(api.createResearch).mockRejectedValue(new Error('保存失败'))
     render(<ResearchView />); await screen.findByRole('button', { name: /主题A/ })
+    fireEvent.click(screen.getByRole('button', { name: '新增调研' }))
     fireEvent.change(screen.getByLabelText('随手记一个问题'), { target: { value: '要不要回水管' } })
     fireEvent.click(screen.getByRole('button', { name: '记下问题' }))
     await screen.findByText('保存失败')
     expect((screen.getByLabelText('随手记一个问题') as HTMLInputElement).value).toBe('要不要回水管')
-    expect(api.createResearch).toHaveBeenCalledWith('要不要回水管')
+    expect(api.createResearch).toHaveBeenCalledWith('要不要回水管', [], {})
   })
   it('保留不同主题的调研草稿', async () => {
     await openA()
@@ -108,7 +112,7 @@ describe('调研笔记', () => {
     chooseStatus('筛选状态', '已归档')
     expect(screen.queryByRole('button', { name: /主题B/ })).toBeNull()
     fireEvent.change(screen.getByLabelText('搜索调研'), { target: { value: '不存在的主题' } })
-    expect(screen.getByText('当前筛选下没有调研主题。')).toBeTruthy()
+    expect(screen.getByText('当前筛选下没有调研事项。')).toBeTruthy()
     expect(screen.getByRole('heading', { name: '主题A' })).toBeTruthy()
   })
   it('旧已结论主题显示为调研中，结论不参与搜索且仅提供三种状态', async () => {
@@ -116,7 +120,7 @@ describe('调研笔记', () => {
     vi.mocked(api.listResearch).mockResolvedValue({ items: [legacy, b], summary: { total: 2, collecting: 1, comparing: 1, archived: 0 } })
     vi.mocked(api.getResearch).mockResolvedValue(legacy)
     await openA()
-    const state = screen.getByRole('combobox', { name: '主题状态：调研中' })
+    const state = screen.getByRole('combobox', { name: '事项状态：调研中' })
     expect(state.closest('label')?.className).toBe('research-status-row')
     fireEvent.click(state)
     expect(state.getAttribute('aria-expanded')).toBe('true')
@@ -131,7 +135,7 @@ describe('调研笔记', () => {
     expect(screen.queryByRole('button', { name: /主题B/ })).toBeNull()
     fireEvent.change(screen.getByLabelText('搜索调研'), { target: { value: '原结论' } })
     expect(screen.queryByRole('button', { name: /主题A/ })).toBeNull()
-    expect(screen.getByText('当前筛选下没有调研主题。')).toBeTruthy()
+    expect(screen.getByText('当前筛选下没有调研事项。')).toBeTruthy()
   })
   it('归档后可恢复原状态，来源只开放HTTP链接', async () => {
     const archived = { ...a, status: 'archived' as const, entries: [{ id: 'e1', record_id: 'A', research_date: '2026-10-03', content: '资料', sources: ['https://example.com', 'javascript:alert(1)', '书籍'], uncertainties: null, created_at: a.created_at }] }
@@ -139,15 +143,15 @@ describe('调研笔记', () => {
     vi.mocked(api.updateResearchStatus).mockResolvedValue(a)
     await openA(); await screen.findByRole('link', { name: 'https://example.com' })
     expect(screen.queryByRole('link', { name: 'javascript:alert(1)' })).toBeNull()
-    chooseStatus('主题状态', '待调研')
-    await waitFor(() => expect(api.updateResearchStatus).toHaveBeenCalledWith('A', 'collecting'))
+    chooseStatus('事项状态', '待调研')
+    await waitFor(() => expect(api.updateResearchStatus).toHaveBeenCalledWith('A', 'collecting', 1))
   })
   it('进入详情和返回恢复焦点，筛选与未保存草稿保留', async () => {
     await openA()
     expect(document.activeElement?.getAttribute('aria-label')).toBe('调研详情：主题A')
     fireEvent.change(screen.getByLabelText('本次调研'), { target: { value: '未完成的比较' } })
     fireEvent.change(screen.getByLabelText('搜索调研'), { target: { value: '主题A' } })
-    fireEvent.click(screen.getByRole('button', { name: '返回主题列表' }))
+    fireEvent.click(screen.getByRole('button', { name: '返回事项列表' }))
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /主题A/ }))
     expect((screen.getByLabelText('搜索调研') as HTMLInputElement).value).toBe('主题A')
     fireEvent.click(screen.getByRole('button', { name: /主题A/ }))
@@ -183,4 +187,119 @@ describe('调研笔记', () => {
     expect(screen.queryByText('网络中断，请重试')).toBeNull()
     expect((screen.getByLabelText('本次调研') as HTMLTextAreaElement).value).toBe('')
   })
+})
+
+it('主题入口预选归属，已有调研可明确解除归属', async () => {
+  const item={...a,topic_ids:['theme']}
+  vi.mocked(api.listResearch).mockResolvedValue({items:[item],summary:{total:1,collecting:1,comparing:0,archived:0}})
+  vi.mocked(api.getResearch).mockResolvedValue(item)
+  vi.mocked(api.updateResearchTopics).mockResolvedValue({...item,topic_ids:[]})
+  render(<ResearchView initialResearchId="A" initialTopicId="theme" />)
+  await screen.findByLabelText('本次调研')
+  fireEvent.click(screen.getAllByRole('button',{name:'清空主题归属'})[1])
+  fireEvent.click(screen.getByRole('button',{name:'保存主题归属'}))
+  await screen.findByText('主题归属、补充信息与关联已保存。')
+  expect(api.updateResearchTopics).toHaveBeenCalledWith('A',[], expect.objectContaining({ space_ids: [], related_record_ids: [] }), 1)
+})
+
+it('调研归属草稿按事项恢复并阻止无确认离开', async () => {
+  sessionStorage.clear()
+  const item={...a,topic_ids:['theme']}
+  vi.mocked(api.listResearch).mockResolvedValue({items:[item,b],summary:{total:2,collecting:2,comparing:0,archived:0}})
+  vi.mocked(api.getResearch).mockImplementation(async id => id==='A'?item:b)
+  const mounted=render(<ResearchView initialResearchId="A" />)
+  await screen.findByLabelText('本次调研')
+  fireEvent.click(screen.getByRole('button',{name:'清空主题归属'}))
+  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false)
+  expect(confirmNavigation()).toBe(false)
+  mounted.unmount()
+  render(<ResearchView initialResearchId="A" />)
+  await screen.findByLabelText('本次调研')
+  expect(screen.getByTestId('topics').textContent).toBe('')
+  expect(sessionStorage.getItem('research:A:topics')).toBe('[]')
+  confirm.mockRestore()
+})
+
+it('归属草稿编辑期间追加调研不提升旧草稿的基准版本', async () => {
+  vi.clearAllMocks(); sessionStorage.clear()
+  const item = { ...a, topic_ids: ['theme'] }
+  vi.mocked(api.listResearch).mockResolvedValue({ items: [item], summary: { total: 1, collecting: 1, comparing: 0, archived: 0 } })
+  vi.mocked(api.getResearch).mockResolvedValue(item)
+  vi.mocked(api.appendResearchEntry).mockResolvedValue({ ...item, version: 2 })
+  vi.mocked(api.updateResearchTopics).mockResolvedValue({ ...item, version: 3, topic_ids: [] })
+  render(<ResearchView initialResearchId="A" />)
+  await screen.findByLabelText('本次调研')
+  fireEvent.click(screen.getByRole('button', { name: '清空主题归属' }))
+  fireEvent.change(screen.getByLabelText('本次调研'), { target: { value: '新的资料' } })
+  fireEvent.click(screen.getByRole('button', { name: /^追加调研$/ }))
+  await screen.findByText('本次调研已保存。')
+  fireEvent.click(screen.getByRole('button', { name: '保存主题归属' }))
+  await screen.findByText('主题归属、补充信息与关联已保存。')
+  expect(api.updateResearchTopics).toHaveBeenCalledWith('A', [], expect.any(Object), 1)
+})
+
+it('没有版本的历史草稿先核对当前记录，禁止静默保存', async () => {
+  vi.clearAllMocks(); sessionStorage.clear()
+  sessionStorage.setItem('research:A:topics', '[]')
+  const item = { ...a, version: 4, topic_ids: ['theme'] }
+  vi.mocked(api.listResearch).mockResolvedValue({ items: [item], summary: { total: 1, collecting: 1, comparing: 0, archived: 0 } })
+  vi.mocked(api.getResearch).mockResolvedValue(item)
+  render(<ResearchView initialResearchId="A" />)
+  await screen.findByLabelText('本次调研')
+  fireEvent.click(screen.getByRole('button', { name: '保存主题归属' }))
+  expect(await screen.findByRole('region', { name: '处理编辑冲突' })).toBeTruthy()
+  expect(api.updateResearchTopics).not.toHaveBeenCalled()
+})
+
+
+it('父事项高级字段与主题一起保存，失败保留且不修改调研过程', async () => {
+  vi.clearAllMocks()
+  sessionStorage.clear()
+  const original = { ...a, space_ids: ['kitchen'], participant_ids: ['worker'], related_record_ids: ['B'] }
+  vi.mocked(api.listResearch).mockResolvedValue({ items: [original], summary: { total: 1, collecting: 1, comparing: 0, archived: 0 } })
+  vi.mocked(api.getResearch).mockResolvedValue(original)
+  vi.mocked(api.updateResearchTopics).mockRejectedValueOnce(new Error('网络中断')).mockResolvedValueOnce(original)
+  render(<ResearchView />)
+  fireEvent.click(await screen.findByRole('button', { name: /主题A/ }))
+  await waitFor(() => expect(api.getResearch).toHaveBeenCalledWith('A'))
+  fireEvent.click(screen.getByRole('button', { name: '保存主题归属' }))
+  await screen.findByText('网络中断')
+  fireEvent.click(screen.getByRole('button', { name: '保存主题归属' }))
+  await screen.findByText('主题归属、补充信息与关联已保存。')
+  expect(api.updateResearchTopics).toHaveBeenLastCalledWith('A', [], expect.objectContaining({ space_ids: ['kitchen'], participant_ids: ['worker'], related_record_ids: ['B'] }), 1)
+  expect(api.appendResearchEntry).not.toHaveBeenCalled()
+})
+
+
+it('新增调研默认收起，收起保留草稿，成功关闭并展示详情', async () => {
+  vi.clearAllMocks(); sessionStorage.clear()
+  vi.mocked(api.listResearch).mockResolvedValue({ items: [], summary: { total: 0, collecting: 0, comparing: 0, archived: 0 } })
+  vi.mocked(api.createResearch).mockResolvedValue(topic('new'))
+  render(<ResearchView />)
+  await screen.findByText('还没有调研事项，从上方记下第一个问题。')
+  expect(screen.queryByLabelText('随手记一个问题')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '新增调研' }))
+  fireEvent.change(screen.getByLabelText('随手记一个问题'), { target: { value: '比较智能开关' } })
+  fireEvent.click(screen.getByRole('button', { name: '收起' }))
+  expect(screen.queryByLabelText('随手记一个问题')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '新增调研' }))
+  expect((screen.getByLabelText('随手记一个问题') as HTMLInputElement).value).toBe('比较智能开关')
+  fireEvent.click(screen.getByRole('button', { name: '记下问题' }))
+  await screen.findByRole('heading', { name: '主题new' })
+  expect(screen.queryByLabelText('随手记一个问题')).toBeNull()
+  expect(screen.getByRole('button', { name: '新增调研' }).getAttribute('aria-expanded')).toBe('false')
+})
+
+it('从主题进入自动展开创建，保存中不能收起', async () => {
+  vi.clearAllMocks(); sessionStorage.clear()
+  vi.mocked(api.listResearch).mockResolvedValue({ items: [], summary: { total: 0, collecting: 0, comparing: 0, archived: 0 } })
+  let finish!: (value: api.ResearchTopic) => void
+  vi.mocked(api.createResearch).mockReturnValue(new Promise(resolve => { finish = resolve }))
+  render(<ResearchView initialTopicId="theme" />)
+  await screen.findByText('还没有调研事项，从上方记下第一个问题。')
+  fireEvent.change(screen.getByLabelText('随手记一个问题'), { target: { value: '确认开关方案' } })
+  fireEvent.click(screen.getByRole('button', { name: '记下问题' }))
+  expect((screen.getByRole('button', { name: '收起' }) as HTMLButtonElement).disabled).toBe(true)
+  await act(async () => finish(topic('saved')))
+  await screen.findByRole('heading', { name: '主题saved' })
 })

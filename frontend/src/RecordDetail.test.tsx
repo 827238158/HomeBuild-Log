@@ -1,10 +1,12 @@
+vi.mock('./TopicSelect', () => ({ TopicSelect: ({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) => <div><output data-testid="topics">{value.join(',')}</output><button type="button" onClick={() => onChange([])}>清空主题归属</button></div> }))
 import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { RecordDetail } from './RecordDetail'
 import * as api from './domainApi'
 import { beijingToday } from './time'
+import { HttpError } from './http'
 
-vi.mock('./domainApi', () => ({ getRecord: vi.fn(), getSource: vi.fn(), listRelations: vi.fn(), listRecordAudit: vi.fn(), listSpaces: vi.fn(), listRecords: vi.fn(), listEntities: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(), deleteRecord: vi.fn(), reviewRecordSource: vi.fn() }))
+vi.mock('./domainApi', () => ({ listIssueActivities: vi.fn(), appendIssueActivity: vi.fn(), getRecord: vi.fn(), getSource: vi.fn(), listRelations: vi.fn(), listRecordAudit: vi.fn(), listSpaces: vi.fn(), listRecords: vi.fn(), listEntities: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(), deleteRecord: vi.fn(), reviewRecordSource: vi.fn() }))
 vi.mock('./DomainWorkspace', async importOriginal => {
   const original = await importOriginal<typeof import('./DomainWorkspace')>()
   return { ...original, RecordEditFields: ({ payload, onChange }: { payload: Record<string, unknown>; onChange: (field: string, value: unknown) => void }) => <><output data-testid="draft">{JSON.stringify(payload)}</output><button onClick={() => onChange('values', [{ axis: '净宽', value: 898, unit: 'mm' }])}>输入新尺寸</button></> }
@@ -12,7 +14,7 @@ vi.mock('./DomainWorkspace', async importOriginal => {
 const record = { id: 'old', record_type: 'measurement', title: '门洞', status: 'active', description: '旧说明', occurred_date: '2020-01-01', original_time_text: null, created_at: '2020-01-01T00:00:00Z', object_name: '厨房门洞', measurement_role: 'site_measurement', values: [{ axis: '净宽', value: 900, unit: 'mm' }], measured_at: '2020-01-01T00:00:00Z', method: '卷尺', approximate: true, tolerance_text: '完成面', source_refs: [{ source_id: 'source', source_revision: 1, evidence_excerpt: null, needs_review: false }], archived_at: null, space_ids: ['kitchen'], material_ids: ['wood'], participant_ids: [], spaces: [], materials: [], participants: [], attachment_ids: [], stage_id: 'tile' }
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(api.getRecord).mockResolvedValue(record)
+  vi.mocked(api.getRecord).mockResolvedValue({ ...record, version: 1 })
   vi.mocked(api.getSource).mockResolvedValue({ id: 'source', project_id: 'project', input_type: 'text', original_text: '旧来源', attachments: [], captured_at: '2020-01-01', reported_time_text: null, updated_at: '2020-01-01', revision: 1 })
   vi.mocked(api.listRelations).mockResolvedValue([]); vi.mocked(api.listRecordAudit).mockResolvedValue([])
   vi.mocked(api.listSpaces).mockResolvedValue([]); vi.mocked(api.listRecords).mockResolvedValue([]); vi.mocked(api.listEntities).mockResolvedValue([])
@@ -64,4 +66,47 @@ it('取消复测不写入记录也不更改旧来源', async () => {
   expect(api.createRecord).not.toHaveBeenCalled(); expect(api.updateRecord).not.toHaveBeenCalled()
   expect(await screen.findByText('旧来源')).toBeTruthy()
   confirm.mockRestore()
+})
+
+it('待办进展失败保留草稿，重试追加成功且不修改原记录', async () => {
+  vi.mocked(api.getRecord).mockResolvedValue({...record,record_type:'issue',status:'pending'})
+  vi.mocked(api.listIssueActivities).mockResolvedValue({items:[]})
+  vi.mocked(api.appendIssueActivity).mockRejectedValueOnce(new Error('进展保存失败')).mockResolvedValueOnce({items:[{id:'note1',record_id:'old',kind:'note',previous_status:null,next_status:null,content:'电工明天到场',created_at:'2026-10-11T00:00:00Z'}]})
+  const changed=vi.fn()
+  render(<RecordDetail recordId="old" closing={false} onClose={vi.fn()} onChanged={changed} onExitComplete={vi.fn()} onOpen={vi.fn()} onOpenSource={vi.fn()} onOpenResearch={vi.fn()} />)
+  const input=await screen.findByLabelText('追加进展备注')
+  fireEvent.change(input,{target:{value:'电工明天到场'}})
+  fireEvent.click(screen.getByRole('button',{name:'保存进展'}))
+  await screen.findByText('进展保存失败')
+  expect((input as HTMLTextAreaElement).value).toBe('电工明天到场')
+  fireEvent.click(screen.getByRole('button',{name:'保存进展'}))
+  await screen.findByText('进展已保存')
+  expect((input as HTMLTextAreaElement).value).toBe('')
+  expect(api.appendIssueActivity).toHaveBeenLastCalledWith('old','电工明天到场')
+  expect(api.updateRecord).not.toHaveBeenCalled(); expect(changed).toHaveBeenCalledOnce()
+})
+
+it('双端编辑冲突保留草稿，选择后再次保存仍验证最新版本', async () => {
+  const latest = {...record,version:2,title:'手机修改'}
+  const newer = {...latest,version:3,title:'手机再次修改'}
+  vi.mocked(api.updateRecord).mockRejectedValueOnce(new HttpError('记录已更新',409,'record_version_conflict',{latest_record:latest}))
+    .mockRejectedValueOnce(new HttpError('记录再次更新',409,'record_version_conflict',{latest_record:newer}))
+    .mockResolvedValueOnce({...record,version:4})
+  render(<RecordDetail recordId="old" closing={false} onClose={vi.fn()} onChanged={vi.fn()} onExitComplete={vi.fn()} onOpen={vi.fn()} onOpenSource={vi.fn()} onOpenResearch={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button',{name:'修改记录'}))
+  await screen.findByTestId('draft')
+  fireEvent.click(screen.getByRole('button',{name:'保存修改'}))
+  await screen.findByRole('region',{name:'处理编辑冲突'})
+  expect(screen.getByTestId('draft').textContent).toContain('门洞')
+  expect(api.updateRecord).toHaveBeenLastCalledWith('old',expect.objectContaining({expected_version:1}))
+  for(const radio of screen.getAllByRole('radio',{name:/保留我的修改/})) fireEvent.click(radio)
+  fireEvent.click(screen.getByRole('button',{name:'应用选择并继续编辑'}))
+  expect(api.updateRecord).toHaveBeenCalledTimes(1)
+  fireEvent.click(screen.getByRole('button',{name:'保存修改'}))
+  await screen.findByRole('region',{name:'处理编辑冲突'})
+  expect(api.updateRecord).toHaveBeenLastCalledWith('old',expect.objectContaining({expected_version:2,title:'门洞'}))
+  for(const radio of screen.getAllByRole('radio',{name:/保留我的修改/})) fireEvent.click(radio)
+  fireEvent.click(screen.getByRole('button',{name:'应用选择并继续编辑'}))
+  fireEvent.click(screen.getByRole('button',{name:'保存修改'}))
+  await waitFor(()=>expect(api.updateRecord).toHaveBeenLastCalledWith('old',expect.objectContaining({expected_version:3,title:'门洞'})))
 })

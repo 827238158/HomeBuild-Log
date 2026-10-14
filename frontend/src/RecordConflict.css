@@ -1,0 +1,7 @@
+.record-conflict { padding: 16px; border: 1px solid var(--warning); border-radius: 12px; background: var(--surface); min-width: 0; }
+.record-conflict h3 { margin-top: 0; }
+.record-conflict fieldset { min-width: 0; border: 1px solid var(--border); border-radius: 8px; margin: 12px 0; }
+.record-conflict fieldset > label { display: flex; gap: 10px; align-items: start; padding: 10px 0; min-height: 44px; box-sizing: border-box; }
+.record-conflict label span { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.record-conflict input[type=radio] { flex: 0 0 auto; width: 18px; height: 18px; min-height: 18px; padding: 0; margin-top: 5px; }
+.record-conflict .record-actions { flex-wrap: wrap; }

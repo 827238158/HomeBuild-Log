@@ -29,6 +29,7 @@ from app.domain_models import (
 )
 from app.models import Attachment as AttachmentModel
 from app.models import SourceEntry as SourceEntryModel
+from app.record_version import bump_record_version
 
 _ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic", "application/pdf"}
 _MAX_SIZE_BYTES = 50 * 1024 * 1024
@@ -327,6 +328,12 @@ def update_source(
             setattr(source, key, value)
         source.revision += 1
         source.updated_at = _now()
+        # 来源修订改变关联记录的核对状态，旧编辑也必须重新读取。
+        linked_ids = db.scalars(select(record_sources.c.record_id).where(
+            record_sources.c.source_id == source.id,
+        )).all()
+        for record in db.scalars(select(Record).where(Record.id.in_(linked_ids))).all():
+            bump_record_version(db, record)
         bundles = db.scalars(
             select(CandidateBundle).where(CandidateBundle.source_id == source.id)
         ).all()
@@ -410,6 +417,11 @@ def delete_source(
                 )
             ).all()
             for relation in relations:
+                survivors = {relation.from_record_id, relation.to_record_id} - set(exclusive_ids)
+                for related_id in survivors:
+                    record = db.get(Record, related_id)
+                    if record is not None:
+                        bump_record_version(db, record)
                 log_audit(
                     db,
                     "delete",
@@ -441,6 +453,8 @@ def delete_source(
             db.execute(delete(Record).where(Record.id.in_(exclusive_ids)))
 
         if shared_ids:
+            for record in db.scalars(select(Record).where(Record.id.in_(shared_ids))).all():
+                bump_record_version(db, record)
             if attachment_ids:
                 db.execute(
                     delete(record_attachments).where(

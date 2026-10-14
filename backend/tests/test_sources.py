@@ -6,10 +6,9 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from app.core.config import _hash_password
 from app.core.paths import build_storage_paths
+from tests.versioned_client import VersionedTestClient as TestClient
 
 
 def _make_client() -> TestClient:

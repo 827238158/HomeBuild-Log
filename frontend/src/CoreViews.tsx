@@ -1,7 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { BusinessEntryForm } from './BusinessEntryForm'
+import './business-workspace.css'
 import { Select } from './Select'
 import { RecordDetail } from './RecordDetail'
+import { RecordConflict, conflictRecord } from './RecordConflict'
+import { VoiceField } from './VoiceField'
 import { useModalFocus } from './useModalFocus'
 import { confirmNavigation, useNavigationGuard } from './navigationGuard'
 import './ui-hardening.css'
@@ -11,6 +15,7 @@ import { AiAnalyticsView, OverviewView, RecordsAnalyticsView } from './Analytics
 import { LazyEChart as EChart } from './LazyEChart'
 import { PitfallsView } from './PitfallsView'
 import { ResearchView } from './ResearchView'
+import { TopicsView } from './TopicsView'
 import { WorkspaceAtmosphere } from './WorkspaceAtmosphere'
 import { chartPalette, chartSummary, donutOption, horizontalBarOption, lineOption } from './chartConfig'
 import {
@@ -35,13 +40,14 @@ import {
 import { formatMoney } from './currency'
 import { recordStatusLabel, recordTypeLabels } from './recordLabels'
 import { recordConfig, statusesForRecordType } from './recordConfig'
-import { formatBeijingDateTime } from './time'
+import { formatBeijingDateTime, formatCalendarDate } from './time'
 
-type ViewName = 'overview' | 'capture' | 'timeline' | 'ledger' | 'issues' | 'pitfalls' | 'research' | 'spaces' | 'records' | 'ai' | 'search'
+type ViewName = 'overview' | 'topics' | 'capture' | 'timeline' | 'ledger' | 'issues' | 'pitfalls' | 'research' | 'spaces' | 'records' | 'ai' | 'search'
 
 const viewLabels: Array<{ key: ViewName; label: string }> = [
+  { key: 'topics', label: '主题' },
   { key: 'overview', label: '概览' },
-  { key: 'capture', label: '录入' },
+  { key: 'capture', label: '随手记与整理' },
   { key: 'timeline', label: '时间线' },
   { key: 'ledger', label: '账本' },
   { key: 'issues', label: '待办与问题' },
@@ -54,15 +60,15 @@ const viewLabels: Array<{ key: ViewName; label: string }> = [
 ]
 
 const viewGroups: Array<{ label: string; items: ViewName[] }> = [
-  { label: '工作台', items: ['overview', 'capture'] },
-  { label: '业务管理', items: ['timeline', 'ledger', 'issues', 'research', 'pitfalls', 'spaces'] },
-  { label: '数据分析', items: ['records', 'ai'] },
-  { label: '工具', items: ['search'] },
+  { label: '日常记录', items: ['topics', 'ledger', 'issues', 'research', 'pitfalls'] },
+  { label: '查看与回顾', items: ['overview', 'timeline', 'spaces', 'records', 'search'] },
+  { label: '辅助工具', items: ['capture', 'ai'] },
 ]
 
 function NavIcon({ view }: { view: ViewName }) {
   const common = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
   return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...common}>
+    {view === 'topics' && <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M8 13h8M8 16h5" /></>}
     {view === 'overview' && <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>}
     {view === 'capture' && <><path d="M12 5v14M5 12h14" /><circle cx="12" cy="12" r="9" /></>}
     {view === 'timeline' && <><path d="M7 3v18M7 7h8M7 12h11M7 17h6" /><circle cx="7" cy="7" r="1.5" /><circle cx="7" cy="12" r="1.5" /><circle cx="7" cy="17" r="1.5" /></>}
@@ -371,7 +377,7 @@ function LedgerDetailPanel({
   </>, document.body)
 }
 
-function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: string) => void; detailOpen: boolean; refreshRevision: number }) {
+function LedgerView({ onOpen, detailOpen, refreshRevision, initialTopicId }: { onOpen: (id: string) => void; detailOpen: boolean; refreshRevision: number; initialTopicId?: string }) {
   const [data, setData] = useState<LedgerResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -465,7 +471,7 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
     if (group) openGroup(group)
   }
 
-  return <section className="view-panel"><header><h2>装修账本</h2></header>
+  return <section className="view-panel"><BusinessEntryForm title="装修账本" kind="ledger" initialTopicId={initialTopicId} onSaved={() => setReload(value => value + 1)} />
     <LoadState loading={loading} error={error} empty={data ? data.ledger_entries.length === 0 : false} onRetry={() => setReload(value => value + 1)} />
     {data && <><div className="summary-grid summary-grid--money">{[
       ['card:expense', 'summary-card--info'],
@@ -473,6 +479,7 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
       ['card:income', 'summary-card--success'],
       ['card:net-expense', ''],
     ].map(([id, variant]) => { const group = groups.get(id)!; return <button className={`summary-card summary-card--interactive immersive-glass immersive-tilt ${variant}`} type="button" key={id} {...cardHandlers(group)}><span>{group.title}</span><strong>{formatMoney(group.amountMinor)}</strong></button> })}</div><details className="ledger-calculation-help"><summary>净支出怎么算？</summary><p>净支出 = 付款 − 退款 − 收入。</p></details></>}
+    {data && data.ledger_entries.length > 0 && <section className="business-ledger-list"><h3>账目明细</h3><div>{data.ledger_entries.map(record => <button type="button" key={record.id} onClick={() => onOpen(record.id)}><span><strong>{record.title}</strong><small>{record.occurred_date || '日期待补充'} · {record.vendor?.name || '未填写收付款对象'}</small></span><span>{ledgerRecordSummary(record)}</span></button>)}</div></section>}
     {data && (data.analytics.payment_composition.length > 0 || data.analytics.vendor_distribution.length > 0) && <div className="chart-grid"><AnalyticsChart title="资金构成" interactionHint="点击图形查看明细记录" description="" kind="donut" unit="元" rows={data.analytics.payment_composition.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('composition')} onLeave={scheduleClose} onClick={chartClick('composition')} disableTooltip /><AnalyticsChart title="主要商家金额" interactionHint="点击图形查看明细记录" description="支出为正，退款与收入为负" kind="bar" unit="元" rows={data.analytics.vendor_distribution.map((item) => ({ ...item, value: item.value / 100 }))} onHover={chartHover('vendor')} onLeave={scheduleClose} onClick={chartClick('vendor')} disableTooltip verticalScrollAfter={8} /></div>}
     {monthlyNetExpense.length > 0 && <div className="chart-grid chart-grid--single"><AnalyticsChart title="每月净支出趋势" description="按月统计付款减退款与收入后的净支出" kind="line" unit="元" rows={monthlyNetExpense} /></div>}
     {preview && <LedgerDetailPreview state={preview} onEnter={cancelClose} onLeave={scheduleClose} onViewAll={() => openGroup(preview.group)} />}
@@ -480,18 +487,19 @@ function LedgerView({ onOpen, detailOpen, refreshRevision }: { onOpen: (id: stri
   </section>
 }
 
-function IssuesView({ onOpen, refreshRevision }: { onOpen: (id: string) => void; refreshRevision: number }) {
+function IssuesView({ onOpen, refreshRevision, initialTopicId }: { onOpen: (id: string) => void; refreshRevision: number; initialTopicId?: string }) {
   const [data, setData] = useState<IssueBoardResponse | null>(null)
-  const [spaces, setSpaces] = useState<SpaceEntry[]>([])
-  const [spaceId, setSpaceId] = useState('')
   const [reload, setReload] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [applied, setApplied] = useState({ space_id: '', status: '', severity: '' })
+  const [applied, setApplied] = useState({ status: '', severity: '' })
   const [completion, setCompletion] = useState<ProjectionRecord | null>(null)
   const [completionResult, setCompletionResult] = useState('')
   const [completionError, setCompletionError] = useState('')
   const [pendingId, setPendingId] = useState('')
+  const [completionVoiceBusy, setCompletionVoiceBusy] = useState(false)
+  const [resolvedStatus, setResolvedStatus] = useState<{record:ProjectionRecord; status:string} | null>(null)
+  const [statusConflict, setStatusConflict] = useState<{ latest: ProjectionRecord; draft: Record<string, unknown> } | null>(null)
   useNavigationGuard(Boolean(completion && completionResult.trim()) || Boolean(pendingId))
   const statusLabels: Record<string, string> = { pending: '待处理', in_progress: '处理中', done: '已完成' }
   const severityLabels: Record<string, string> = { low: '低', medium: '中', high: '高' }
@@ -499,8 +507,8 @@ function IssuesView({ onOpen, refreshRevision }: { onOpen: (id: string) => void;
   useEffect(() => {
     let active = true
     setLoading(true)
-    Promise.all([getIssueBoard(applied), listSpaces()])
-      .then(([result, rows]) => { if (active) { setData(result); setSpaces(rows); setError('') } })
+    getIssueBoard(applied)
+      .then(result => { if (active) { setData(result); setError('') } })
       .catch((reason: unknown) => active && setError(reason instanceof Error ? reason.message : '问题看板加载失败'))
       .finally(() => active && setLoading(false))
     return () => { active = false }
@@ -510,32 +518,44 @@ function IssuesView({ onOpen, refreshRevision }: { onOpen: (id: string) => void;
     if (status === 'done') { setCompletion(record); setCompletionResult(String(record.actual_result ?? '')); setCompletionError(''); return }
     setPendingId(record.id)
     try {
-      const payload: Record<string, unknown> = { record_type: 'issue', status }
+      const payload: Record<string, unknown> = { record_type: 'issue', status, expected_version: record.version }
       await updateRecord(record.id, payload)
       setReload((value) => value + 1)
     } catch (reason: unknown) {
+      const latest = conflictRecord(reason)
+      if (latest) setStatusConflict({ latest, draft: { record_type: 'issue', status } })
       setError(reason instanceof Error ? reason.message : '状态更新失败')
     } finally { setPendingId('') }
   }
   const finishIssue = async () => {
-    if (!completion || pendingId) return
+    if (!completion || pendingId || completionVoiceBusy || statusConflict) return
     if (!completionResult.trim()) { setCompletionError('请填写实际处理结果，再登记为已完成。'); return }
     setPendingId(completion.id); setCompletionError('')
     try {
-      await updateRecord(completion.id, { record_type: 'issue', status: 'done', actual_result: completionResult.trim() })
+      await updateRecord(completion.id, { record_type: 'issue', status: 'done', actual_result: completionResult.trim(), expected_version: completion.version })
       setCompletion(null); setCompletionResult(''); setReload(value => value + 1)
-    } catch (failure) { setCompletionError(failure instanceof Error ? failure.message : '保存失败，请重试。') }
+    } catch (failure) {
+      const latest = conflictRecord(failure)
+      if (latest) setStatusConflict({ latest, draft: { record_type: 'issue', status: 'done', actual_result: completionResult.trim() } })
+      setCompletionError(failure instanceof Error ? failure.message : '保存失败，请重试。')
+    }
     finally { setPendingId('') }
   }
-  return <section className="view-panel"><div className="issue-page-header"><header><h2>待办与问题</h2></header>
-    <div className="filter-grid issue-filter-bar"><label className="field-stack"><span>空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">全部空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><button className="filter-button" type="button" onClick={() => { setApplied((current) => ({ ...current, space_id: spaceId })); setReload((value) => value + 1) }}>搜索</button></div></div>
+  return <section className="view-panel">    <BusinessEntryForm title="待办与问题" kind="issue" initialTopicId={initialTopicId} onSaved={() => { setApplied({ status: '', severity: '' }); setReload(value => value + 1) }} />
     <div className="filter-grid issue-keyboard-filters"><label className="field-stack"><span>问题状态</span><Select value={applied.status} onChange={event => applyChart('status', event.target.value)}><option value="">全部状态</option>{Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label><label className="field-stack"><span>严重程度</span><Select value={applied.severity} onChange={event => applyChart('severity', event.target.value)}><option value="">全部程度</option>{Object.entries(severityLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label></div>
     <LoadState loading={loading} error={error} empty={data?.total === 0} onRetry={() => setReload(value => value + 1)} />
-    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="问题状态分布" description="" kind="donut" rows={data.analytics.status_distribution} onClick={(key) => applyChart('status', key)} selectedKey={applied.status} /><AnalyticsChart title="问题严重程度" description="" kind="bar" rows={data.analytics.severity_distribution} onClick={(key) => applyChart('severity', key)} selectedKey={applied.severity} itemColors={{ high: chartPalette.risk }} /></div>}
     {applied.status && <button type="button" className="clear-filter" onClick={() => applyChart('status', '')}>状态：{statusLabels[applied.status] || applied.status}，点击取消</button>}
     {applied.severity && <button type="button" className="clear-filter" onClick={() => applyChart('severity', '')}>严重程度：{severityLabels[applied.severity] || applied.severity}，点击取消</button>}
     {(applied.status || applied.severity) && <button type="button" className="clear-filter" onClick={() => setApplied((current) => ({ ...current, status: '', severity: '' }))}>清除全部图表筛选</button>}
-    <div className="issue-board">{data?.columns.filter((column) => !applied.status || column.status === applied.status).map((column) => <section className="issue-column" key={column.status}><h3>{column.label}<span>{column.items.length}</span></h3><div className="issue-column__body">{column.items.length === 0 && <p className="muted">暂无</p>}{column.items.map((record) => <article className="issue-card" key={record.id} data-severity={record.severity}><button type="button" className="title-button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong></button><p>{record.phenomenon}</p>{record.spaces.length > 0 && <small>{record.spaces.map((item) => item.name).join(' · ')}</small>}<label className="field-stack"><span>处理状态</span><Select disabled={Boolean(pendingId)} value={record.status} onChange={(event) => void changeStatus(record, event.target.value)}>{data.columns.map((item) => <option key={item.status} value={item.status}>{item.label}</option>)}</Select></label>{completion?.id === record.id && <form className="issue-completion-form" onSubmit={event => { event.preventDefault(); void finishIssue() }}><label className="field-stack"><span>实际处理结果</span><textarea autoFocus rows={3} value={completionResult} onChange={event => setCompletionResult(event.target.value)} /></label>{completionError && <p role="alert">{completionError}</p>}<div className="record-actions"><button type="submit" disabled={Boolean(pendingId)}>{pendingId ? '保存中…' : '登记完成'}</button><button type="button" disabled={Boolean(pendingId)} onClick={() => { if (!completionResult.trim() || window.confirm('取消会放弃本次未保存的处理结果，确定取消吗？')) { setCompletion(null); setCompletionResult('') } }}>取消</button></div></form>}</article>)}</div></section>)}</div>
+    {statusConflict && <RecordConflict key={statusConflict.latest.version} latest={statusConflict.latest} draft={statusConflict.draft} onCancel={() => setStatusConflict(null)} onResolve={(draft, version) => {
+      const current = {...statusConflict.latest, version}
+      if (draft.status === 'done') { setCompletion(current); setCompletionResult(String(draft.actual_result ?? '')); setCompletionError('') }
+      else { setCompletion(null); setResolvedStatus({record:current, status:String(draft.status)}); setError('') }
+      setStatusConflict(null)
+    }} />}
+    {resolvedStatus && <button type="button" disabled={!!pendingId} onClick={() => { void changeStatus(resolvedStatus.record, resolvedStatus.status); setResolvedStatus(null) }}>保存已选择的状态</button>}
+    <div className="issue-board">{data?.columns.filter((column) => !applied.status || column.status === applied.status).map((column) => <section className="issue-column" key={column.status}><h3>{column.label}<span>{column.items.length}</span></h3><div className="issue-column__body">{column.items.length === 0 && <p className="muted">暂无</p>}{column.items.map((record) => <article className="issue-card" key={record.id} data-severity={record.severity}><button type="button" className="title-button" onClick={() => onOpen(record.id)}><strong>{record.title}</strong></button><p>{record.phenomenon}</p>{record.due_date && <small>截止日期：{formatCalendarDate(record.due_date)}</small>}{record.spaces.length > 0 && <small>{record.spaces.map((item) => item.name).join(' · ')}</small>}<label className="field-stack"><span>处理状态</span><Select disabled={Boolean(pendingId)} value={record.status} onChange={(event) => void changeStatus(record, event.target.value)}>{data.columns.map((item) => <option key={item.status} value={item.status}>{item.label}</option>)}</Select></label>{completion?.id === record.id && <form className="issue-completion-form" onSubmit={event => { event.preventDefault(); void finishIssue() }}><label className="field-stack"><span>实际处理结果</span><VoiceField onBusyChange={setCompletionVoiceBusy}><textarea autoFocus rows={3} value={completionResult} onChange={event => setCompletionResult(event.target.value)} /></VoiceField></label>{completionError && <p role="alert">{completionError}</p>}<div className="record-actions"><button type="submit" disabled={Boolean(pendingId) || completionVoiceBusy || !!statusConflict}>{pendingId ? '保存中…' : '登记完成'}</button><button type="button" disabled={Boolean(pendingId)} onClick={() => { if (!completionResult.trim() || window.confirm('取消会放弃本次未保存的处理结果，确定取消吗？')) { setCompletion(null); setCompletionResult('') } }}>取消</button></div></form>}</article>)}</div></section>)}</div>
+    {data && data.total > 0 && <div className="chart-grid"><AnalyticsChart title="问题状态分布" description="" kind="donut" rows={data.analytics.status_distribution} onClick={(key) => applyChart('status', key)} selectedKey={applied.status} /><AnalyticsChart title="问题严重程度" description="" kind="bar" rows={data.analytics.severity_distribution} onClick={(key) => applyChart('severity', key)} selectedKey={applied.severity} itemColors={{ high: chartPalette.risk }} /></div>}
   </section>
 }
 
@@ -574,7 +594,11 @@ function SpacesView({ onOpen, refreshRevision, onManage }: { onOpen: (id: string
   </section>
 }
 
-function SearchView({ onOpen, refreshRevision, onOpenSource }: { onOpen: (id: string) => void; refreshRevision: number; onOpenSource: (id: string) => void }) {
+function SearchView({ onOpen, refreshRevision, onOpenSource, onOpenTopic, onOpenPitfall, onOpenMatch }: {
+  onOpen: (id: string) => void; refreshRevision: number; onOpenSource: (id: string) => void
+  onOpenTopic: (id: string) => void; onOpenPitfall: (id: string, matchId?: string) => void
+  onOpenMatch: (record: ProjectionRecord, match: {kind:string; id:string}) => void
+}) {
   const [q, setQ] = useState('')
   const [recordType, setRecordType] = useState('')
   const [status, setStatus] = useState('')
@@ -586,42 +610,48 @@ function SearchView({ onOpen, refreshRevision, onOpenSource }: { onOpen: (id: st
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const requestSearch = async (params: Record<string, string>) => {
-    // 手动搜索和编辑后刷新共用序号，只有最新请求能够更新结果和加载状态。
     const revision = ++searchRevision.current
     setLoading(true)
     try {
       const result = await searchRecords(params)
       if (revision !== searchRevision.current) return
-      setData(result)
-      setError('')
-    } catch (reason: unknown) {
-      if (revision === searchRevision.current) setError(reason instanceof Error ? reason.message : '搜索失败')
-    } finally {
-      if (revision === searchRevision.current) setLoading(false)
-    }
+      setData(result); setError('')
+    } catch (reason) { if (revision === searchRevision.current) setError(reason instanceof Error ? reason.message : '搜索失败') }
+    finally { if (revision === searchRevision.current) setLoading(false) }
   }
   const runSearch = () => {
-    const params = { q, record_type: recordType, status, date_from: dateFrom, date_to: dateTo }
-    submittedParams.current = params
-    return requestSearch(params)
+    const params = { q, record_type: recordType, status, date_from: dateFrom, date_to: dateTo, offset:'0', limit:'20' }
+    submittedParams.current = params; return requestSearch(params)
+  }
+  const page = (offset: number) => {
+    if (!submittedParams.current || loading) return
+    const params = {...submittedParams.current, offset:String(offset)}
+    submittedParams.current = params; void requestSearch(params)
   }
   useEffect(() => () => { searchRevision.current += 1 }, [])
-  useEffect(() => {
-    if (!submittedParams.current || refreshRevision === 0) return
-    void requestSearch(submittedParams.current)
-  }, [refreshRevision])
-  const total = useMemo(() => data ? Object.values(data.counts).reduce((sum, count) => sum + count, 0) : null, [data])
+  useEffect(() => { if (submittedParams.current && refreshRevision !== 0) void requestSearch(submittedParams.current) }, [refreshRevision])
+  const total = data ? Object.values(data.counts).reduce((sum, count) => sum + count, 0) : null
+  const offset = data?.offset ?? 0, limit = data?.limit ?? 20
+  const maxCount = data ? Math.max(0, ...Object.values(data.counts)) : 0
   const clear = () => {
     searchRevision.current += 1; submittedParams.current = null
     setQ(''); setRecordType(''); setStatus(''); setDateFrom(''); setDateTo(''); setData(null); setError(''); setLoading(false)
   }
   const statusLabel = (value: string) => recordType ? recordStatusLabel(recordType, value)
-    : Object.entries(recordConfig).filter(([, config]) => (config.statuses as readonly string[]).includes(value)).map(([type, config]) => `${config.label}：${recordStatusLabel(type, value)}`).join(' / ')
+    : Object.entries(recordConfig).filter(([, config]) => (config.statuses as readonly string[]).includes(value)).map(([type, config]) => config.label+'：'+recordStatusLabel(type, value)).join(' / ')
   return <section className="view-panel"><header><h2>搜索</h2></header>
-    <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={(event) => setQ(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void runSearch() }} placeholder="例如：花砖、主卧、门套" /></label><label className="field-stack"><span>记录类型</span><Select value={recordType} onChange={(event) => { setRecordType(event.target.value); setStatus('') }}><option value="">全部类型</option>{Object.entries(recordTypeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label><label className="field-stack"><span>状态</span><Select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">全部状态</option>{statusesForRecordType(recordType).map((value) => <option key={value} value={value}>{statusLabel(value)}</option>)}</Select></label><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label><button className="filter-button" type="button" onClick={() => void runSearch()}>搜索</button><button type="button" className="filter-button" onClick={clear}>清除筛选</button></div>
-    <LoadState loading={loading} error={error} empty={total === 0} onRetry={() => { if (submittedParams.current) void requestSearch(submittedParams.current) }} />
-    {total === 0 && <button type="button" onClick={clear}>清除条件，重新搜索</button>}
-    {data && <><p className="result-count">共找到 {total} 项</p>{data.groups.records.length > 0 && <section className="projection-section"><h3>正式记录 · {data.counts.records}</h3><div className="card-grid">{data.groups.records.map((record) => <RecordButton key={record.id} record={record} onOpen={onOpen} />)}</div></section>}{data.groups.sources.length > 0 && <section className="projection-section"><h3>原始来源 · {data.counts.sources}</h3>{data.groups.sources.map((source) => <article className="source-result" key={source.id}><p>{source.original_text || '仅附件来源'}</p><time>{formatBeijingDateTime(source.captured_at)}</time><button type="button" onClick={() => onOpenSource(source.id)}>打开原始来源</button></article>)}</section>}{(['materials', 'vendors', 'spaces'] as const).map((group) => data.groups[group].length > 0 && <section className="projection-section" key={group}><h3>{{ materials: '材料', vendors: '商家', spaces: '空间' }[group]} · {data.counts[group]}</h3><div className="tag-list">{data.groups[group].map((item) => <span key={item.id}>{item.name}</span>)}</div></section>)}</>}
+    <div className="filter-grid"><label className="field-stack"><span>关键词</span><input value={q} onChange={event => setQ(event.target.value)} onKeyDown={event => { if(event.key==='Enter') void runSearch() }} placeholder="例如：花砖、主卧、门套" /></label><label className="field-stack"><span>记录类型</span><Select value={recordType} onChange={event => {setRecordType(event.target.value);setStatus('')}}><option value="">全部类型</option>{Object.entries(recordTypeLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</Select></label><label className="field-stack"><span>状态</span><Select value={status} onChange={event=>setStatus(event.target.value)}><option value="">全部状态</option>{statusesForRecordType(recordType).map(value=><option key={value} value={value}>{statusLabel(value)}</option>)}</Select></label><label className="field-stack"><span>开始日期</span><input type="date" value={dateFrom} onChange={event=>setDateFrom(event.target.value)} /></label><label className="field-stack"><span>结束日期</span><input type="date" value={dateTo} onChange={event=>setDateTo(event.target.value)} /></label><button type="button" className="filter-button" onClick={()=>void runSearch()}>搜索</button><button type="button" className="filter-button" onClick={clear}>清除筛选</button></div>
+    <p className="muted">类型、状态和日期筛选仅适用于正式记录；主题、踩坑、来源和资料仅按关键词匹配。</p>
+    <LoadState loading={loading} error={error} empty={total===0} onRetry={()=>{if(submittedParams.current)void requestSearch(submittedParams.current)}} />
+    {total===0 && <button type="button" onClick={clear}>清除条件，重新搜索</button>}
+    {data && <><p className="result-count">共找到 {total} 项</p>
+      {data.groups.records.length>0 && <section className="projection-section"><h3>正式记录 · {data.counts.records}</h3><div className="card-grid">{data.groups.records.map(record=><article key={record.id}><RecordButton record={record} onOpen={onOpen} />{record.search_matches?.map(match=><button className="search-match" type="button" key={match.kind+match.id} onClick={()=>onOpenMatch(record,match)}>{match.kind==='research_entry'?'调研过程':'事项进展'}：{match.excerpt}</button>)}</article>)}</div></section>}
+      {!!data.groups.topics?.length && <section className="projection-section"><h3>主题 · {data.counts.topics}</h3>{data.groups.topics.map(topic=><article className="source-result" key={topic.id}><button type="button" onClick={()=>onOpenTopic(topic.id)}>{topic.name}</button><p>{topic.goal || topic.current_situation}</p></article>)}</section>}
+      {!!data.groups.pitfalls?.length && <section className="projection-section"><h3>踩坑 · {data.counts.pitfalls}</h3>{data.groups.pitfalls.map(item=><article className="source-result" key={item.id}><button type="button" onClick={()=>onOpenPitfall(item.id)}>{item.description}</button>{item.search_matches?.map(match=><button className="search-match" type="button" key={match.id} onClick={()=>onOpenPitfall(item.id,match.id)}>处理记录：{match.excerpt}</button>)}</article>)}</section>}
+      {data.groups.sources.length>0 && <section className="projection-section"><h3>原始来源 · {data.counts.sources}</h3>{data.groups.sources.map(source=><article className="source-result" key={source.id}><p>{source.original_text || '仅附件来源'}</p><time>{formatBeijingDateTime(source.captured_at)}</time><button type="button" onClick={()=>onOpenSource(source.id)}>打开原始来源</button></article>)}</section>}
+      {(['materials','vendors','spaces'] as const).map(group=>data.groups[group].length>0 && <section className="projection-section" key={group}><h3>{{materials:'材料',vendors:'商家',spaces:'空间'}[group]} · {data.counts[group]}</h3><div className="tag-list">{data.groups[group].map(item=><span key={item.id}>{item.name}</span>)}</div></section>)}
+      {maxCount>limit && <nav className="search-pagination" aria-label="搜索结果分页"><button type="button" disabled={loading || offset===0} onClick={()=>page(Math.max(0,offset-limit))}>上一页</button><span>第 {Math.floor(offset/limit)+1} / {Math.ceil(maxCount/limit)} 页（各组每页{limit}项）</span><button type="button" disabled={loading || offset+limit>=maxCount} onClick={()=>page(offset+limit)}>下一页</button></nav>}
+    </>}
   </section>
 }
 
@@ -634,6 +664,12 @@ export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces, on
   const [navOpen, setNavOpen] = useState(false)
   const [compactNav, setCompactNav] = useState(() => window.matchMedia?.('(max-width: 900px)').matches ?? false)
   const [researchId, setResearchId] = useState('')
+  const [pitfallId, setPitfallId] = useState('')
+  const [searchMatchId, setSearchMatchId] = useState('')
+  const [creationTopicId, setCreationTopicId] = useState('')
+  const [topicsVisited, setTopicsVisited] = useState(false)
+  const [selectedTopicId, setSelectedTopicId] = useState('')
+  const [returnToTopics, setReturnToTopics] = useState(false)
   const sidebar = useRef<HTMLElement>(null)
   const menuButton = useRef<HTMLButtonElement>(null)
   useModalFocus(sidebar, compactNav && navOpen, () => setNavOpen(false))
@@ -667,7 +703,7 @@ export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces, on
     if (detailCloseTimer.current) clearTimeout(detailCloseTimer.current)
     detailCloseTimer.current = null
     setDetailClosing(false)
-    setDetailId(recordId)
+    setSearchMatchId(''); setDetailId(recordId)
   }
   useEffect(() => () => {
     if (detailCloseTimer.current) clearTimeout(detailCloseTimer.current)
@@ -675,12 +711,21 @@ export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces, on
   const selectView = (next: ViewName) => {
     if ((next !== view || detailId) && !confirmNavigation()) return false
     setView(next); finishDetailClose(); setNavOpen(false)
+    setCreationTopicId(''); setPitfallId(''); setResearchId(''); setSearchMatchId('')
+    setReturnToTopics(false)
+    if (next === 'topics') setTopicsVisited(true)
+    setViewRevision(value => value + 1)
     if (compactNav) requestAnimationFrame(() => menuButton.current?.focus())
     return true
   }
   const openSource = (id: string) => { if (selectView('capture')) onOpenSource?.(id) }
   const manageSpaces = () => { if (selectView('capture')) onManageSpaces?.() }
-  const openResearch = (id: string) => { if (selectView('research')) setResearchId(id) }
+  const openResearch = (id: string, matchId = '') => { if (selectView('research')) { setResearchId(id); setSearchMatchId(matchId); setReturnToTopics(view === 'topics') } }
+  const openPitfall = (id: string, matchId = '') => { if (selectView('pitfalls')) { setPitfallId(id); setSearchMatchId(matchId); setReturnToTopics(view === 'topics') } }
+  const createInTopic = (kind: 'ledger' | 'issue' | 'research' | 'pitfall', topicId: string) => {
+    const next = kind === 'issue' ? 'issues' : kind === 'pitfall' ? 'pitfalls' : kind
+    if (selectView(next)) { setCreationTopicId(topicId); setReturnToTopics(true) }
+  }
   return <div className="workspace-shell">
     <aside ref={sidebar} inert={compactNav && !navOpen} aria-hidden={compactNav && !navOpen ? true : undefined} role={compactNav && navOpen ? 'dialog' : undefined} aria-modal={compactNav && navOpen ? true : undefined} aria-label={compactNav && navOpen ? '核心功能导航' : undefined} tabIndex={-1} className={`workspace-sidebar${navOpen ? ' is-open' : ''}`}>
       <div className="workspace-brand"><span className="workspace-brand__mark">H</span><div><strong>HomeBuild Log</strong><small>装修事实工作台</small></div></div>
@@ -691,9 +736,9 @@ export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces, on
     <div className="workspace-main">
       <WorkspaceAtmosphere />
       <header className="workspace-topbar immersive-glass"><button ref={menuButton} type="button" className="menu-button" aria-label="打开导航" aria-expanded={navOpen} onClick={() => setNavOpen((value) => !value)}>☰</button><div><small>HomeBuild Log</small><strong>{currentLabel}</strong></div><span>已登录</span></header>
-      <main className="workspace-content">{view === 'overview' && <OverviewView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ledger' && <LedgerView onOpen={openDetail} detailOpen={Boolean(detailId)} refreshRevision={viewRevision} />}{view === 'issues' && <IssuesView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'pitfalls' && <PitfallsView />}{view === 'research' && <ResearchView initialTopicId={researchId} />}{view === 'spaces' && <SpacesView onOpen={openDetail} refreshRevision={viewRevision} onManage={manageSpaces} />}{view === 'records' && <RecordsAnalyticsView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={openDetail} refreshRevision={viewRevision} onOpenSource={openSource} />}</main>
+      <main className="workspace-content">{returnToTopics && view !== 'topics' && <button type="button" className="topics-return" onClick={() => selectView('topics')}>返回主题</button>}{topicsVisited && <div hidden={view !== 'topics'}>{/* 保留主题选择，跨业务页面返回时继续查看同一事项。 */}<TopicsView initialTopicId={selectedTopicId} active={view === 'topics'} revision={viewRevision} onOpenRecord={openDetail} onOpenResearch={openResearch} onOpenPitfall={openPitfall} onCreate={createInTopic} /></div>}{view === 'overview' && <><section className="business-home" aria-label="日常记录入口"><h2>今天要处理什么？</h2><div>{([{ key: 'ledger', title: '记账与查看流水', hint: '付款、退款、收入' }, { key: 'issues', title: '记录待办与问题', hint: '记下事项，跟进处理' }, { key: 'research', title: '打开调研笔记', hint: '新建事项，继续调研' }, { key: 'pitfalls', title: '记录踩坑与处理', hint: '留下经历，追加处理过程' }] as const).map(item => <button type="button" key={item.key} onClick={() => selectView(item.key)}><NavIcon view={item.key} /><span><strong>{item.title}</strong><small>{item.hint}</small></span></button>)}</div></section><OverviewView onOpen={openDetail} refreshRevision={viewRevision} /></>}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ledger' && <LedgerView onOpen={openDetail} detailOpen={Boolean(detailId)} refreshRevision={viewRevision} initialTopicId={creationTopicId} />}{view === 'issues' && <IssuesView onOpen={openDetail} refreshRevision={viewRevision} initialTopicId={creationTopicId} />}{view === 'pitfalls' && <PitfallsView initialMatchId={searchMatchId} initialPitfallId={pitfallId} initialTopicId={creationTopicId} />}{view === 'research' && <ResearchView initialMatchId={searchMatchId} initialResearchId={researchId} initialTopicId={creationTopicId} />}{view === 'spaces' && <SpacesView onOpen={openDetail} refreshRevision={viewRevision} onManage={manageSpaces} />}{view === 'records' && <RecordsAnalyticsView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={openDetail} refreshRevision={viewRevision} onOpenSource={openSource} onOpenTopic={id => {if(selectView('topics')) setSelectedTopicId(id)}} onOpenPitfall={openPitfall} onOpenMatch={(record,match)=>{if(match.kind==='research_entry') openResearch(record.id,match.id);else {openDetail(record.id);setSearchMatchId(match.id)}}} />}</main>
     </div>
     {/* 切换记录时重新建立详情状态，避免沿用上一条记录的编辑草稿。 */}
-    {detailId && <RecordDetail key={detailId} recordId={detailId} closing={detailClosing} onClose={closeDetail} onExitComplete={finishDetailClose} onChanged={() => setViewRevision((value) => value + 1)} onOpen={openDetail} onOpenSource={openSource} onOpenResearch={openResearch} />}
+    {detailId && <RecordDetail key={detailId} recordId={detailId} initialMatchId={searchMatchId} closing={detailClosing} onClose={closeDetail} onExitComplete={finishDetailClose} onChanged={() => setViewRevision((value) => value + 1)} onOpen={openDetail} onOpenSource={openSource} onOpenResearch={openResearch} />}
   </div>
 }

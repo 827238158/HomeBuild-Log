@@ -1,7 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+vi.mock('./TopicSelect', () => ({ TopicSelect: ({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) => <div><output data-testid="topics">{value.join(',')}</output><button type="button" onClick={() => onChange([])}>清空主题归属</button></div> }))
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as api from './domainApi'
+import { confirmNavigation } from './navigationGuard'
 import { PitfallsView } from './PitfallsView'
 
 vi.mock('./domainApi', () => ({
@@ -65,7 +67,7 @@ describe('PitfallsView', () => {
 
     await waitFor(() => expect(api.createPitfall).toHaveBeenCalledWith({
       occurred_date: '2026-08-18',
-      description: '门洞尺寸预留不足',
+      description: '门洞尺寸预留不足', topic_ids: [],
     }))
   })
 
@@ -122,6 +124,20 @@ describe('PitfallsView', () => {
     expect(screen.getByText('AI 尚未启用或未配置可用密钥。')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     await waitFor(() => expect(api.analyzePitfalls).toHaveBeenCalledTimes(2))
+  })
+
+  it('追加处理后丢弃此前分析的迟到结果并提示重新分析', async () => {
+    let resolve!: (value: api.PitfallAIAnalysis) => void
+    vi.mocked(api.analyzePitfalls).mockReturnValue(new Promise(yes => { resolve = yes }))
+    render(<PitfallsView />)
+    await screen.findByText('墙面返碱')
+    fireEvent.click(screen.getByRole('button', { name: '一键分析全部' }))
+    fireEvent.click(screen.getByRole('button', { name: '+ 追加处理' }))
+    fireEvent.change(screen.getByLabelText('处理内容'), { target: { value: '新的处理内容' } })
+    fireEvent.click(screen.getByRole('button', { name: '追加处理记录' }))
+    await screen.findByText('数据已变化，请重新分析。')
+    await act(async () => resolve({ summary: '已经过期的结果', generated_at: '2026-10-14T00:00:00Z', provider: 'test', model: 'test', recurring_patterns: [], approaches: [], unresolved_items: [], prevention_advice: [] }))
+    expect(screen.queryByText('已经过期的结果')).toBeNull()
   })
   it('新建草稿跨页面卸载保留日期，保存成功后清除', async () => {
     vi.mocked(api.createPitfall).mockResolvedValue(pitfall)
@@ -180,4 +196,21 @@ describe('PitfallsView', () => {
     expect((screen.getByLabelText('踩坑经过') as HTMLTextAreaElement).value).toBe('')
   })
 
+})
+
+it('踩坑归属草稿在返回页面后恢复，深链接明确定位目标', async () => {
+  sessionStorage.clear()
+  vi.mocked(api.listPitfalls).mockResolvedValue({items:[{...pitfall,topic_ids:['theme']}],summary:{total:1,unresolved:1,resolved:0}})
+  const mounted=render(<PitfallsView initialPitfallId="pitfall-1" />)
+  await screen.findByRole('button',{name:'保存修改'})
+  fireEvent.click(screen.getAllByRole('button',{name:'清空主题归属'})[1])
+  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false)
+  expect(confirmNavigation()).toBe(false)
+  mounted.unmount()
+  render(<PitfallsView initialPitfallId="pitfall-1" />)
+  await screen.findByRole('button',{name:'保存修改'})
+  expect(screen.getAllByTestId('topics')[1].textContent).toBe('')
+  expect(sessionStorage.getItem('pitfall:pitfall-1:topics')).toBe('[]')
+  await waitFor(()=>expect(document.activeElement?.id).toBe('pitfall-pitfall-1'))
+  confirm.mockRestore()
 })

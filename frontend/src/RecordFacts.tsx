@@ -33,7 +33,7 @@ export function RecordFacts({ record }: { record: ProjectionRecord }) {
   } else if (record.record_type === 'event') {
     rows.push(['事件类别', eventKindLabel(text(record.event_kind))], ['事件结果', text(record.result)])
   } else if (record.record_type === 'issue') {
-    rows.push(['问题现象', text(record.phenomenon)], ['处理计划', text(record.handling_plan)], ['约定日期', text(record.promised_date, '未约定')])
+    rows.push(['问题现象', text(record.phenomenon)], ['处理计划', text(record.handling_plan)], ['截止日期', text(record.due_date, '未设置')])
   } else if (record.record_type === 'research') {
     rows.push(['调研问题', text(record.question)])
   }

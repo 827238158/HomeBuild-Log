@@ -37,6 +37,7 @@ from app.domain_models import (
 )
 from app.local_suggestions import resolve_date_text, suggest_from_text, unique_resolved_date
 from app.models import SourceEntry
+from app.record_version import bump_record_version
 
 from .domain import (
     RECORD_CREATE_ADAPTER,
@@ -53,6 +54,7 @@ User = Annotated[CurrentUser, Depends(require_user)]
 class CandidateSelection(BaseModel):
     key: str
     payload: dict[str, Any] | None = None
+    evidence: str | None = None
 
 
 class CandidateRelationSelection(BaseModel):
@@ -79,8 +81,27 @@ def _now() -> datetime:
     return datetime.now(tz=UTC)
 
 
-def _bundle_json(bundle: CandidateBundle) -> dict[str, Any]:
+def _normalize_evidence(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def _valid_evidence(evidence: str, original_text: str) -> bool:
+    excerpt = _normalize_evidence(evidence)
+    return bool(excerpt) and excerpt in _normalize_evidence(original_text)
+
+
+def _bundle_json(bundle: CandidateBundle, db: Session) -> dict[str, Any]:
     content = copy.deepcopy(bundle.bundle_json)
+    source = db.get(SourceEntry, bundle.source_id)
+    original_text = source.original_text if source else ""
+    # 历史未确认候选读取时复验，不改写已经保存的正式记录。
+    for candidate in content.get("suggestions", []):
+        if candidate.get("confirmed_record_id"):
+            continue
+        valid = _valid_evidence(candidate.get("evidence", ""), original_text)
+        candidate["evidence_validation"] = "valid" if valid else "invalid"
+        if not valid:
+            candidate["selected_by_default"] = False
     # 兼容历史候选包：旧版 questions 追问协议已停用，不再对外返回。
     content.pop("questions", None)
     return {
@@ -93,6 +114,7 @@ def _bundle_json(bundle: CandidateBundle) -> dict[str, Any]:
         "version": bundle.version,
         "created_at": bundle.created_at,
         "updated_at": bundle.updated_at,
+        "source_text": original_text,
         **content,
     }
 
@@ -228,6 +250,8 @@ def _ai_bundle_content(
             continue
         ref_to_key[candidate.ref] = key
         payload = copy.deepcopy(candidate.payload)
+        # 本阶段主题只能人工选择，不能接受模型自行指定数据库归属。
+        payload.pop("topic_ids", None)
         # 候选协议只允许 YYYY-MM-DD，不再持久化旧的精度或分钟时间。
         payload.pop("occurred_at", None)
         payload.pop("time_precision", None)
@@ -517,7 +541,7 @@ def create_extraction(
             or {"suggestions": [], "relations": [], "warnings": []},
             fallback_reason="；".join(failures) if failures else None,
         )
-        result = _bundle_json(bundle)
+        result = _bundle_json(bundle, db)
         db.commit()
         return result
     except IntegrityError as exc:
@@ -534,7 +558,7 @@ def get_candidate_bundle(bundle_id: str, request: Request, user: User) -> dict[s
         bundle = db.get(CandidateBundle, bundle_id)
         if bundle is None:
             raise HTTPException(status_code=404, detail="候选包不存在。")
-        return _bundle_json(bundle)
+        return _bundle_json(bundle, db)
     finally:
         db.close()
 
@@ -559,7 +583,7 @@ def get_latest_candidate_bundle(
             .order_by(CandidateBundle.created_at.desc())
             .limit(1)
         ).scalar_one_or_none()
-        return _bundle_json(bundle) if bundle else None
+        return _bundle_json(bundle, db) if bundle else None
     finally:
         db.close()
 
@@ -614,7 +638,7 @@ def defer_candidate(
             bundle.id,
             after={"candidate_key": candidate_key, "version": bundle.version},
         )
-        result = _bundle_json(bundle)
+        result = _bundle_json(bundle, db)
         db.commit()
         return result
     finally:
@@ -723,6 +747,16 @@ def _prepare_bundle_selections(
         candidate = suggestion_map[selection.key]
         if candidate.get("review_state") == "deferred":
             raise HTTPException(status_code=409, detail="候选已移除，请重新加载后确认。")
+        evidence = selection.evidence if selection.evidence is not None else candidate["evidence"]
+        if not candidate.get("confirmed_record_id"):
+            if not _valid_evidence(evidence, source.original_text):
+                raise HTTPException(
+                    status_code=422,
+                    detail="候选原文依据不是来源中的连续片段，请对照原文修正后确认。",
+                )
+            # 只修正摘录，不重新生成候选 key，保证重复确认仍然幂等。
+            candidate["evidence"] = _normalize_evidence(evidence)
+            candidate["evidence_validation"] = "valid"
         payload = copy.deepcopy(selection.payload or candidate["payload"])
         # 前端允许用户纠正 AI 候选类型；旧客户端未传类型时才回退到 AI 原类型。
         payload["record_type"] = payload.get("record_type") or candidate["record_type"]
@@ -806,6 +840,9 @@ def _apply_confirmations(
                 )
             ).scalar_one_or_none()
             if relation is None:
+                # 分批确认也会修改先前记录的关联，旧编辑草稿必须识别这一变化。
+                bump_record_version(db, from_record)
+                bump_record_version(db, to_record)
                 relation = RecordRelation(
                     project_id=DEFAULT_PROJECT_ID,
                     from_record_id=from_id,
@@ -915,7 +952,7 @@ def confirm_candidate_bundle(
                 })
             bundle.bundle_json["relations"] = normalized_relations
         result = _apply_confirmations(db, [(bundle, body.selections)])
-        result["bundle"] = _bundle_json(bundle)
+        result["bundle"] = _bundle_json(bundle, db)
         db.commit()
         return result
     except IntegrityError as exc:

@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { Select } from './Select'
+import { VoiceField } from './VoiceField'
+import { TopicSelect } from './TopicSelect'
+import { RecordAssociations, AssociationMultiSelect } from './RecordAssociations'
 import { ThinkingLattice } from './MotionPrimitives'
 import { useDropdownPosition } from './useDropdownPosition'
 import { useDropdown } from './useDropdown'
@@ -35,7 +38,7 @@ import { recordStatusLabel } from './recordLabels'
 import { completedStatusForLedgerKind, recordConfig, statusesForRecord, type RecordType } from './recordConfig'
 import { measurementRoleLabels, normalizeMeasurementRole } from './recordFields'
 import { MeasurementFields } from './MeasurementFields'
-import { formatBeijingDate, formatBeijingDateTime } from './time'
+import { formatBeijingDateTime } from './time'
 
 interface Props {
   sources: SourceEntry[]
@@ -136,6 +139,12 @@ function normalizeOptions(value: unknown): string[] {
   return []
 }
 
+function validEvidence(evidence: string, source: string): boolean {
+  const normalize = (value: string) => value.replace(/\r\n?/g, '\n').trim()
+  const excerpt = normalize(evidence)
+  return Boolean(excerpt) && normalize(source).includes(excerpt)
+}
+
 export function payloadForSave(recordType: string, payload: Record<string, unknown>) {
   const next = { ...payload }
   delete next.related_candidate_keys
@@ -173,38 +182,6 @@ function OptionsTextInput({
     setDraft(event.target.value)
     onCommit(normalizeOptions(event.target.value))
   }} /></label>
-}
-
-function MultiSelectField({
-  label, selectedIds, options, onChange,
-}: {
-  label: string
-  selectedIds: string[]
-  options: Array<{ id: string; name: string; trailingText?: string }>
-  onChange: (ids: string[]) => void
-}) {
-  const rootRef = useRef<HTMLFieldSetElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const { id: controlId, open, toggleMenu } = useDropdown({ rootRef, triggerRef, menuRef })
-  const menuStyle = useDropdownPosition(triggerRef, open)
-  const selected = options.filter((item) => selectedIds.includes(item.id))
-  const toggle = (id: string) => onChange(selectedIds.includes(id)
-    ? selectedIds.filter((item) => item !== id)
-    : [...selectedIds, id])
-  const summary = selected.length === 0
-    ? '请选择（可多选）'
-    : selected.length <= 2 ? selected.map((item) => item.name).join('、') : `已选择 ${selected.length} 项`
-  return <fieldset ref={rootRef} className="multi-select-field"><legend>{label}</legend><div className="multi-select-control"><button ref={triggerRef} className="multi-select-summary" type="button" id={controlId} aria-label={`${label}：${summary}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? `${controlId}-options` : undefined} onPointerDown={event => event.preventDefault()} onClick={toggleMenu}><span>{summary}</span><DropdownChevron open={open} /></button>{open && createPortal(<div id={`${controlId}-options`} ref={menuRef} className="multi-select-options dropdown-portal" style={menuStyle} role="listbox" aria-label={label} aria-multiselectable="true">{options.length > 0 ? options.map((item) => <label key={item.id} role="option" aria-selected={selectedIds.includes(item.id)}><input aria-label={item.name} type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggle(item.id)} /><span className="multi-select-option__name">{item.name}</span>{item.trailingText && <span className="multi-select-option__meta">{item.trailingText}</span>}</label>) : <span>暂无可选项</span>}</div>, document.body)}</div></fieldset>
-}
-
-function recordSelectOption(record: DomainRecord) {
-  const typeLabel = recordConfig[record.record_type as RecordType]?.label || '记录'
-  return {
-    id: record.id,
-    name: `${typeLabel} · ${record.title}`,
-    trailingText: formatBeijingDate(record.created_at),
-  }
 }
 
 function SourcePicker({
@@ -340,6 +317,7 @@ export function defaultPayload(recordType: RecordType, base: Record<string, unkn
     material_ids: base.material_ids ?? [],
     participant_ids: base.participant_ids ?? [],
     related_record_ids: base.related_record_ids ?? [],
+    topic_ids: base.topic_ids ?? [],
     stage_id: base.stage_id ?? null,
   }
   if (recordType === 'event') {
@@ -360,6 +338,7 @@ export function defaultPayload(recordType: RecordType, base: Record<string, unkn
       ...common,
       phenomenon: base.phenomenon ?? '',
       handling_plan: base.handling_plan ?? null,
+      due_date: base.due_date ?? null,
       severity: base.severity ?? '',
       completed_at: base.completed_at ?? null,
       actual_result: base.actual_result ?? null,
@@ -401,14 +380,17 @@ function toDateInput(value: unknown): string {
 }
 
 export function RecordEditFields({
-  recordType, payload, spaces, entities, records = [], currentRecordId, onChange,
+  recordType, payload, spaces, entities, records = [], currentRecordId, onChange, error, active = true, onVoiceBusyChange,
 }: {
   recordType: RecordType
+  active?: boolean
+  onVoiceBusyChange?: (busy: boolean) => void
   payload: Record<string, unknown>
   spaces: SpaceEntry[]
   entities: Record<EntityType, NamedEntity[]>
   records?: DomainRecord[]
   currentRecordId?: string
+  error?: string
   onChange: (field: string, value: unknown) => void
 }) {
   const ledgerKind = String(payload.ledger_kind ?? 'payment')
@@ -452,25 +434,24 @@ export function RecordEditFields({
       onChange('status', completedStatusForLedgerKind(kind))
       onChange('direction', kind === 'refund' ? 'refund' : kind === 'income' ? 'income' : 'expense')
     }}><option value="payment">付款</option><option value="refund">退款</option><option value="income">收入</option></Select></label>}
-    <label className="field-stack"><span>{cfg.detailALabel}</span><input value={detailA} placeholder={cfg.detailAPlaceholder} onChange={(event) => setDetailA(event.target.value)} /></label>
+    <label className="field-stack"><span>{cfg.detailALabel}</span>{recordType === 'issue' ? <VoiceField active={active} onBusyChange={onVoiceBusyChange}><textarea rows={3} maxLength={10000} value={detailA} placeholder={cfg.detailAPlaceholder} onChange={event => setDetailA(event.target.value)} /></VoiceField> : <input value={detailA} placeholder={cfg.detailAPlaceholder} onChange={(event) => setDetailA(event.target.value)} />}</label>
     {recordType === 'measurement'
       ? <MeasurementFields payload={payload} onChange={onChange} />
       : recordType === 'decision' || recordType === 'research'
       ? <OptionsTextInput label={cfg.detailBLabel} placeholder={cfg.detailBPlaceholder} value={payload.options} onCommit={(options) => onChange('options', options)} />
+      : recordType === 'issue' || recordType === 'event' ? <label className="field-stack"><span>{cfg.detailBLabel}</span><VoiceField active={active} onBusyChange={onVoiceBusyChange}><textarea rows={3} maxLength={10000} value={detailB} placeholder={cfg.detailBPlaceholder} onChange={event => setDetailB(event.target.value)} /></VoiceField></label>
       : <label className="field-stack"><span>{cfg.detailBLabel}</span><input type={cfg.detailBType || 'text'} min={cfg.detailBType === 'number' ? '0' : undefined} step="any" value={detailB} placeholder={cfg.detailBPlaceholder} onChange={(event) => setDetailB(event.target.value)} /></label>}
     {recordType !== 'measurement' && cfg.detailCLabel && <label className="field-stack"><span>{cfg.detailCLabel}</span><input type={cfg.detailCType || 'text'} min={cfg.detailCType === 'number' ? '0' : undefined} step="any" value={detailC} placeholder={cfg.detailCPlaceholder} onChange={(event) => setDetailC(event.target.value)} /></label>}
-    <MultiSelectField label="空间" selectedIds={Array.isArray(payload.space_ids) ? payload.space_ids.map(String) : []} options={spaces} onChange={(ids) => onChange('space_ids', ids)} />
-    <MultiSelectField label="材料" selectedIds={Array.isArray(payload.material_ids) ? payload.material_ids.map(String) : []} options={entities.materials} onChange={(ids) => onChange('material_ids', ids)} />
-    <MultiSelectField label={recordType === 'issue' ? '处理人' : '参与者'} selectedIds={Array.isArray(payload.participant_ids) ? payload.participant_ids.map(String) : []} options={entities.participants} onChange={(ids) => onChange('participant_ids', ids)} />
-    <MultiSelectField label="关联记录（可选）" selectedIds={Array.isArray(payload.related_record_ids) ? payload.related_record_ids.map(String) : []} options={records.filter((item) => item.id !== currentRecordId).map(recordSelectOption)} onChange={(ids) => onChange('related_record_ids', ids)} />
-    <label className="field-stack"><span>装修阶段</span><Select value={String(payload.stage_id ?? '')} onChange={(event) => onChange('stage_id', event.target.value || null)}><option value="">未指定</option>{entities.stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>
     {cfg.showVendor && <label className="field-stack"><span>{recordType === 'ledger' ? '交易对象（商家）' : '商家'}</span><Select required={recordType === 'ledger'} value={String(payload.vendor_id ?? '')} onChange={(event) => onChange('vendor_id', event.target.value || null)}><option value="">请选择</option>{entities.vendors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}
     <label className="field-stack"><span>发生日期</span><input type="date" value={String(payload.occurred_date ?? '')} onChange={(event) => onChange('occurred_date', event.target.value || null)} /></label>
-    <label className="field-stack record-form-grid__wide"><span>补充说明</span><textarea rows={3} value={String(payload.description ?? '')} onChange={(event) => onChange('description', event.target.value || null)} /></label>
+    <label className="field-stack record-form-grid__wide"><span>补充说明</span><VoiceField active={active} onBusyChange={onVoiceBusyChange}><textarea rows={3} maxLength={10000} value={String(payload.description ?? '')} onChange={(event) => onChange('description', event.target.value || null)} /></VoiceField></label>
     {recordType === 'issue' && <>
+      <label className="field-stack"><span>截止日期（可选）</span><input type="date" value={toDateInput(payload.due_date)} onChange={(event) => onChange('due_date', event.target.value || null)} /></label>
       <label className="field-stack"><span>严重程度</span><Select required value={String(payload.severity ?? '')} onChange={(event) => onChange('severity', event.target.value || null)}><option value="">请选择</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></Select></label>
-      {status === 'done' && <><label className="field-stack"><span>实际完成日期</span><input type="date" value={toDateInput(payload.completed_at)} onChange={(event) => onChange('completed_at', event.target.value || null)} /></label><label className="field-stack record-form-grid__wide"><span>实际处理结果</span><textarea required rows={2} value={String(payload.actual_result ?? '')} onChange={(event) => onChange('actual_result', event.target.value || null)} /></label></>}
+      {status === 'done' && <><label className="field-stack"><span>实际完成日期</span><input type="date" value={toDateInput(payload.completed_at)} onChange={(event) => onChange('completed_at', event.target.value || null)} /></label><label className="field-stack record-form-grid__wide"><span>实际处理结果</span><VoiceField active={active} onBusyChange={onVoiceBusyChange}><textarea required rows={2} maxLength={10000} value={String(payload.actual_result ?? '')} onChange={(event) => onChange('actual_result', event.target.value || null)} /></VoiceField></label></>}
     </>}
+    <div className="record-form-grid__wide"><TopicSelect value={Array.isArray(payload.topic_ids) ? payload.topic_ids.map(String) : []} onChange={ids => onChange('topic_ids', ids)} /></div>
+    <RecordAssociations payload={payload} onChange={onChange} entities={{ ...entities, spaces }} records={records} currentRecordId={currentRecordId} participantLabel={recordType === 'issue' ? '处理人' : '参与者'} error={error} />
   </div>
 }
 
@@ -486,6 +467,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
     return () => cancelAnimationFrame(frame)
   }, [manageRequestKey])
   const [sourceId, setSourceId] = useState('')
+  const [voiceBusy, setVoiceBusy] = useState(false)
   const currentSourceId = useRef(sourceId)
   useLayoutEffect(() => { currentSourceId.current = sourceId }, [sourceId])
   const [allRecords, setAllRecords] = useState<DomainRecord[]>([])
@@ -500,6 +482,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
   const [spaceKind, setSpaceKind] = useState('room')
   const [spaceParent, setSpaceParent] = useState('')
   const [message, setMessage] = useState('')
+  const [referenceError, setReferenceError] = useState('')
   const [bundle, setBundle] = useState<CandidateBundle | null>(null)
   const [suggestions, setSuggestions] = useState<CandidateSuggestion[]>([])
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
@@ -566,12 +549,12 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
       })).map((item) => {
         const draft = currentByKey.get(item.key)
         return preserveDrafts && draft && !item.confirmed_record_id
-          ? { ...item, record_type: draft.record_type, type_label: draft.type_label, payload: draft.payload }
+          ? { ...item, record_type: draft.record_type, type_label: draft.type_label, payload: draft.payload, evidence: draft.evidence, evidence_validation: draft.evidence_validation }
           : item
       })
       const nextSuggestions = [...serverSuggestions, ...manualSuggestions]
       setSelectedKeys((currentKeys) => new Set(nextSuggestions
-        .filter((item) => !item.confirmed_record_id && (!preserveDrafts || currentKeys.has(item.key)))
+        .filter((item) => !item.confirmed_record_id && item.evidence_validation !== 'invalid' && (!preserveDrafts || currentKeys.has(item.key)))
         .map((item) => item.key)))
       return nextSuggestions
     })
@@ -598,6 +581,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
   }
 
   const refreshReferences = async () => {
+    setReferenceError('')
     const [spaceRows, materialRows, vendorRows, participantRows, stageRows] = await Promise.all([
       listSpaces(), listEntities('materials'), listEntities('vendors'),
       listEntities('participants'), listEntities('stages'),
@@ -640,7 +624,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
         return Promise.all([refreshRecords(selected), loadSuggestions(selected)]).then(() => undefined)
       })
       .catch((error: unknown) => {
-        if (active) setMessage(error instanceof Error ? error.message : '加载失败')
+        if (active) { setMessage(error instanceof Error ? error.message : '加载失败'); setReferenceError('信息与关联选项加载失败，请重试。') }
       })
     return () => { active = false }
   }, [refreshKey, sources])
@@ -801,13 +785,17 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
   }
 
   const confirmSelected = async () => {
-    if (confirmationInFlight.current) return
+    if (confirmationInFlight.current || voiceBusy) return
     const selected = suggestions.filter((item) => selectedKeys.has(item.key) && !item.confirmed_record_id)
     if (!selected.length) {
       setMessage('请先勾选至少一条尚未确认的建议。')
       return
     }
     const aiSelections = selected.filter((item) => !item.key.startsWith('manual:'))
+    if (aiSelections.some(item => !validEvidence(item.evidence, bundle?.source_text ?? selectedSource?.original_text ?? ''))) {
+      setMessage('候选原文依据不是来源中的连续片段，请对照原文修正后确认。')
+      return
+    }
     const manualSelections = selected.filter((item) => item.key.startsWith('manual:'))
     const ignoredAiKeys = suggestions
       .filter((item) => !item.key.startsWith('manual:') && !item.confirmed_record_id && !selectedKeys.has(item.key))
@@ -841,7 +829,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
         const result = await confirmCandidateBundle(
           bundle!.id,
           bundle!.version,
-          aiSelections.map((item) => ({ key: item.key, payload: payloadForSave(item.record_type, item.payload) })),
+          aiSelections.map((item) => ({ key: item.key, evidence: item.evidence, payload: payloadForSave(item.record_type, item.payload) })),
           ignoredAiKeys,
           [...relationPairs.values()],
         )
@@ -895,7 +883,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
 
   const saveSourceEdit = async () => {
     // 草稿始终属于开始编辑时的来源，切换对象后不能借用旧草稿提交。
-    if (editingSourceId !== selectedSource?.id) return
+    if (voiceBusy || editingSourceId !== selectedSource?.id) return
     if (!selectedSource || !sourceDraft.trim()) {
       setMessage('原始文字不能为空。')
       return
@@ -1052,10 +1040,10 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
           <SourceActionsMenu key={selectedSource.id} busy={sourceBusy} onEdit={beginSourceEdit} onDelete={() => void deleteSelectedSource()} />
         </div>
         {editingSourceId === sourceId && <div className="source-edit-form">
-          <label className="field-stack"><span>原始文字</span><textarea rows={3} value={sourceDraft} onChange={(event) => setSourceDraft(event.target.value)} /></label>
+          <label className="field-stack"><span>原始文字</span><VoiceField onBusyChange={setVoiceBusy}><textarea rows={3} maxLength={10000} value={sourceDraft} onChange={(event) => setSourceDraft(event.target.value)} /></VoiceField></label>
           <label className="field-stack"><span>原始时间描述（可选）</span><input value={sourceTimeDraft} onChange={(event) => setSourceTimeDraft(event.target.value)} placeholder="例如：2026年6月28日下午" /></label>
           <p className="risk-notice">修改会保留审计历史、使旧候选失效，并要求复核已生成的正式记录。</p>
-          <div className="record-actions"><button type="button" disabled={sourceBusy} onClick={() => void saveSourceEdit()}>{sourceBusy ? '保存中…' : '保存修改'}</button><button type="button" onClick={() => setEditingSourceId('')}>取消</button></div>
+          <div className="record-actions"><button type="button" disabled={sourceBusy || voiceBusy} onClick={() => void saveSourceEdit()}>{sourceBusy ? '保存中…' : '保存修改'}</button><button type="button" onClick={() => setEditingSourceId('')}>取消</button></div>
         </div>}
       </section>}
 
@@ -1125,12 +1113,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
           const title = String(payload.title ?? '')
           const status = String(payload.status ?? recordConfig[recordType].statuses[0])
           const occurredDate = String(payload.occurred_date ?? '')
-          const spaceIds = Array.isArray(payload.space_ids) ? payload.space_ids : []
-          const materialIds = Array.isArray(payload.material_ids) ? payload.material_ids : []
-          const participantIds = Array.isArray(payload.participant_ids) ? payload.participant_ids : []
-          const relatedRecordIds = Array.isArray(payload.related_record_ids) ? payload.related_record_ids : []
           const relatedCandidateKeys = Array.isArray(payload.related_candidate_keys) ? payload.related_candidate_keys : []
-          const stageId = String(payload.stage_id ?? '')
           const vendorId = String(payload.vendor_id ?? '')
           const detailA = recordType === 'event' ? String(payload.event_kind ?? '')
             : recordType === 'ledger' ? String(payload.payment_kind ?? '')
@@ -1166,6 +1149,16 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
               {!confirmed && <button className="suggestion-remove" type="button" onClick={() => void removeSuggestion(suggestion.key)}>移除</button>}
             </div>
             <p>原文依据：{suggestion.evidence}</p>
+            {!confirmed && !suggestion.key.startsWith('manual:') && <>
+              <details><summary>对照完整来源原文</summary><p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{bundle?.source_text ?? selectedSource?.original_text ?? ''}</p></details>
+              <label className="field-stack"><span>修正原文依据（须为连续片段）</span><textarea rows={3} value={suggestion.evidence} onChange={event => {
+                const evidence = event.target.value
+                setSuggestions(current => current.map(item => item.key === suggestion.key ? { ...item, evidence, evidence_validation: validEvidence(evidence, bundle?.source_text ?? selectedSource?.original_text ?? '') ? 'valid' : 'invalid' } : item))
+                setHasUnsavedCandidateEdits(true)
+                setConfirmationState('idle')
+              }} /></label>
+              {!validEvidence(suggestion.evidence, bundle?.source_text ?? selectedSource?.original_text ?? '') && <p className="risk-notice" role="alert">原文依据校验失败：请从来源中选择真实的连续片段，修正后才能确认。</p>}
+            </>}
             <p>{confirmed ? '已确认并生成正式记录' : `可信程度：${suggestion.certainty_label}`}</p>
             {highRisk && !confirmed && <p className="risk-notice">请重点核对：此项涉及金额、施工问题或关键决策，AI 不会代替你确认。</p>}
             {!confirmed && <>
@@ -1191,19 +1184,19 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
                   updateSuggestion(suggestion.key, 'status', completedStatusForLedgerKind(kind))
                   updateSuggestion(suggestion.key, 'direction', kind === 'refund' ? 'refund' : kind === 'income' ? 'income' : 'expense')
                 }}><option value="payment">付款</option><option value="refund">退款</option><option value="income">收入</option></Select></label>}
-                <label className="field-stack"><span>{cfg.detailALabel}</span><input value={detailA} placeholder={cfg.detailAPlaceholder} onChange={(event) => {
+                <label className="field-stack"><span>{cfg.detailALabel}</span>{recordType === 'issue' ? <VoiceField active={displayedSuggestionKey === suggestion.key && !confirming && (mobileDetailOpen || !window.matchMedia?.('(max-width: 1100px)').matches)} onBusyChange={setVoiceBusy}><textarea rows={3} maxLength={10000} value={detailA} placeholder={cfg.detailAPlaceholder} onChange={event => updateSuggestion(suggestion.key, 'phenomenon', event.target.value)} /></VoiceField> : <input value={detailA} placeholder={cfg.detailAPlaceholder} onChange={(event) => {
                   const value = event.target.value
                   if (recordType === 'event') updateSuggestion(suggestion.key, 'event_kind', value)
                   else if (recordType === 'ledger') updateSuggestion(suggestion.key, 'payment_kind', value)
-                  else if (recordType === 'issue') updateSuggestion(suggestion.key, 'phenomenon', value)
                   else if (recordType === 'measurement') updateSuggestion(suggestion.key, 'object_name', value)
                   else if (recordType === 'decision') updateSuggestion(suggestion.key, 'topic', value)
                   else if (recordType === 'research') updateSuggestion(suggestion.key, 'question', value)
-                }}                 /></label>
+                }}                 />}</label>
                 {recordType === 'measurement'
                   ? <MeasurementFields payload={payload} onChange={(field, value) => updateSuggestion(suggestion.key, field, value)} />
                   : recordType === 'decision' || recordType === 'research'
                   ? <OptionsTextInput label={cfg.detailBLabel} placeholder={cfg.detailBPlaceholder} value={payload.options} onCommit={(options) => updateSuggestion(suggestion.key, 'options', options)} />
+                  : recordType === 'issue' || recordType === 'event' ? <label className="field-stack"><span>{cfg.detailBLabel}</span><VoiceField active={displayedSuggestionKey === suggestion.key && !confirming && (mobileDetailOpen || !window.matchMedia?.('(max-width: 1100px)').matches)} onBusyChange={setVoiceBusy}><textarea rows={3} maxLength={10000} value={detailB} placeholder={cfg.detailBPlaceholder} onChange={event => updateSuggestion(suggestion.key, recordType === 'issue' ? 'handling_plan' : 'result', event.target.value)} /></VoiceField></label>
                   : <label className="field-stack"><span>{cfg.detailBLabel}</span><input
                     type={cfg.detailBType || 'text'}
                     min={cfg.detailBType === 'number' ? '0' : undefined}
@@ -1240,30 +1233,22 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
                   <input type="date" value={occurredDate} onChange={(event) => updateSuggestion(suggestion.key, 'occurred_date', event.target.value || null)} />
                 </label>
                 {recordType === 'issue' && <>
+                  <label className="field-stack"><span>截止日期（可选）</span><input type="date" value={toDateInput(payload.due_date)} onChange={(event) => updateSuggestion(suggestion.key, 'due_date', event.target.value || null)} /></label>
                   <label className="field-stack"><span>严重程度</span><Select required value={String(payload.severity ?? '')} onChange={(event) => updateSuggestion(suggestion.key, 'severity', event.target.value || null)}><option value="">请选择</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></Select></label>
-                  {status === 'done' && <><label className="field-stack"><span>实际完成日期</span><input type="date" value={toDateInput(payload.completed_at)} onChange={(event) => updateSuggestion(suggestion.key, 'completed_at', event.target.value || null)} /></label><label className="field-stack record-form-grid__wide"><span>实际处理结果</span><textarea required rows={2} value={String(payload.actual_result ?? '')} onChange={(event) => updateSuggestion(suggestion.key, 'actual_result', event.target.value || null)} /></label></>}
+                  {status === 'done' && <><label className="field-stack"><span>实际完成日期</span><input type="date" value={toDateInput(payload.completed_at)} onChange={(event) => updateSuggestion(suggestion.key, 'completed_at', event.target.value || null)} /></label><label className="field-stack record-form-grid__wide"><span>实际处理结果</span><VoiceField active={displayedSuggestionKey === suggestion.key && !confirming && (mobileDetailOpen || !window.matchMedia?.('(max-width: 1100px)').matches)} onBusyChange={setVoiceBusy}><textarea required rows={2} maxLength={10000} value={String(payload.actual_result ?? '')} onChange={(event) => updateSuggestion(suggestion.key, 'actual_result', event.target.value || null)} /></VoiceField></label></>}
                 </>}
               </div>
-              <details className="candidate-review-advanced"><summary>更多信息与关联</summary><div className="record-form-grid">
-                <MultiSelectField label="空间" selectedIds={spaceIds.map(String)} options={spaces} onChange={(ids) => updateSuggestion(suggestion.key, 'space_ids', ids)} />
-                <MultiSelectField label="材料" selectedIds={materialIds.map(String)} options={entities.materials} onChange={(ids) => updateSuggestion(suggestion.key, 'material_ids', ids)} />
-                <MultiSelectField label={recordType === 'issue' ? '处理人' : '参与者'} selectedIds={participantIds.map(String)} options={entities.participants} onChange={(ids) => updateSuggestion(suggestion.key, 'participant_ids', ids)} />
-                <MultiSelectField label="关联记录（可选）" selectedIds={relatedRecordIds.map(String)} options={allRecords.map(recordSelectOption)} onChange={(ids) => updateSuggestion(suggestion.key, 'related_record_ids', ids)} />
-                {!suggestion.key.startsWith('manual:') && <MultiSelectField label="关联本批候选（可选）" selectedIds={relatedCandidateKeys.map(String)} options={suggestions.filter((item) => item.key !== suggestion.key && !item.key.startsWith('manual:') && !item.confirmed_record_id).map((item) => ({ id: item.key, name: `${item.type_label} · ${String(item.payload.title || item.summary)}` }))} onChange={(ids) => updateCandidateRelations(suggestion.key, ids)} />}
-                <label className="field-stack"><span>装修阶段</span>
-                  <Select value={stageId} onChange={(event) => updateSuggestion(suggestion.key, 'stage_id', event.target.value || null)}>
-                    <option value="">未指定</option>
-                    {entities.stages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </Select>
-                </label>
-              </div></details>
+              <TopicSelect value={Array.isArray(payload.topic_ids) ? payload.topic_ids.map(String) : []} onChange={ids => updateSuggestion(suggestion.key, 'topic_ids', ids)} />
+              <RecordAssociations payload={payload} onChange={(key, value) => updateSuggestion(suggestion.key, key, value)} entities={{ ...entities, spaces }} records={allRecords} optionsError={referenceError} onRetry={() => { void Promise.all([refreshReferences(), refreshRecords()]).catch(() => setReferenceError('信息与关联选项加载失败，请重试。')) }} error={confirmationState === 'error' ? message : undefined} participantLabel={recordType === 'issue' ? '处理人' : '参与者'}>
+                {!suggestion.key.startsWith('manual:') && <AssociationMultiSelect label="关联本批候选（可选）" selectedIds={relatedCandidateKeys.map(String)} options={suggestions.filter((item) => item.key !== suggestion.key && !item.key.startsWith('manual:') && !item.confirmed_record_id).map((item) => ({ id: item.key, name: `${item.type_label} · ${String(item.payload.title || item.summary)}` }))} onChange={(ids) => updateCandidateRelations(suggestion.key, ids)} />}
+              </RecordAssociations>
             </>}
           </article>
         })}
           </div>
         </div>}
         {suggestions.length > 0 && <div className="suggestion-actions candidate-review-actions"><span>已选择 {suggestions.filter((item) => selectedKeys.has(item.key) && !item.confirmed_record_id).length} 条待确认候选</span>
-          <button className="source-save state-button" type="button" data-state={confirmationState} aria-busy={confirming} aria-label={confirming ? '正在确认…' : '确认所选'} disabled={confirming || !hasSelectedUnconfirmed} onClick={() => void confirmSelected()}>{confirming && <ThinkingLattice compact />}<span className="state-button__label" aria-live="polite">{confirming ? '正在确认…' : '确认所选'}</span></button>
+          <button className="source-save state-button" type="button" data-state={confirmationState} aria-busy={confirming} aria-label={confirming ? '正在确认…' : '确认所选'} disabled={confirming || voiceBusy || !hasSelectedUnconfirmed} onClick={() => void confirmSelected()}>{confirming && <ThinkingLattice compact />}<span className="state-button__label" aria-live="polite">{confirming ? '正在确认…' : '确认所选'}</span></button>
           <button className="add-manual-suggestion" type="button" onClick={addManualSuggestion}>+ 添加手工记录</button>
         </div>}
         {suggestions.length === 0 && !analyzing && sourceId && <div className="suggestion-actions">

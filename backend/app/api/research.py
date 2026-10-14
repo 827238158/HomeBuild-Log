@@ -16,6 +16,9 @@ from app.api.domain import (
     _get_record,
     _now,
     _record_json,
+    _replace_associations,
+    _replace_record_relations,
+    _validate_record_refs,
     log_audit,
 )
 from app.core.constants import effective_record_status
@@ -27,12 +30,20 @@ from app.domain_models import (
 )
 from app.models import SourceEntry
 from app.record_schemas import ResearchCreate, reject_conclusion_writes
+from app.record_version import bump_record_version
+from app.topic_service import replace_record_topics
 
 router = APIRouter(prefix="/research", tags=["research"])
 ResearchState = Literal["collecting", "comparing", "archived"]
 
 
 class TopicInput(BaseModel):
+    topic_ids: list[str] = Field(default_factory=list)
+    space_ids: list[str] = Field(default_factory=list)
+    material_ids: list[str] = Field(default_factory=list)
+    participant_ids: list[str] = Field(default_factory=list)
+    related_record_ids: list[str] = Field(default_factory=list)
+    stage_id: str | None = None
     _reject_conclusion = model_validator(mode="before")(reject_conclusion_writes)
 
     title: str = Field(min_length=1, max_length=300)
@@ -40,6 +51,13 @@ class TopicInput(BaseModel):
 
 
 class TopicUpdate(BaseModel):
+    expected_version: int = Field(ge=1)
+    topic_ids: list[str] | None = None
+    space_ids: list[str] = Field(default_factory=list)
+    material_ids: list[str] = Field(default_factory=list)
+    participant_ids: list[str] = Field(default_factory=list)
+    related_record_ids: list[str] = Field(default_factory=list)
+    stage_id: str | None = None
     _reject_conclusion = model_validator(mode="before")(reject_conclusion_writes)
 
     title: str | None = Field(default=None, min_length=1, max_length=300)
@@ -129,6 +147,10 @@ def create_topic(request: Request, body: TopicInput, user: User) -> dict[str, An
         record = _create_record_in_session(db, ResearchCreate(
             record_type="research", title=title, question=title, status="collecting",
             description=body.description, source_refs=[{"source_id": source.id}],
+            topic_ids=body.topic_ids,
+            space_ids=body.space_ids, material_ids=body.material_ids,
+            participant_ids=body.participant_ids, related_record_ids=body.related_record_ids,
+            stage_id=body.stage_id,
         ))
         result = _serialize(db, record)
         db.commit()
@@ -155,12 +177,19 @@ def update_topic(
         item = _topic(db, record_id)
         before = _record_json(db, item)
         payload = body.model_dump(exclude_unset=True)
+        bump_record_version(db, item, payload.pop("expected_version"))
         if "title" in payload:
             payload["title"] = _required(payload["title"], "调研问题")
         if "status" in payload and payload["status"] is None:
             raise HTTPException(status_code=422, detail="调研状态不能为空。")
-        for key, value in payload.items():
-            setattr(item, key, value)
+        # 专项编辑复用正式记录校验与关联写入，全部变更和审计共用当前事务。
+        _validate_record_refs(db, {**before, **payload})
+        for key in {"title", "description", "status", "stage_id"} & payload.keys():
+            setattr(item, key, payload[key])
+        _replace_associations(db, item.id, payload)
+        _replace_record_relations(db, item.id, payload)
+        if "topic_ids" in payload:
+            replace_record_topics(db, item, payload["topic_ids"])
         item.updated_at = _now()
         db.flush()
         result = _serialize(db, item)
@@ -184,6 +213,7 @@ def append_entry(
             sources=[_required(value, "来源") for value in body.sources],
             uncertainties=body.uncertainties,
         )
+        bump_record_version(db, item)
         db.add(entry)
         item.updated_at = _now()
         db.flush()

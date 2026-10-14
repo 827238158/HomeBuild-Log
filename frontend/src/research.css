@@ -1,6 +1,7 @@
-.research-page { display: grid; gap: 20px; }
+.research-page { display: grid; gap: 12px; }
+.view-panel.research-page > .business-page-header { margin-bottom: 0; }
 .research-capture, .research-detail { border: 1px solid var(--border, #e1e6eb); border-radius: 12px; padding: 20px; background: var(--surface, #fff); min-width: 0; }
-.research-capture { display: flex; align-items: end; gap: 12px; }
+.research-capture { display: grid; gap: 12px; }
 .research-capture label { flex: 1; }
 .research-page label { display: grid; gap: 6px; min-width: 0; }
 .research-page input, .research-page textarea, .research-page select { width: 100%; min-width: 0; box-sizing: border-box; }
@@ -56,4 +57,8 @@
   .research-detail-pane { scroll-margin-top: 80px; }
   .research-show-detail > .research-capture, .research-show-detail > .research-toolbar, .research-show-detail > .research-empty, .research-show-detail .research-list { display: none; }
   .research-show-detail .research-back { display: inline-block; }
+}
+
+@media (max-width: 760px) {
+  .research-show-detail .research-capture-toggle { display: none; }
 }

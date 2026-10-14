@@ -15,13 +15,16 @@ from app.analytics import (
     distribution,
     money_trend,
 )
+from app.api.pitfalls import _pitfall_json
 from app.auth import CurrentUser, require_user
 from app.db import create_session_factory
 from app.domain_models import (
     DEFAULT_PROJECT_ID,
     Material,
+    Pitfall,
     Record,
     RecordRelation,
+    ResearchEntry,
     Space,
     Vendor,
 )
@@ -33,6 +36,7 @@ from app.projections import (
     record_matches,
     serialize_records,
 )
+from app.topic_models import IssueActivity, Topic
 
 router = APIRouter(tags=["views"])
 User = Annotated[CurrentUser, Depends(require_user)]
@@ -433,6 +437,13 @@ def space_archive(space_id: str, request: Request, user: User) -> dict[str, Any]
         db.close()
 
 
+def _search_excerpt(text: str, query: str) -> str:
+    start = max(0, text.casefold().find(query.casefold()) - 45)
+    return ("…" if start else "") + text[start:start + 180] + (
+        "…" if len(text) > start + 180 else ""
+    )
+
+
 @router.get("/search")
 def search(
     request: Request,
@@ -453,7 +464,7 @@ def search(
     try:
         records, serialized = _filtered_records(
             db,
-            keyword=q,
+            keyword=None,
             record_type=record_type,
             space_id=space_id,
             stage_id=stage_id,
@@ -461,7 +472,7 @@ def search(
             date_from=date_from,
             date_to=date_to,
         )
-        record_results = [serialized[record.id] for record in records]
+        record_results = []
         keyword = q.casefold() if q else None
 
         def contains(*values: Any) -> bool:
@@ -469,11 +480,54 @@ def search(
                 keyword in str(value or "").casefold() for value in values
             )
 
+        # 过程内容归属于父记录，批量匹配并去重，定位元数据仅携带真实命中。
+        process_matches: dict[str, list[dict[str, str]]] = defaultdict(list)
+        record_ids = [record.id for record in records]
+        if keyword and record_ids:
+            for entry in db.scalars(select(ResearchEntry).where(
+                ResearchEntry.record_id.in_(record_ids),
+            ).order_by(ResearchEntry.created_at, ResearchEntry.id)).all():
+                values = [entry.content, *entry.sources, entry.uncertainties]
+                matching = next((str(value) for value in values if contains(value)), None)
+                if matching:
+                    process_matches[entry.record_id].append({
+                        "kind": "research_entry", "id": entry.id,
+                        "excerpt": _search_excerpt(matching, q or ""),
+                    })
+            for activity in db.scalars(select(IssueActivity).where(
+                IssueActivity.record_id.in_(record_ids),
+            ).order_by(IssueActivity.created_at, IssueActivity.id)).all():
+                if contains(activity.content):
+                    process_matches[activity.record_id].append({
+                        "kind": "issue_activity", "id": activity.id,
+                        "excerpt": _search_excerpt(activity.content or "", q or ""),
+                    })
+        for record in records:
+            row = serialized[record.id]
+            if not keyword or record_matches(row, keyword=q) or process_matches[record.id]:
+                record_results.append({**row, "search_matches": process_matches[record.id]})
+
         sources = []
         materials = []
         vendors = []
         spaces = []
+        topics = []
+        pitfalls = []
         if keyword:
+            topics = [{key: getattr(item, key) for key in (
+                "id", "name", "goal", "current_situation", "status",
+            )} for item in db.scalars(select(Topic).where(
+                Topic.project_id == DEFAULT_PROJECT_ID,
+            ).order_by(Topic.updated_at.desc(), Topic.id)).all()
+                if contains(item.name, item.goal, item.current_situation)]
+            for item in db.scalars(select(Pitfall).where(
+                Pitfall.project_id == DEFAULT_PROJECT_ID,
+            ).order_by(Pitfall.created_at.desc(), Pitfall.id)).all():
+                matches = [{"kind": "pitfall_resolution", "id": row.id,
+                            "excerpt": _search_excerpt(row.content, q or "")}
+                           for row in item.resolutions if contains(row.content)]
+                if contains(item.description) or matches:
+                    pitfalls.append({**_pitfall_json(item, db), "search_matches": matches})
             sources = [
                 {
                     "id": item.id,
@@ -521,6 +575,8 @@ def search(
             "materials": materials,
             "vendors": vendors,
             "spaces": spaces,
+            "topics": topics,
+            "pitfalls": pitfalls,
         }
         return {
             "query": q,

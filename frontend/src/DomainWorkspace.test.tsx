@@ -5,6 +5,11 @@ import { useEffect, useState } from 'react'
 import * as api from './domainApi'
 import { defaultPayload, DomainWorkspace, normalizeMeasurementValues, payloadForSave } from './DomainWorkspace'
 import { confirmNavigation } from './navigationGuard'
+import { transcribeAudio } from './api'
+import { startVoiceRecording } from './voiceAudio'
+
+vi.mock('./api', () => ({ transcribeAudio: vi.fn() }))
+vi.mock('./voiceAudio', () => ({ MAX_RECORDING_MS: 180_000, startVoiceRecording: vi.fn() }))
 
 it('旧调研候选按调研中编辑且不提交已停用的结论字段', () => {
   const legacy = { title: '材料比较', status: 'concluded', conclusion: '旧判断', conclusion_reason: '旧原因', conclusion_entry_id: 'entry' }
@@ -129,6 +134,47 @@ beforeEach(() => {
 })
 
 describe('DomainWorkspace', () => {
+  it('切换候选会取消转写且忽略旧候选迟到结果', async () => {
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
+    vi.stubGlobal('AudioContext', vi.fn())
+    const finish = vi.fn(() => new File(['wav'], 'voice.wav', { type: 'audio/wav' }))
+    vi.mocked(startVoiceRecording).mockResolvedValue({ finish, cancel: vi.fn() })
+    let resolve!: (result: { text: string; duration_ms: number }) => void
+    vi.mocked(transcribeAudio).mockReturnValue(new Promise(yes => { resolve = yes }))
+    const first = { ...explicitBundle.suggestions[0], payload: { ...explicitBundle.suggestions[0].payload, status: 'done', actual_result: '原处理结果' } }
+    const second = { ...first, key: 'issue:2', summary: '第二条事项', payload: { ...first.payload, title: '第二条事项' } }
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({ ...explicitBundle, suggestions: [first, second] })
+    render(<TestDomainWorkspace refreshKey={0} />)
+    const firstCard = (await screen.findAllByDisplayValue('原处理结果'))[0].closest('article')!
+    await act(async () => fireEvent.click(within(within(firstCard).getByLabelText('实际处理结果').closest('.source-input-wrap') as HTMLElement).getByRole('button', { name: '开始语音输入' })))
+    await act(async () => fireEvent.click(within(firstCard).getByRole('button', { name: '停止并转写' })))
+    expect((screen.getByRole('button', { name: '确认所选' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: /第二条事项.*已选择/ }))
+    expect(vi.mocked(transcribeAudio).mock.calls[0][1]?.aborted).toBe(true)
+    await act(async () => resolve({ text: '迟到文字', duration_ms: 100 }))
+    expect((within(firstCard).getByLabelText('实际处理结果') as HTMLTextAreaElement).value).toBe('原处理结果')
+    vi.unstubAllGlobals()
+  })
+  it('无效依据不默认选择，修正连续摘录后随原候选身份提交', async () => {
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({
+      ...explicitBundle, source_text: source.original_text,
+      suggestions: explicitBundle.suggestions.map(item => ({ ...item, evidence: '伪造内容', evidence_validation: 'invalid' as const })),
+    })
+    render(<TestDomainWorkspace refreshKey={0} />)
+    const editor = await screen.findByLabelText('修正原文依据（须为连续片段）')
+    const selected = screen.getByRole('checkbox')
+    expect((selected as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(selected)
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+    expect(api.confirmCandidateBundle).not.toHaveBeenCalled()
+    fireEvent.change(editor, { target: { value: '门口地砖有一处破裂' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
+    expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0]).toMatchObject({
+      key: 'issue:1', evidence: '门口地砖有一处破裂',
+    })
+  })
   it('来源原文编辑只有实际改动才保护主导航，取消编辑后解除保护', async () => {
     render(<TestDomainWorkspace refreshKey={0} />)
     fireEvent.click(await screen.findByText('来源操作'))
@@ -349,6 +395,7 @@ describe('DomainWorkspace', () => {
     fireEvent.wheel(sourceMenu)
     expect(screen.getByRole('listbox')).toBe(sourceMenu)
 
+    fireEvent.click(screen.getByRole('button', { name: /更多信息与关联/ }))
     fireEvent.click(screen.getByRole('button', { name: '空间：请选择（可多选）' }))
     const multiMenu = screen.getByRole('listbox')
     fireEvent.scroll(multiMenu)
@@ -915,7 +962,7 @@ describe('DomainWorkspace', () => {
 
   it('从原始来源创建可追溯的问题记录', async () => {
     render(<TestDomainWorkspace refreshKey={0} />)
-    expect(await screen.findByText(source.original_text)).toBeTruthy()
+    expect((await screen.findAllByText(source.original_text)).length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
     const panels = screen.getAllByLabelText('标题')

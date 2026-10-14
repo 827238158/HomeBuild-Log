@@ -24,6 +24,7 @@ class SourceRef(BaseModel):
 
 
 class RecordCommonCreate(BaseModel):
+    topic_ids: list[str] = Field(default_factory=list)
     title: str = Field(min_length=1, max_length=300)
     description: str | None = None
     occurred_date: date | None = None
@@ -39,6 +40,8 @@ class RecordCommonCreate(BaseModel):
 
 
 class RecordCommonUpdate(BaseModel):
+    expected_version: int = Field(ge=1)
+    topic_ids: list[str] | None = None
     title: str | None = Field(default=None, min_length=1, max_length=300)
     description: str | None = None
     occurred_date: date | None = None
@@ -130,6 +133,7 @@ class LedgerUpdate(RecordCommonUpdate):
 
 
 class IssueCreate(RecordCommonCreate):
+    due_date: date | None = None
     record_type: Literal["issue"]
     status: Literal["pending", "in_progress", "done"]
     discovered_at: datetime | None = None
@@ -143,6 +147,7 @@ class IssueCreate(RecordCommonCreate):
 
 
 class IssueUpdate(RecordCommonUpdate):
+    due_date: date | None = None
     record_type: Literal["issue"]
     status: Literal["pending", "in_progress", "done"] | None = None
     discovered_at: datetime | None = None
@@ -263,6 +268,20 @@ class ResearchUpdate(RecordCommonUpdate):
     limitations: str | None = None
     conclusion_reason: str | None = Field(default=None, max_length=10000)
     conclusion_entry_id: str | None = None
+
+
+class DirectLedgerCreate(LedgerCreate):
+    source_refs: list[SourceRef] = Field(default_factory=list, max_length=0)
+
+
+class DirectIssueCreate(IssueCreate):
+    source_refs: list[SourceRef] = Field(default_factory=list, max_length=0)
+
+
+DirectRecordCreate = Annotated[
+    DirectLedgerCreate | DirectIssueCreate,
+    Field(discriminator="record_type"),
+]
 
 
 RecordCreate = Annotated[

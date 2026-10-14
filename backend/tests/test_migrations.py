@@ -31,7 +31,7 @@ def test_migrations_upgrade_temporary_database_to_head(
     finally:
         engine.dispose()
 
-    assert revision == "0020_add_research_history"
+    assert revision == "0022_add_due_date_and_record_version"
 
     engine = create_engine(url)
     try:

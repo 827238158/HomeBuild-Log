@@ -50,6 +50,18 @@ D:\Anaconda\envs\homebuild-log\python.exe -m pytest
 
 ## 前端安装与检查
 
+### Windows 沙箱测试临时目录
+
+若 pytest 的 `TemporaryDirectory` 或 Vite 测试缓存在沙箱默认 TEMP 报拒绝访问，可在项目根目录先固定本次进程的临时目录；不修改系统环境变量：
+
+```powershell
+$env:TEMP = Join-Path (Get-Location) '.local-artifacts/test-temp'
+$env:TMP = $env:TEMP
+New-Item -ItemType Directory -Force $env:TEMP | Out-Null
+```
+
+设置后再进入 backend 或 frontend 执行测试。迁移测试必须使用临时数据库 URL，不执行真实库升级。隔离 Edge 与本机 Vite 在沙箱内无法启动或响应时，按 Codex 审批机制运行同一模拟验收，服务只绑定 `127.0.0.1`，验证后关闭；不得绕过审批或连接真实数据代替模拟。
+
 ```powershell
 Set-Location frontend
 npm ci
@@ -149,6 +161,10 @@ sudo sh ./verify.sh
 默认配置访问 `http://127.0.0.1:8000`；局域网绑定配置见 `deploy/README-LAN.md`。可选内网 HTTPS 的镜像准备、证书信任、并行切换与回退见 `deploy/README-HTTPS-LAN.md`；是否已部署以 `memory/CURRENT.md` 为准。已验证过的镜像准备方式是在用户明确授权代下载后，经 `docker.m.daocloud.io/library/caddy:2.11.4-alpine` 拉取并标记为 `caddy:2.11.4-alpine`，再按文档校验摘要和启动；今后仍须核对镜像来源和版本。
 
 ## 迁移规则
+
+- 本地迁移链已扩展到 `0022_add_due_date_and_record_version`，接在 `0021_add_topics_and_issue_activities` 后；线上最近确认仍为0020，实际环境先核对 CURRENT 与数据库。0022升级、降级再升级仅在临时数据库验证，不据此认为真实库已升级。
+- 正式记录编辑要求读取版本，含本轮改动的前后端必须配套更新。旧客户端缺少版本会拒绝保存；上线后刷新页面并重新打开编辑，先保留未保存草稿。
+- 后端 pytest 默认共用 `tests/.tmp`，多Agent任务串行执行；并行时显式使用不同工作区临时目录。
 
 - 数据库迁移先读 `backend/migrations/README.md`。
 - 新增迁移通常只需要读取当前 head 和待新增迁移。

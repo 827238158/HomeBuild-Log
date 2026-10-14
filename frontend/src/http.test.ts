@@ -56,3 +56,11 @@ describe('requestJson', () => {
     )
   })
 })
+
+it('记录冲突保留结构化最新记录并显示中文恢复提示', async () => {
+  const detail={code:'record_version_conflict',message:'记录已更新，请核对最新内容后重试。',latest_record:{id:'r',version:2}}
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify({detail}),{status:409,headers:{'Content-Type':'application/json'}})))
+  const error=await requestJson('/records/r',{method:'PATCH',body:'{}'}).catch((reason:unknown)=>reason)
+  expect(error).toMatchObject({status:409,code:'record_version_conflict',detail})
+  expect((error as Error).message).toBe(detail.message)
+})

@@ -1,0 +1,64 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
+import { describe, expect, it, vi } from 'vitest'
+import { associationRecordOptions, RecordAssociations, useAssociationOptions } from './RecordAssociations'
+import type { DomainRecord } from './domainApi'
+import * as api from './domainApi'
+
+const entities = { spaces: [{ id: 's', name: '客厅' }], materials: [], participants: [], stages: [] }
+const record = (id: string, title: string, topic_ids: string[] = []): DomainRecord => ({ id, title, topic_ids, record_type: 'research', status: 'collecting', description: null, archived_at: null, source_refs: [] })
+
+describe('RecordAssociations', () => {
+  it('同主题优先且保持分组原序，去重并排除自身', () => {
+    const rows = [record('a', '其他'), record('b', '主题甲', ['t']), record('self', '当前', ['t']), record('b', '重复', ['t']), record('c', '主题乙', ['u']), record('d', '其他乙')]
+    expect(associationRecordOptions(rows, ['t', 'u'], 'self').map(item => item.id)).toEqual(['b', 'c', 'a', 'd'])
+    expect(associationRecordOptions(rows, [], 'self').map(item => item.id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+  it('默认折叠，搜索全项目；收起或更换主题保留选择', () => {
+    function Fixture() {
+      const [payload, setPayload] = useState<Record<string, unknown>>({ space_ids: ['s'], topic_ids: ['t'], related_record_ids: ['a'] })
+      return <><button onClick={() => setPayload(value => ({ ...value, topic_ids: [] }))}>清空主题</button><RecordAssociations payload={payload} onChange={(key, value) => setPayload(previous => ({ ...previous, [key]: value }))} entities={entities} records={[record('a', '其他'), record('b', '主题', ['t'])]} /><output>{JSON.stringify(payload)}</output></>
+    }
+    render(<Fixture />)
+    expect(screen.getByRole('button', { name: /更多信息与关联/ }).getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(screen.getByRole('button', { name: /更多信息与关联/ }))
+    fireEvent.click(screen.getByRole('button', { name: /关联记录/ }))
+    expect(screen.getByRole('listbox', { name: '关联记录（可选）' }).parentElement).toBe(document.body)
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: '其他' } })
+    expect((screen.getByRole('checkbox', { name: '调研 · 其他' }) as HTMLInputElement).checked).toBe(true)
+    expect(screen.queryByRole('checkbox', { name: '调研 · 主题' })).toBeNull()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: /更多信息与关联/ }))
+    fireEvent.click(screen.getByText('清空主题'))
+    expect(screen.getByRole('status').textContent).toContain('"related_record_ids":["a"]')
+  })
+  it('只对高级字段错误展开，并聚焦对应字段而非第一个字段', async () => {
+    const props = { payload: {}, onChange: () => {}, entities: { ...entities, materials: [{ id: 'm', name: '木材' }] }, records: [] }
+    const { rerender } = render(<RecordAssociations {...props} error="金额不能为空" />)
+    expect(screen.getByRole('button', { name: /更多信息与关联/ }).getAttribute('aria-expanded')).toBe('false')
+    rerender(<RecordAssociations {...props} error="material_ids 无效" />)
+    await waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('材料：请选择（可多选）'))
+    expect(screen.queryByText('material_ids 无效')).toBeNull()
+  })
+  it('错误展开且选项失败可以重试，不移除未读取的选择', async () => {
+    const retry = vi.fn()
+    const { rerender } = render(<RecordAssociations payload={{ related_record_ids: ['missing'] }} onChange={() => {}} entities={entities} records={[]} />)
+    rerender(<RecordAssociations payload={{ related_record_ids: ['missing'] }} onChange={() => {}} entities={entities} records={[]} error="空间无效" optionsError="读取失败" onRetry={retry} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /更多信息与关联/ }).getAttribute('aria-expanded')).toBe('true'))
+    expect((screen.getByRole('button', { name: /关联记录（可选）：已选择 1 项/ }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByText('重试'))
+    expect(retry).toHaveBeenCalledOnce()
+  })
+  it('读取失败保留选项，重试后恢复', async () => {
+    vi.spyOn(api, 'listSpaces').mockResolvedValue([])
+    vi.spyOn(api, 'listEntities').mockResolvedValue([])
+    const list = vi.spyOn(api, 'listRecords').mockRejectedValueOnce(new Error('无法读取')).mockResolvedValueOnce([record('a', '已读取')])
+    function Fixture() { const options = useAssociationOptions(); return <><p>{options.error || options.records[0]?.title}</p><button onClick={options.retry}>重新读取</button></> }
+    render(<Fixture />)
+    await screen.findByText('无法读取')
+    fireEvent.click(screen.getByText('重新读取'))
+    await screen.findByText('已读取')
+    expect(list).toHaveBeenCalledTimes(2)
+    vi.restoreAllMocks()
+  })
+})

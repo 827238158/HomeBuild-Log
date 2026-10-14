@@ -12,6 +12,7 @@ export class HttpError extends Error {
     message: string,
     readonly status: number,
     readonly code: string,
+    readonly detail?: unknown,
   ) {
     super(message)
     this.name = 'HttpError'
@@ -29,7 +30,8 @@ async function responseError(response: Response): Promise<HttpError> {
     message?: unknown
     code?: unknown
   }
-  const code = typeof body.code === 'string' && body.code.trim()
+  const structuredDetail = body.detail && typeof body.detail === 'object' && !Array.isArray(body.detail) ? body.detail as Record<string, unknown> : null
+  const code = typeof structuredDetail?.code === 'string' ? structuredDetail.code : typeof body.code === 'string' && body.code.trim()
     ? body.code.trim()
     : `HTTP_${response.status}`
   // FastAPI 字段校验返回列表，逐项解释而不是退化成 HTTP 状态码。
@@ -40,13 +42,14 @@ async function responseError(response: Response): Promise<HttpError> {
       title: '标题', status: '状态', record_type: '记录类型', severity: '严重程度',
       phenomenon: '问题描述', amount_minor: '金额', vendor_id: '交易对象（商家）',
       payment_kind: '款项性质', ledger_kind: '账目类型', direction: '收支方向',
-      occurred_date: '发生日期', payment_date: '交易日期', completed_at: '完成日期',
+      occurred_date: '发生日期', payment_date: '交易日期', completed_at: '完成日期', due_date: '截止日期', expected_version: '记录版本（请刷新页面）',
       question: '调研问题', topic: '决策主题', measurement_role: '尺寸用途',
       object_name: '测量对象', value: '尺寸数值', unit: '尺寸单位',
       original_text: '来源文字', source_refs: '原始来源', event_kind: '事件类型',
     }
     const field = Array.isArray(error.loc) ? [...error.loc].reverse().find((part) => typeof part === 'string' && labels[part]) : undefined
     const label = typeof field === 'string' ? labels[field] : '提交内容'
+    if (field === 'expected_version' && error.type === 'missing') return '页面版本已过期，请保留草稿并刷新页面后重新打开记录'
     if (error.type === 'missing') return `${label}未填写，请补齐`
     if (error.type === 'literal_error') return field === 'severity' ? '严重程度请选择低、中或高' : `${label}选项不正确，请重新选择`
     if (error.type?.startsWith('date')) return `${label}格式不正确，请填写有效日期或时间`
@@ -57,11 +60,12 @@ async function responseError(response: Response): Promise<HttpError> {
   }).filter(Boolean) : []
   const detail = typeof body.detail === 'string' && body.detail.trim()
     ? body.detail.trim()
+    : typeof structuredDetail?.message === 'string' ? structuredDetail.message
     : validationDetails.length ? `${[...new Set(validationDetails)].join('；')}。`
     : typeof body.message === 'string' && body.message.trim()
       ? body.message.trim()
       : `服务端返回 HTTP ${response.status}。`
-  return new HttpError(`${detail}（错误码：${code}）`, response.status, code)
+  return new HttpError(code === 'record_version_conflict' ? detail : `${detail}（错误码：${code}）`, response.status, code, body.detail)
 }
 
 export async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {

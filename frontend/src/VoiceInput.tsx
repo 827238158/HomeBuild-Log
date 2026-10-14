@@ -5,6 +5,7 @@ import { transcribeAudio } from './api'
 import { MAX_RECORDING_MS, startVoiceRecording, type VoiceRecording } from './voiceAudio'
 
 type VoiceStatus = 'idle' | 'requesting' | 'recording' | 'transcribing' | 'done' | 'error'
+let cancelVoiceSession: (() => void) | null = null
 
 function errorMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === 'NotAllowedError') return '麦克风权限被拒绝，请在浏览器中允许后重试。'
@@ -12,7 +13,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '语音转写失败，请重试。'
 }
 
-export function VoiceInput({ active, onTranscript, children }: { active: boolean; onTranscript: (text: string) => void; children: ReactNode }) {
+export function VoiceInput({ active, onTranscript, children, onBusyChange, label = '语音输入' }: { active: boolean; onTranscript: (text: string) => void; children: ReactNode; onBusyChange?: (busy: boolean) => void; label?: string }) {
   const [status, setStatus] = useState<VoiceStatus>('idle')
   const [error, setError] = useState('')
   const [elapsed, setElapsed] = useState(0)
@@ -26,6 +27,8 @@ export function VoiceInput({ active, onTranscript, children }: { active: boolean
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeRef = useRef(active)
   const transcriptRef = useRef(onTranscript)
+  const root = useRef<HTMLDivElement>(null)
+  const notifiedBusy = useRef(false)
   activeRef.current = active
   transcriptRef.current = onTranscript
 
@@ -44,6 +47,27 @@ export function VoiceInput({ active, onTranscript, children }: { active: boolean
     lastFile.current = null
     if (update) { setStatus('idle'); setError(''); setLevel(0); setElapsed(0) }
   }
+
+  useEffect(() => {
+    const busy = ['requesting', 'recording', 'transcribing'].includes(status)
+    if (busy || notifiedBusy.current) onBusyChange?.(busy)
+    notifiedBusy.current = busy
+    const form = root.current?.closest('form')
+    // 捕获阶段阻止保存，保留用户等待转写时输入的草稿。
+    const guard = (event: Event) => { event.preventDefault(); event.stopPropagation() }
+    const buttons = form ? Array.from(form.querySelectorAll<HTMLButtonElement>('button[type="submit"], button:not([type])')).map(button => ({ button, disabled: button.disabled })) : []
+    if (busy) buttons.forEach(({ button }) => { button.disabled = true })
+    if (busy) form?.addEventListener('submit', guard, true)
+    return () => { form?.removeEventListener('submit', guard, true); if (busy) { buttons.forEach(({ button, disabled }) => { button.disabled = disabled }); onBusyChange?.(false); notifiedBusy.current = false } }
+  }, [status, onBusyChange])
+
+  useEffect(() => {
+    const focus = (event: FocusEvent) => {
+      if (event.target instanceof HTMLElement && event.target.matches('textarea, input, select, [role="combobox"]') && !root.current?.contains(event.target)) cancel()
+    }
+    document.addEventListener('focusin', focus)
+    return () => document.removeEventListener('focusin', focus)
+  }, [])
 
   useEffect(() => {
     if (!active) cancel()
@@ -117,6 +141,8 @@ export function VoiceInput({ active, onTranscript, children }: { active: boolean
       setStatus('error')
       return
     }
+    cancelVoiceSession?.()
+    cancelVoiceSession = () => cancel()
     const current = ++generation.current
     lastFile.current = null
     setError('')
@@ -140,9 +166,19 @@ export function VoiceInput({ active, onTranscript, children }: { active: boolean
     }
   }
 
+  const retry = () => {
+    const file = lastFile.current
+    if (!file) return
+    // 重试同样占用全局会话，避免与另一字段的转写并发回填。
+    cancelVoiceSession?.()
+    lastFile.current = file
+    cancelVoiceSession = () => cancel()
+    void submit(file, ++generation.current)
+  }
+
   const seconds = Math.floor(elapsed / 1000)
   const clock = `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
-  return <div className="source-input-wrap"><div className="source-input-field">
+  return <div ref={root} className="source-input-wrap"><div className="source-input-field">
     {children}
     {status === 'recording' ? <div className="voice-capsule" role="group" aria-label="录音控制">
       {/* 复用录音服务提供的真实音量；胶囊只负责展示与操作，不创建第二条音频流。 */}
@@ -151,7 +187,7 @@ export function VoiceInput({ active, onTranscript, children }: { active: boolean
       <button className="voice-capsule__stop" type="button" onClick={stop} aria-label="停止并转写"><span aria-hidden="true" />停止</button>
       <button className="voice-capsule__cancel" type="button" onClick={() => cancel()} aria-label="取消录音">取消</button>
       <span className="sr-only" role="status">录音中，最长 3 分钟</span>
-    </div> : <button className="voice-trigger" type="button" aria-label="开始语音输入" title="开始语音输入" onClick={() => void start()} disabled={!active || status === 'requesting' || status === 'transcribing'}>
+    </div> : <button className="voice-trigger" type="button" aria-label={`开始${label}`} title={`开始${label}`} onClick={() => void start()} disabled={!active || status === 'requesting' || status === 'transcribing'}>
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="2.5" width="6" height="12.5" rx="3" /><path d="M5 10.5v1a7 7 0 0 0 14 0v-1M12 18.5V22m-4 0h8" /></svg>
     </button>}
     </div>
@@ -159,7 +195,7 @@ export function VoiceInput({ active, onTranscript, children }: { active: boolean
       {status === 'requesting' && <><span>正在请求麦克风权限…</span><button type="button" onClick={() => cancel()}>取消</button></>}
       {status === 'transcribing' && <><span className="voice-progress" aria-hidden="true" /><span>正在转写 · 已等待 {Math.floor(transcribeElapsed / 1000)} 秒</span><button type="button" onClick={() => cancel()}>取消</button></>}
       {status === 'done' && <span>已转写</span>}
-      {status === 'error' && <><span>{error}</span>{lastFile.current && <button type="button" onClick={() => void submit(lastFile.current!, ++generation.current)}>重试转写</button>}</>}
+      {status === 'error' && <><span>{error}</span>{lastFile.current && <button type="button" onClick={retry}>重试转写</button>}</>}
     </div>}
   </div>
 }

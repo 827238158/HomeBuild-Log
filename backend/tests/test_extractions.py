@@ -7,7 +7,6 @@ from pathlib import Path
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.ai_adapter import (
@@ -21,6 +20,7 @@ from app.core.paths import build_storage_paths, ensure_storage_directories
 from app.db import Base, create_database_engine
 from app.domain_models import CandidateBundle
 from app.main import create_app
+from tests.versioned_client import VersionedTestClient as TestClient
 
 
 def _test_client(*, ai: dict | None = None) -> Iterator[TestClient]:
@@ -85,6 +85,120 @@ def test_auto_without_key_persists_local_bundle_and_run(client: TestClient) -> N
     assert [(run["engine"], run["status"]) for run in runs] == [
         ("local-rule-v1", "succeeded")
     ]
+
+
+@pytest.mark.parametrize("evidence", ["不存在的摘录", "  \r\n ", "现场 查看"])
+def test_legacy_evidence_revalidated_and_corrected_without_identity_change(
+    client: TestClient, evidence: str,
+) -> None:
+    source_id = _source(client, "今天去现场查看。\r\n记录现场情况。")
+    bundle = client.post(f"/api/v1/sources/{source_id}/extractions?engine=local").json()
+    candidate = bundle["suggestions"][0]
+    with Session(client.app.state.engine) as db:
+        stored = db.get(CandidateBundle, bundle["id"])
+        content = dict(stored.bundle_json)
+        content["suggestions"] = [dict(item) for item in content["suggestions"]]
+        content["suggestions"][0]["evidence"] = evidence
+        stored.bundle_json = content
+        db.commit()
+    loaded = client.get(f"/api/v1/candidate-bundles/{bundle['id']}").json()
+    assert loaded["suggestions"][0]["evidence_validation"] == "invalid"
+    assert loaded["suggestions"][0]["selected_by_default"] is False
+    body = {"expected_version": bundle["version"], "selections": [{"key": candidate["key"]}]}
+    rejected = client.post(f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json=body)
+    assert rejected.status_code == 422
+    assert client.get(f"/api/v1/records?source_id={source_id}").json() == []
+    body["selections"][0]["evidence"] = "  今天去现场查看。\n记录现场情况。  "
+    corrected = client.post(f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json=body)
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["bundle"]["suggestions"][0]["key"] == candidate["key"]
+    body["expected_version"] = corrected.json()["bundle"]["version"]
+    repeated = client.post(f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json=body)
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["records"][0]["created"] is False
+
+
+@pytest.mark.parametrize(
+    "error_type", [httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError]
+)
+def test_adapter_wraps_network_failures_without_leaking_credentials(error_type) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise error_type("secret-key-in-exception", request=request)
+    provider = AIProviderConfig("mimo", "https://example.test", "model", "api-key", "secret")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as transport:
+        adapter = OpenAICompatibleAdapter(provider, temperature=0.3, client=transport)
+        with pytest.raises(AIAdapterFailure) as failure:
+            adapter.extract_from_text("来源文字", 5)
+    assert failure.value.code == "AI_NETWORK_ERROR"
+    assert "secret" not in str(failure.value)
+
+
+@pytest.mark.parametrize("backup_succeeds", [True, False])
+def test_real_network_error_uses_backup_or_local_and_persists_failures(backup_succeeds) -> None:
+    ai = {
+        "enabled": True, "provider_order": ["mimo", "deepseek"], "timeout_seconds": 30,
+        "providers": {"mimo": {"api_key": "mimo-key"}, "deepseek": {"api_key": "deep-key"}},
+    }
+    calls: list[float] = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.extensions["timeout"]["read"])
+        if len(calls) == 1 or not backup_succeeds:
+            raise httpx.ConnectError("连接失败", request=request)
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": '{"suggestions": []}'}}],
+        })
+    generator = _test_client(ai=ai)
+    client = next(generator)
+    try:
+        with httpx.Client(transport=httpx.MockTransport(handler)) as transport:
+            client.app.state.ai_http_client.close()
+            client.app.state.ai_http_client = transport
+            source_id = _source(client, "今天去现场查看。")
+            response = client.post(f"/api/v1/sources/{source_id}/extractions?engine=auto")
+            assert response.status_code == 201, response.text
+            assert "mimo:AI_NETWORK_ERROR" in response.json()["fallback_reason"]
+            if not backup_succeeds:
+                assert response.json()["engine"] == "local-rule-v1"
+            runs = client.get(f"/api/v1/extraction-runs?source_id={source_id}").json()
+            failed = [run for run in runs if run["status"] == "failed"]
+            assert len(failed) == (1 if backup_succeeds else 2)
+            assert all(run["error_code"] == "AI_NETWORK_ERROR" for run in failed)
+            assert len(calls) == 2 and sum(calls) <= 45
+    finally:
+        generator.close()
+
+
+def test_partial_confirmation_relation_invalidates_existing_record_edit(client: TestClient) -> None:
+    source_id = _source(client, "今天去现场查看。")
+    bundle = client.post(f"/api/v1/sources/{source_id}/extractions?engine=local").json()
+    first = bundle["suggestions"][0]
+    with Session(client.app.state.engine) as db:
+        stored = db.get(CandidateBundle, bundle["id"])
+        second = {**first, "key": "second-event", "confirmed_record_id": None}
+        stored.bundle_json = {
+            **stored.bundle_json, "suggestions": [first, second],
+            "relations": [{"from_key": first["key"], "to_key": second["key"]}],
+        }
+        db.commit()
+    first_result = client.post(f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json={
+        "expected_version": bundle["version"], "selections": [{"key": first["key"]}],
+    })
+    assert first_result.status_code == 200, first_result.text
+    record = first_result.json()["records"][0]["record"]
+    second_result = client.post(f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json={
+        "expected_version": first_result.json()["bundle"]["version"],
+        "selections": [{"key": second["key"]}],
+    })
+    assert second_result.status_code == 200, second_result.text
+    latest = client.get(f"/api/v1/records/{record['id']}").json()
+    assert latest["version"] > record["version"]
+    assert latest["related_record_ids"]
+    stale = client.patch(f"/api/v1/records/{record['id']}", json={
+        "record_type": record["record_type"],
+        "expected_version": record["version"], "related_record_ids": [],
+    })
+    assert stale.status_code == 409, stale.text
+    assert client.get(f"/api/v1/records/{record['id']}").json()["related_record_ids"]
 
 
 def test_candidate_confirmation_is_atomic_and_idempotent(client: TestClient) -> None:

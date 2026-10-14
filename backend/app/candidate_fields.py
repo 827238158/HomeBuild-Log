@@ -50,7 +50,7 @@ def candidate_validation_message(exc: ValidationError) -> str:
         "question": "调研问题", "topic": "决策主题", "event_kind": "事件类型",
         "source_refs": "原始来源", "source_id": "来源",
         "occurred_date": "发生日期", "payment_date": "交易日期",
-        "completed_at": "完成日期", "discovered_at": "发现时间",
+        "completed_at": "完成日期", "discovered_at": "发现时间", "due_date": "截止日期",
         "started_at": "开始时间", "ended_at": "结束时间",
         "confirmed_at": "确认时间", "measured_at": "测量时间",
     }

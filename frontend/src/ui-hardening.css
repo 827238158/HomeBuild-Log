@@ -1,6 +1,12 @@
 .record-core-facts dd, .detail-list dd { overflow-wrap: anywhere; white-space: pre-wrap; }
 .attachment-viewer { padding-block: 12px; }
 .attachment-viewer img { display: block; max-width: 100%; height: auto; margin-block: 12px; }
+.search-match { display: block; width: 100%; min-height: 44px; margin-top: 8px; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+.search-match, .source-result > button { max-width: 100%; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--primary); font: inherit; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.search-match:hover, .source-result > button:hover { background: var(--primary-soft); }
+.search-pagination { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: center; margin: 20px 0; }
+.search-pagination button { min-height: 44px; }
+[data-search-match]:focus { outline: 2px solid var(--primary); outline-offset: 4px; }
 .attachment-viewer a { display: inline-block; margin: 8px 12px 8px 0; text-underline-offset: 3px; }
 .issue-completion-form { display: grid; gap: 10px; margin-top: 12px; }
 .issue-completion-form textarea { width: 100%; }

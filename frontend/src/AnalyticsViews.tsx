@@ -91,12 +91,12 @@ export function OverviewView({ onOpen, refreshRevision }: { onOpen: (id: string)
       <div className="summary-grid overview-summary">
         <article className="summary-card summary-card--risk"><span>未关闭问题</span><strong>{data.summary.open_issue_count}</strong><small>需要持续跟进</small></article>
         <article className="summary-card summary-card--warning"><span>已逾期事项</span><strong>{data.summary.overdue_count}</strong><small>建议优先处理</small></article>
-        <article className="summary-card summary-card--info"><span>未来 7 天事项</span><strong>{data.summary.upcoming_count}</strong><small>提前安排资源</small></article>
+        <article className="summary-card summary-card--info"><span>未来7天事项（含今天）</span><strong>{data.summary.upcoming_count}</strong><small>提前安排资源</small></article>
       </div>
       {data.stage_distribution.length > 0 && <section className="overview-stage-panel"><EChart title="阶段事项分布" description="查看当前记录主要集中在哪个装修阶段" kind="donut" option={donutOption(data.stage_distribution)} summary={chartSummary('阶段事项分布', data.stage_distribution)} /><aside><header><h3>阶段明细</h3><span>共 {stageTotal} 项</span></header><div className="stage-breakdown">{data.stage_distribution.map((item, index) => <div key={item.key}><span className="stage-breakdown__dot" style={{ backgroundColor: chartCategoryColors[index % chartCategoryColors.length] }} /><strong>{item.label}</strong><span>{item.value} 项</span><em>{stageTotal ? `${Math.round((item.value / stageTotal) * 1000) / 10}%` : '0%'}</em></div>)}</div></aside></section>}
       {(data.overdue.length > 0 || data.upcoming.length > 0) && <section className="projection-section"><h3>近期需要行动</h3><div className="card-grid">{[...data.overdue, ...data.upcoming].map((record) => <RecordCard key={record.id} record={record} onOpen={onOpen} />)}</div></section>}
       {data.open_issues.length > 0 && <section className="projection-section"><h3>未关闭问题</h3><div className="card-grid">{data.open_issues.map((record) => <RecordCard key={record.id} record={record} onOpen={onOpen} />)}</div></section>}
-      {data.recent_records.length > 0 ? <section className="projection-section"><h3>最近动态</h3><div className="card-grid">{data.recent_records.map((record) => <RecordCard key={record.id} record={record} onOpen={onOpen} />)}</div></section> : <div className="empty-guidance"><strong>还没有最近动态</strong><p>完成一次录入并确认正式记录后，这里会显示最新变化。</p></div>}
+      {data.recent_records.length > 0 ? <section className="projection-section"><h3>最近动态</h3><div className="card-grid">{data.recent_records.map((record) => <RecordCard key={record.id} record={record} onOpen={onOpen} />)}</div></section> : <div className="empty-guidance"><strong>还没有最近动态</strong><p>在账本、待办与问题或调研笔记中保存后，这里会显示最新记录。</p></div>}
     </>}
   </section>
 }

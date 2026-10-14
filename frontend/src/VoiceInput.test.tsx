@@ -6,6 +6,7 @@ vi.mock('./voiceAudio', () => ({ MAX_RECORDING_MS: 180_000, startVoiceRecording:
 vi.mock('./api', () => ({ transcribeAudio: vi.fn() }))
 
 import { VoiceInput } from './VoiceInput'
+import { VoiceField } from './VoiceField'
 import { transcribeAudio } from './api'
 import { startVoiceRecording } from './voiceAudio'
 
@@ -36,6 +37,33 @@ beforeEach(() => {
 })
 
 describe('VoiceInput', () => {
+  it('不同字段录音互斥，录音期间阻止表单保存', async () => {
+    const save = vi.fn((event: React.FormEvent) => event.preventDefault())
+    render(<form onSubmit={save}><Harness /><Harness /><button type="submit">保存</button></form>)
+    const triggers = screen.getAllByRole('button', { name: '开始语音输入' })
+    await act(async () => fireEvent.click(triggers[0]))
+    expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.submit(screen.getByRole('button', { name: '保存' }).closest('form')!)
+    expect(save).not.toHaveBeenCalled()
+    await act(async () => fireEvent.click(triggers[1]))
+    expect(cancelRecording).toHaveBeenCalled()
+    expect(screen.getAllByRole('group', { name: '录音控制' })).toHaveLength(1)
+  })
+
+  it('超长转写保留可编辑结果，不截断或覆盖原文', async () => {
+    function Field() {
+      const [value, setValue] = useState('原文')
+      return <VoiceField><textarea aria-label="字段" value={value} maxLength={6} onChange={event => setValue(event.target.value)} /></VoiceField>
+    }
+    vi.mocked(transcribeAudio).mockResolvedValue({ text: '这段文字超过长度', duration_ms: 100 })
+    render(<Field />)
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '开始语音输入' })))
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '停止并转写' })))
+    expect((screen.getByRole('textbox', { name: '字段' }) as HTMLTextAreaElement).value).toBe('原文')
+    fireEvent.change(screen.getByRole('textbox', { name: '待修正的语音结果' }), { target: { value: '好' } })
+    fireEvent.click(screen.getByRole('button', { name: '应用文字' }))
+    expect((screen.getByRole('textbox', { name: '字段' }) as HTMLTextAreaElement).value).toBe('原文\n好')
+  })
   it('停止后转写，追加到等待期间编辑的草稿且不提交保存', async () => {
     const pending = deferred<{ text: string; duration_ms: number }>()
     vi.mocked(transcribeAudio).mockReturnValue(pending.promise)

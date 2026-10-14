@@ -1,0 +1,8 @@
+.voice-overflow { width: 100%; min-width: 0; overflow-wrap: anywhere; padding: 12px; }
+.voice-overflow textarea { width: 100%; min-height: 100px; }
+.voice-overflow button { min-height: 44px; margin: 4px; }
+.source-input-wrap { min-width: 0; width: 100%; }
+.source-input-wrap .source-input-field > textarea { padding-right: 56px; padding-bottom: 52px; }
+.voice-panel { flex-wrap: wrap; overflow-wrap: anywhere; }
+.source-input-wrap .voice-panel button { min-height: 44px; }
+@media (max-width: 768px) { .source-input-wrap .source-input-field textarea { font-size: 16px; } }

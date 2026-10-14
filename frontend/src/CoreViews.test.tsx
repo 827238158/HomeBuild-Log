@@ -6,6 +6,8 @@ import { CoreViews } from './CoreViews'
 import type { ProjectionRecord } from './domainApi'
 
 vi.mock('./domainApi', () => ({
+  createDirectRecord: vi.fn(),
+  createEntity: vi.fn(),
   getOverview: vi.fn(),
   getRecordsAnalytics: vi.fn(),
   getAiAnalyticsOverview: vi.fn(),
@@ -62,6 +64,7 @@ const analytics = {
 }
 
 const record: ProjectionRecord = {
+  version: 1,
   id: 'event-1',
   record_type: 'event',
   title: '现场查看',
@@ -162,6 +165,18 @@ beforeEach(() => {
 })
 
 describe('CoreViews', () => {
+  it('首页直达业务，统一录入位于辅助工具，账本可就地新增', async () => {
+    render(<CoreViews><p>辅助整理内容</p></CoreViews>)
+    const entry = screen.getByRole('region', { name: '日常记录入口' })
+    expect(within(entry).getAllByRole('button')).toHaveLength(4)
+    fireEvent.click(within(entry).getByRole('button', { name: /记账与查看流水/ }))
+    expect(await screen.findByRole('heading', { name: '装修账本' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '记一笔账' })).toBeTruthy()
+    expect(screen.queryByText('辅助整理内容')).toBeNull()
+    const nav = screen.getByRole('navigation', { name: '核心功能' })
+    expect(within(nav).getAllByRole('button').slice(0, 5).map(item => item.textContent)).toEqual(['主题', '账本', '待办与问题', '调研笔记', '踩坑记录'])
+    expect(within(nav).getByRole('button', { name: '随手记与整理' }).closest('section')?.textContent).toContain('辅助工具')
+  })
   it('主导航保护未保存处理结果，取消导航保持草稿，确认后切换', async () => {
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '待办与问题' }))
@@ -409,30 +424,30 @@ describe('CoreViews', () => {
     expect(screen.queryByRole('button', { name: /旧查询结果/ })).toBeNull()
   })
 
-  it('问题图表按交集请求，空间草稿不生效，分别清除与全部清除保留已应用空间', async () => {
+  it('问题移除空间筛选后仍按状态和程度交集筛选并可清除', async () => {
     vi.mocked(api.listSpaces).mockResolvedValue([{ id: 'room-1', name: '主卧', kind: 'room', parent_id: null }])
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '待办与问题' }))
     await screen.findByText('地砖破裂')
-    fireEvent.change(screen.getByLabelText('空间'), { target: { value: 'room-1' } })
+    expect(screen.queryByLabelText('空间')).toBeNull()
+    expect(within(document.querySelector('.workspace-content') as HTMLElement).queryByRole('button', { name: '搜索' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '问题状态分布测试数据项' }))
-    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: '', status: 'pending', severity: '' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ status: 'pending', severity: '' }))
     fireEvent.click(screen.getByRole('button', { name: '问题严重程度测试数据项' }))
-    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: '', status: 'pending', severity: 'high' }))
-    fireEvent.click(within(document.querySelector('.workspace-content') as HTMLElement).getByRole('button', { name: '搜索' }))
-    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: 'room-1', status: 'pending', severity: 'high' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ status: 'pending', severity: 'high' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ status: 'pending', severity: 'high' }))
     const select = screen.getByLabelText('处理状态')
     expect(within(select).getAllByRole('option', { hidden: true })).toHaveLength(3)
     fireEvent.change(select, { target: { value: 'in_progress' } })
-    await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('issue-1', { record_type: 'issue', status: 'in_progress' }))
-    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: 'room-1', status: 'pending', severity: 'high' }))
+    await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('issue-1', { record_type: 'issue', status: 'in_progress', expected_version: 1 }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ status: 'pending', severity: 'high' }))
     fireEvent.click(screen.getByRole('button', { name: '状态：待处理，点击取消' }))
-    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: 'room-1', status: '', severity: 'high' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ status: '', severity: 'high' }))
     fireEvent.click(screen.getByRole('button', { name: '严重程度：高，点击取消' }))
-    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: 'room-1', status: '', severity: '' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ status: '', severity: '' }))
     fireEvent.click(screen.getByRole('button', { name: '问题严重程度测试数据项' }))
     fireEvent.click(screen.getByRole('button', { name: '清除全部图表筛选' }))
-    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ space_id: 'room-1', status: '', severity: '' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ status: '', severity: '' }))
   })
 
   it('问题筛选空结果仍可清除，迟到的旧响应不能覆盖最新结果', async () => {
@@ -531,9 +546,9 @@ describe('CoreViews', () => {
 
   it('使用分组侧栏导航并可展开移动端导航', async () => {
     const { container } = render(<CoreViews><p>录入工作台</p></CoreViews>)
-    expect(screen.getByRole('heading', { name: '工作台' })).toBeTruthy()
-    expect(screen.getByRole('heading', { name: '业务管理' })).toBeTruthy()
-    expect(screen.getByRole('heading', { name: '数据分析' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '日常记录' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '查看与回顾' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '辅助工具' })).toBeTruthy()
     const menu = screen.getByRole('button', { name: '打开导航' })
     expect(menu.getAttribute('aria-expanded')).toBe('false')
     fireEvent.click(menu)
@@ -554,7 +569,7 @@ describe('CoreViews', () => {
   it('在录入与时间线之间导航，并能打开可追溯详情', async () => {
     render(<CoreViews><p>录入工作台</p></CoreViews>)
     expect(await screen.findByText('装修概览')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '录入' }))
+    fireEvent.click(screen.getByRole('button', { name: '随手记与整理' }))
     expect(screen.getByText('录入工作台')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '时间线' }))
@@ -613,10 +628,10 @@ describe('CoreViews', () => {
     expect(help.parentElement?.hasAttribute('open')).toBe(true)
   })
 
-  it('账本用每月净支出趋势替换逐笔资金流水卡片', async () => {
+  it('账本同时展示可操作明细与服务端每月净支出趋势', async () => {
     vi.mocked(api.getLedgerSummary).mockResolvedValueOnce({
       totals: { expense_minor: 90000, refund_minor: 10000, income_minor: 5000, net_expense_minor: 75000 },
-      ledger_entries: [{ ...record, id: 'ledger-trend', record_type: 'ledger', title: '不应显示的流水卡片', ledger_kind: 'payment', direction: 'expense', status: 'paid', amount_minor: 90000 }],
+      ledger_entries: [{ ...record, id: 'ledger-trend', record_type: 'ledger', title: '可查看的账目明细', ledger_kind: 'payment', direction: 'expense', status: 'paid', amount_minor: 90000 }],
       analytics: {
         money_trend: [
           { key: '2026-05', label: '2026年5月', expense_minor: 50000, refund_minor: 10000, income_minor: 0 },
@@ -631,7 +646,8 @@ describe('CoreViews', () => {
     expect(await screen.findByRole('heading', { name: '每月净支出趋势' })).toBeTruthy()
     expect(screen.getByText(/2026年5月400元/)).toBeTruthy()
     expect(screen.getByText(/2026年6月350元/)).toBeTruthy()
-    expect(screen.queryByText('不应显示的流水卡片')).toBeNull()
+    expect(screen.getByText('可查看的账目明细')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '账目明细' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: '资金流水' })).toBeNull()
   })
 
@@ -916,6 +932,7 @@ describe('CoreViews', () => {
 
     openSingleSelect('状态', '已入账')
     openSingleSelect('账目类型', '收入')
+    fireEvent.click(within(detail).getByRole('button', { name: /更多信息与关联/ }))
     openSingleSelect('装修阶段', '竣工')
     openSingleSelect('交易对象（商家）', '补贴发放方')
 
@@ -998,11 +1015,12 @@ describe('CoreViews', () => {
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '待办与问题' }))
     const statusSelect = await screen.findByLabelText('处理状态')
-    expect(document.querySelector('.issue-page-header .issue-filter-bar')).toBeTruthy()
+    expect(document.querySelector('.issue-filter-bar')).toBeNull()
+    expect(document.querySelector('.business-page-header h2')?.textContent).toBe('待办与问题')
     fireEvent.change(statusSelect, { target: { value: 'in_progress' } })
 
     await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith(
-      'issue-1', { record_type: 'issue', status: 'in_progress' },
+      'issue-1', { record_type: 'issue', status: 'in_progress', expected_version: 1 },
     ))
     const columns = document.querySelectorAll('.issue-column')
     expect(columns).toHaveLength(3)
@@ -1082,6 +1100,7 @@ describe('CoreViews', () => {
     fireEvent.click(within(detail).getByRole('button', { name: '修改记录' }))
     fireEvent.change(await within(detail).findByLabelText('状态'), { target: { value: 'completed' } })
     fireEvent.change(within(detail).getByLabelText('发生日期'), { target: { value: '2026-07-01' } })
+    fireEvent.click(within(detail).getByRole('button', { name: /更多信息与关联/ }))
     const spaces = within(detail).getByRole('group', { name: '空间' })
     fireEvent.click(within(spaces).getByText('请选择（可多选）'))
     fireEvent.click(screen.getByLabelText('主卧'))
@@ -1126,8 +1145,23 @@ describe('CoreViews', () => {
     fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
     const detail = await screen.findByLabelText('记录详情')
     fireEvent.click(within(detail).getByRole('button', { name: '删除记录' }))
-    await waitFor(() => expect(api.deleteRecord).toHaveBeenCalledWith('event-1'))
+    await waitFor(() => expect(api.deleteRecord).toHaveBeenCalledWith('event-1', 1))
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('原始来源和审计历史会保留'))
     confirm.mockRestore()
   })
+})
+
+it('扩展搜索按父记录展示过程摘要且支持分组分页', async () => {
+  const result: api.SearchResponse = {query:'进展',counts:{records:21,sources:0,materials:0,vendors:0,spaces:0,topics:1,pitfalls:1},groups:{records:[{...record,record_type:'issue',search_matches:[{kind:'issue_activity',id:'note1',excerpt:'追加进展命中'}]}],sources:[],materials:[],vendors:[],spaces:[],topics:[{id:'t',name:'主题命中',status:'active'}],pitfalls:[{id:'p',description:'踩坑命中',occurred_date:'2026-10-14',status:'resolved',resolutions:[],created_at:'2026-10-14',updated_at:'2026-10-14',search_matches:[{kind:'pitfall_resolution',id:'res1',excerpt:'处理过程命中'}]}]},offset:0,limit:20}
+  vi.mocked(api.searchRecords).mockResolvedValueOnce(result).mockResolvedValueOnce({...result,offset:20,groups:{...result.groups,records:[],topics:[],pitfalls:[]}})
+  render(<CoreViews><p>录入</p></CoreViews>)
+  fireEvent.click(screen.getAllByRole('button',{name:'搜索'}).at(-1)!)
+  fireEvent.change(screen.getByLabelText('关键词'),{target:{value:'进展'}})
+  fireEvent.click(screen.getAllByRole('button',{name:'搜索'}).at(-1)!)
+  await screen.findByText('主题命中')
+  expect(screen.getByText('踩坑命中')).toBeTruthy()
+  expect(screen.getByRole('button',{name:'事项进展：追加进展命中'})).toBeTruthy()
+  fireEvent.click(screen.getByRole('button',{name:'下一页'}))
+  await waitFor(()=>expect(api.searchRecords).toHaveBeenLastCalledWith(expect.objectContaining({q:'进展',offset:'20'})))
+  await waitFor(()=>expect(screen.getByRole('button',{name:'下一页'})).toHaveProperty('disabled',true))
 })

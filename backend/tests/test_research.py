@@ -1,9 +1,66 @@
 from __future__ import annotations
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.domain_models import Record, ResearchConclusion, ResearchDetail
+from app.models import AuditEntry, SourceEntry
 from tests.test_pitfalls import _client
+
+
+def test_research_background_associations_and_atomic_updates() -> None:
+    client = _client()
+    references = {
+        "space_ids": [client.post("/api/v1/spaces", json={
+            "name": "厨房", "kind": "room",
+        }).json()["id"]],
+        "material_ids": [client.post("/api/v1/materials", json={
+            "name": "开关",
+        }).json()["id"]],
+        "participant_ids": [client.post("/api/v1/participants", json={
+            "name": "电工",
+        }).json()["id"]],
+        "stage_id": client.post("/api/v1/stages", json={"name": "水电"}).json()["id"],
+        "related_record_ids": [client.post("/api/v1/research", json={
+            "title": "关联事项",
+        }).json()["id"]],
+    }
+    response = client.post("/api/v1/research", json={"title": "开关调研", **references})
+    assert response.status_code == 201
+    record = response.json()
+    route = f"/api/v1/research/{record['id']}"
+    for key, value in references.items():
+        assert record[key] == value
+    assert client.patch(route, json={"description": "补充背景"}).status_code == 200
+    unchanged = client.get(route).json()
+    for key, value in references.items():
+        assert unchanged[key] == value
+    # 无效引用与自身关联均回滚标题、已有关联及审计写入。
+    for key in ("space_ids", "material_ids", "participant_ids", "related_record_ids"):
+        invalid = client.patch(route, json={"title": "不应保存", key: ["missing"]})
+        assert invalid.status_code == 400
+        assert client.get(route).json()["title"] == "开关调研"
+        assert client.get(route).json()[key] == references[key]
+    assert client.patch(route, json={"related_record_ids": [record["id"]]}).status_code == 400
+    cleared = client.patch(route, json={
+        key: None if key == "stage_id" else [] for key in references
+    }).json()
+    for key in references:
+        assert cleared[key] == (None if key == "stage_id" else [])
+    assert client.get(f"/api/v1/records/{record['id']}").json()["space_ids"] == []
+    for key in ("space_ids", "material_ids", "participant_ids", "related_record_ids"):
+        assert client.patch(route, json={key: None}).status_code == 422
+    before_count = len(client.get("/api/v1/records").json())
+    with Session(client.app.state.engine) as db:
+        source_count = db.scalar(select(func.count()).select_from(SourceEntry))
+        audit_count = db.scalar(select(func.count()).select_from(AuditEntry))
+    assert client.post("/api/v1/research", json={
+        "title": "失败创建", "material_ids": ["missing"],
+    }).status_code == 400
+    assert len(client.get("/api/v1/records").json()) == before_count
+    with Session(client.app.state.engine) as db:
+        assert db.scalar(select(func.count()).select_from(SourceEntry)) == source_count
+        assert db.scalar(select(func.count()).select_from(AuditEntry)) == audit_count
 
 
 def test_research_workflow_and_disabled_conclusions() -> None:

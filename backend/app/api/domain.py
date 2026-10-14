@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo
@@ -42,7 +43,9 @@ from app.ledger_rules import LEDGER_DIRECTION_BY_KIND, valid_statuses_for_ledger
 from app.local_suggestions import suggest_from_text
 from app.models import Attachment, SourceEntry
 from app.projections import serialize_records
-from app.record_schemas import RecordCreate, RecordUpdate
+from app.record_schemas import DirectRecordCreate, RecordCreate, RecordUpdate
+from app.record_version import bump_record_version
+from app.topic_service import get_record_topic_ids, log_issue_status, replace_record_topics
 
 router = APIRouter(tags=["domain"])
 User = Annotated[CurrentUser, Depends(require_user)]
@@ -58,6 +61,7 @@ COMMON_FIELDS = {
     "status",
 }
 ASSOCIATION_FIELDS = {
+    "topic_ids",
     "source_refs",
     "space_ids",
     "material_ids",
@@ -549,7 +553,8 @@ def _validate_record_refs(db: Session, payload: dict[str, Any]) -> None:
 
 def _detail_values(record_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     excluded = COMMON_FIELDS | ASSOCIATION_FIELDS | {
-        "record_type", "values", "conclusion", "conclusion_reason", "conclusion_entry_id"
+        "record_type", "version", "expected_version", "values", "conclusion",
+        "conclusion_reason", "conclusion_entry_id"
     }
     values = {key: value for key, value in payload.items() if key not in excluded}
     renames = DETAIL_RENAMES_TO_DB.get(record_type, {})
@@ -622,6 +627,9 @@ def _replace_record_relations(
     related_ids = set(payload["related_record_ids"] or [])
     if record_id in related_ids:
         raise HTTPException(status_code=400, detail="记录不能关联自身。")
+    old_ids = set(_related_record_ids(db, record_id))
+    for related_id in sorted(old_ids ^ related_ids):
+        bump_record_version(db, _get_record(db, related_id))
     db.execute(
         delete(RecordRelation).where(
             (RecordRelation.from_record_id == record_id)
@@ -700,6 +708,7 @@ def _record_json(db: Session, record: Record) -> dict[str, Any]:
         ]
     return {
         "id": record.id,
+        "version": record.version,
         "project_id": record.project_id,
         "record_type": record.record_type,
         "title": record.title,
@@ -716,6 +725,7 @@ def _record_json(db: Session, record: Record) -> dict[str, Any]:
         "participant_ids": _association_ids(db, record_participants, "participant_id", record.id),
         "attachment_ids": _association_ids(db, record_attachments, "attachment_id", record.id),
         "related_record_ids": _related_record_ids(db, record.id),
+        "topic_ids": get_record_topic_ids(db, record.id),
         **detail_values,
     }
 
@@ -762,6 +772,10 @@ def _create_record_in_session(
     _replace_record_relations(db, record.id, payload)
     if record.record_type == "measurement":
         _replace_measurements(db, record.id, payload["values"])
+    # 主题归属与业务历史同正式记录一起提交，失败时不保留半条数据。
+    replace_record_topics(db, record, payload.get("topic_ids", []))
+    if record.record_type == "issue":
+        log_issue_status(db, record, None)
     db.flush()
     log_audit(db, "create", "records", record.id, after=payload)
     return record
@@ -773,6 +787,43 @@ def create_record(request: Request, body: RecordCreate, user: User) -> dict[str,
     try:
         _current_project(db)
         record = _create_record_in_session(db, body)
+        result = _record_json(db, record)
+        db.commit()
+        return result
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="记录或关联发生冲突。") from exc
+    finally:
+        db.close()
+
+
+@router.post("/records/direct", status_code=status.HTTP_201_CREATED)
+def create_direct_record(request: Request, body: DirectRecordCreate, user: User) -> dict[str, Any]:
+    db = _db(request)
+    try:
+        _current_project(db)
+        if not body.title.strip():
+            raise HTTPException(status_code=422, detail="标题不能为空。")
+        if body.record_type == "issue" and not body.phenomenon.strip():
+            raise HTTPException(status_code=422, detail="事项内容不能为空。")
+        # 业务页直接保存仍保留完整录入快照，来源与正式记录在同一事务提交。
+        payload = body.model_dump(mode="json", exclude={"source_refs"})
+        source = SourceEntry(
+            project_id=DEFAULT_PROJECT_ID, input_type="text",
+            original_text=body.title + "\n录入字段：\n" + json.dumps(
+                payload, ensure_ascii=False, indent=2,
+            ),
+        )
+        db.add(source)
+        db.flush()
+        log_audit(db, "create", "source_entries", source.id, after={
+            "input_type": "text", "original_text": source.original_text,
+        })
+        # 复用正式记录模型和写入流程，关联有效性及完成状态校验保持一致。
+        record_body = RECORD_CREATE_ADAPTER.validate_python({
+            **payload, "source_refs": [{"source_id": source.id}],
+        })
+        record = _create_record_in_session(db, record_body)
         result = _record_json(db, record)
         db.commit()
         return result
@@ -889,6 +940,8 @@ def confirm_local_suggestions(
                     relation_type="relates_to",
                 )
                 db.add(relation)
+                bump_record_version(db, from_record)
+                bump_record_version(db, to_record)
                 db.flush()
                 log_audit(
                     db,
@@ -984,6 +1037,7 @@ def update_record(
             raise HTTPException(status_code=409, detail="记录类型创建后不可修改。")
         before = _record_json(db, record)
         payload = body.model_dump(exclude_unset=True)
+        bump_record_version(db, record, payload.pop("expected_version"))
         if record.record_type == "issue":
             previous_status = before.get("status")
             next_status = payload.get("status", previous_status)
@@ -1032,6 +1086,13 @@ def update_record(
         _replace_record_relations(db, record.id, payload)
         if record.record_type == "measurement" and "values" in payload:
             _replace_measurements(db, record.id, payload["values"])
+        if "topic_ids" in payload:
+            replace_record_topics(db, record, payload["topic_ids"])
+        if record.record_type == "issue":
+            log_issue_status(
+                db, record, before["status"], before.get("actual_result"),
+                before.get("completed_at"),
+            )
         db.flush()
         after = _record_json(db, record)
         log_audit(db, "update", "records", record.id, before=before, after=after)
@@ -1080,11 +1141,13 @@ def _release_candidate_record(db: Session, record_id: str) -> None:
 
 
 @router.delete("/records/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_record(record_id: str, request: Request, user: User) -> None:
+def delete_record(record_id: str, request: Request, user: User,
+                  expected_version: int = Query(ge=1)) -> None:
     db = _db(request)
     try:
         record = _get_record(db, record_id)
         before = _record_json(db, record)
+        bump_record_version(db, record, expected_version)
         relations = db.scalars(
             select(RecordRelation).where(
                 (RecordRelation.from_record_id == record.id)
@@ -1092,6 +1155,9 @@ def delete_record(record_id: str, request: Request, user: User) -> None:
             )
         ).all()
         for relation in relations:
+            other_id = (relation.to_record_id if relation.from_record_id == record.id
+                        else relation.from_record_id)
+            bump_record_version(db, _get_record(db, other_id))
             log_audit(
                 db,
                 "delete",
@@ -1112,11 +1178,13 @@ def delete_record(record_id: str, request: Request, user: User) -> None:
         db.close()
 
 
-def _set_archived(record_id: str, request: Request, archived: bool) -> dict[str, Any]:
+def _set_archived(record_id: str, request: Request, archived: bool,
+                  expected_version: int) -> dict[str, Any]:
     db = _db(request)
     try:
         record = _get_record(db, record_id)
         before = _record_json(db, record)
+        bump_record_version(db, record, expected_version)
         record.archived_at = _now() if archived else None
         record.updated_at = _now()
         after = _record_json(db, record)
@@ -1129,13 +1197,15 @@ def _set_archived(record_id: str, request: Request, archived: bool) -> dict[str,
 
 
 @router.post("/records/{record_id}/archive")
-def archive_record(record_id: str, request: Request, user: User) -> dict[str, Any]:
-    return _set_archived(record_id, request, True)
+def archive_record(record_id: str, request: Request, user: User,
+                   expected_version: int = Query(ge=1)) -> dict[str, Any]:
+    return _set_archived(record_id, request, True, expected_version)
 
 
 @router.post("/records/{record_id}/restore")
-def restore_record(record_id: str, request: Request, user: User) -> dict[str, Any]:
-    return _set_archived(record_id, request, False)
+def restore_record(record_id: str, request: Request, user: User,
+                   expected_version: int = Query(ge=1)) -> dict[str, Any]:
+    return _set_archived(record_id, request, False, expected_version)
 
 
 @router.post("/records/{record_id}/source-reviews/{source_id}")
@@ -1161,6 +1231,7 @@ def review_record_source(
             raise HTTPException(status_code=404, detail="正式记录未关联该来源。")
         previous_revision = row.source_revision
         if previous_revision < source.revision:
+            bump_record_version(db, record)
             db.execute(
                 update(record_sources)
                 .where(
@@ -1225,6 +1296,9 @@ def create_relation(request: Request, body: RelationInput, user: User) -> dict[s
             relation_type="relates_to",
         )
         db.add(relation)
+        bump_record_version(db, from_record)
+        if from_record.id != to_record.id:
+            bump_record_version(db, to_record)
         db.flush()
         result = {
             "id": relation.id,
@@ -1254,6 +1328,8 @@ def delete_relation(relation_id: str, request: Request, user: User) -> None:
             "to_record_id": relation.to_record_id,
             "relation_type": relation.relation_type,
         }
+        for record_id in {relation.from_record_id, relation.to_record_id}:
+            bump_record_version(db, _get_record(db, record_id))
         db.delete(relation)
         log_audit(db, "delete", "record_relations", relation.id, before=before)
         db.commit()

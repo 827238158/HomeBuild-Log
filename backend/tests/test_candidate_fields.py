@@ -18,7 +18,9 @@ def test_ledger_currency_aliases_and_foreign_currency_rejection() -> None:
         parsed = adapter.validate_python({**base, "currency": currency})
         assert parsed.currency == "CNY"
         assert parsed.amount_minor == 33826
-        updated = LedgerUpdate.model_validate({"record_type": "ledger", "currency": currency})
+        updated = LedgerUpdate.model_validate({
+            "record_type": "ledger", "currency": currency, "expected_version": 1,
+        })
         assert updated.currency == "CNY"
     assert adapter.validate_python(base).currency == "CNY"
     for currency in ["USD", "美元", "", None]:

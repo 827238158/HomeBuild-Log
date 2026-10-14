@@ -29,6 +29,10 @@ export interface SourceDetail extends SourceEntry {
 }
 
 export interface DomainRecord {
+  version?: number
+  due_date?: string | null
+  search_matches?: SearchMatch[]
+  topic_ids?: string[]
   id: string
   record_type: string
   title: string
@@ -206,6 +210,7 @@ export interface AiAnalyticsRunsResponse {
   offset: number
 }
 
+export interface SearchMatch { kind: string; id: string; excerpt: string }
 export interface SearchResponse {
   query: string | null
   counts: Record<string, number>
@@ -215,6 +220,8 @@ export interface SearchResponse {
     materials: NamedEntity[]
     vendors: NamedEntity[]
     spaces: SpaceEntry[]
+    topics?: Array<{ id: string; name: string; status: string; goal?: string | null; current_situation?: string | null; search_matches?: SearchMatch[] }>
+    pitfalls?: Array<PitfallEntry & { search_matches?: SearchMatch[] }>
   }
   limit: number
   offset: number
@@ -270,6 +277,7 @@ export type CandidateCertainty =
   | 'missing'
 
 export interface CandidateSuggestion extends Omit<LocalSuggestion, 'certainty'> {
+  evidence_validation?: 'valid' | 'invalid'
   certainty: CandidateCertainty
   review_state: 'active' | 'deferred' | 'confirmed'
   deferred_at: string | null
@@ -277,6 +285,7 @@ export interface CandidateSuggestion extends Omit<LocalSuggestion, 'certainty'> 
 }
 
 export interface CandidateBundle {
+  source_text?: string
   id: string
   source_id: string
   source_revision: number
@@ -339,6 +348,7 @@ export interface PitfallResolution {
 }
 
 export interface PitfallEntry {
+  topic_ids?: string[]
   id: string
   occurred_date: string
   description: string
@@ -389,6 +399,11 @@ export const createRecord = (payload: Record<string, unknown>) =>
     method: 'POST',
     body: JSON.stringify(payload),
   })
+export const createDirectRecord = (payload: Record<string, unknown>) =>
+  requestJson<DomainRecord>(`${API_BASE}/records/direct`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 export const createExtraction = (
   sourceId: string,
   engine: 'auto' | 'ai' | 'mimo' | 'deepseek' | 'local' = 'auto',
@@ -405,7 +420,7 @@ export const getLatestCandidateBundle = (sourceId: string) =>
 export const confirmCandidateBundle = (
   bundleId: string,
   expectedVersion: number,
-  selections: Array<{ key: string; payload: Record<string, unknown> }>,
+  selections: Array<{ key: string; payload: Record<string, unknown>; evidence?: string }>,
   ignoredKeys: string[] = [],
   relations?: Array<{ from_key: string; to_key: string }>,
 ) => requestJson<{
@@ -428,10 +443,10 @@ export const updateRecord = (id: string, payload: Record<string, unknown>) =>
     method: 'PATCH',
     body: JSON.stringify(payload),
   })
-export const deleteRecord = (id: string) =>
-  requestJson<void>(`${API_BASE}/records/${id}`, { method: 'DELETE' })
-export const setRecordArchived = (id: string, archived: boolean) =>
-  requestJson<DomainRecord>(`${API_BASE}/records/${id}/${archived ? 'archive' : 'restore'}`, {
+export const deleteRecord = (id: string, expectedVersion?: number) =>
+  requestJson<void>(`${API_BASE}/records/${id}?expected_version=${expectedVersion ?? ''}`, { method: 'DELETE' })
+export const setRecordArchived = (id: string, archived: boolean, expectedVersion?: number) =>
+  requestJson<DomainRecord>(`${API_BASE}/records/${id}/${archived ? 'archive' : 'restore'}?expected_version=${expectedVersion ?? ''}`, {
     method: 'POST',
   })
 export const reviewRecordSource = (recordId: string, sourceId: string) =>
@@ -507,11 +522,11 @@ export const getAiAnalyticsRuns = (range = '30d', offset = 0) =>
 
 export const listPitfalls = (state: 'all' | 'unresolved' | 'resolved' = 'all') =>
   requestJson<PitfallListResponse>(`${API_BASE}/pitfalls?state=${state}`)
-export const createPitfall = (payload: { occurred_date: string; description: string }) =>
+export const createPitfall = (payload: { occurred_date: string; description: string; topic_ids?: string[] }) =>
   requestJson<PitfallEntry>(`${API_BASE}/pitfalls`, {
     method: 'POST', body: JSON.stringify(payload),
   })
-export const updatePitfall = (id: string, payload: { occurred_date: string; description: string }) =>
+export const updatePitfall = (id: string, payload: { occurred_date: string; description: string; topic_ids?: string[] }) =>
   requestJson<PitfallEntry>(`${API_BASE}/pitfalls/${id}`, {
     method: 'PATCH', body: JSON.stringify(payload),
   })
@@ -533,3 +548,7 @@ export const deletePitfallResolution = (id: string) =>
   requestJson<void>(`${API_BASE}/pitfalls/resolutions/${id}`, { method: 'DELETE' })
 export const analyzePitfalls = () =>
   requestJson<PitfallAIAnalysis>(`${API_BASE}/pitfalls/analyze`, { method: 'POST' })
+
+export interface IssueActivity { id: string; record_id: string; kind: 'status' | 'note'; previous_status: string | null; next_status: string | null; content: string | null; created_at: string }
+export const listIssueActivities = (id: string) => requestJson<{ items: IssueActivity[] }>(`${API_BASE}/records/${encodeURIComponent(id)}/activities`)
+export const appendIssueActivity = (id: string, content: string) => requestJson<{ items: IssueActivity[] }>(`${API_BASE}/records/${encodeURIComponent(id)}/activities`, { method: 'POST', body: JSON.stringify({ content }) })

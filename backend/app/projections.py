@@ -27,6 +27,7 @@ from app.domain_models import (
     record_spaces,
 )
 from app.models import SourceEntry
+from app.topic_models import RecordTopic
 
 
 def _plain(value: Any) -> Any:
@@ -57,6 +58,7 @@ def _named_associations(
 ) -> dict[str, list[dict[str, str]]]:
     if not record_ids:
         return {}
+
     rows = db.execute(
         select(table.c.record_id, target_model.id, target_model.name)
         .join(target_model, getattr(table.c, target_column) == target_model.id)
@@ -73,6 +75,13 @@ def serialize_records(db: Session, records: list[Record]) -> dict[str, dict[str,
     record_ids = [record.id for record in records]
     if not record_ids:
         return {}
+
+    # 批量读取主题归属，详情与各业务视图共享同一份关联。
+    topic_ids: dict[str, list[str]] = defaultdict(list)
+    for record_id, topic_id in db.execute(select(
+        RecordTopic.record_id, RecordTopic.topic_id,
+    ).where(RecordTopic.record_id.in_(record_ids))):
+        topic_ids[record_id].append(topic_id)
 
     source_rows = db.execute(
         select(
@@ -175,6 +184,7 @@ def serialize_records(db: Session, records: list[Record]) -> dict[str, dict[str,
         vendor_id = detail.get("vendor_id")
         result[record.id] = {
             "id": record.id,
+            "version": record.version,
             "project_id": record.project_id,
             "record_type": record.record_type,
             "title": record.title,
@@ -197,6 +207,7 @@ def serialize_records(db: Session, records: list[Record]) -> dict[str, dict[str,
             "participants": participants.get(record.id, []),
             "attachment_ids": attachment_ids.get(record.id, []),
             "related_record_ids": sorted(set(related_record_ids.get(record.id, []))),
+            "topic_ids": sorted(topic_ids.get(record.id, [])),
             "vendor": vendors.get(vendor_id),
             **detail,
         }

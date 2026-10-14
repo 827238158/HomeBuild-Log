@@ -41,15 +41,19 @@ def overview(request: Request, user: User) -> dict[str, Any]:
         serialized = serialize_records(db, records)
         rows = [serialized[record.id] for record in records]
         today = _today()
-        horizon = today + timedelta(days=7)
+        horizon = today + timedelta(days=6)
 
         open_issues = [
             record
             for record in rows
             if record["record_type"] == "issue" and record["status"] != "done"
         ]
-        overdue: list[dict[str, Any]] = []
-        upcoming: list[dict[str, Any]] = []
+        overdue = [row for row in open_issues
+                   if row.get("due_date") and row["due_date"] < today.isoformat()]
+        upcoming = [row for row in open_issues if row.get("due_date")
+                    and today.isoformat() <= row["due_date"] <= horizon.isoformat()]
+        overdue.sort(key=lambda row: (row["due_date"], row["id"]))
+        upcoming.sort(key=lambda row: (row["due_date"], row["id"]))
         recent = sorted(
             rows,
             key=lambda item: str(item.get("occurred_date") or item.get("created_at") or ""),

@@ -1,5 +1,8 @@
+import { VoiceField } from './VoiceField'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from 'react'
 
+import { useTopicDraft } from './useTopicDraft'
+import { TopicSelect } from './TopicSelect'
 import pitfallRegretDiorama from './assets/pitfall-regret-diorama.webp'
 import {
   analyzePitfalls,
@@ -56,7 +59,8 @@ function useFormDraft(key: string, initial: { date: string; text: string }) {
   return { draft, change, clear }
 }
 
-function PitfallForm({ item, onSaved, onCancel }: {
+function PitfallForm({ item, onSaved, onCancel, initialTopicId }: {
+  initialTopicId?: string
   item?: PitfallEntry
   onSaved: () => void
   onCancel?: () => void
@@ -64,6 +68,7 @@ function PitfallForm({ item, onSaved, onCancel }: {
   const { draft, change, clear } = useFormDraft(`homebuild:pitfall:${item?.id ?? 'new'}`, { date: item?.occurred_date ?? beijingToday(), text: item?.description ?? '' })
   const { date: occurredDate, text: description } = draft
   const [saving, setSaving] = useState(false)
+  const { value: topicIds, change: setTopicIds, clear: clearTopics } = useTopicDraft(`pitfall:${item?.id ?? `new:${initialTopicId ?? 'none'}`}:topics`, item?.topic_ids ?? (initialTopicId ? [initialTopicId] : []), saving)
   const [error, setError] = useState('')
 
   const submit = async (event: FormEvent) => {
@@ -75,10 +80,11 @@ function PitfallForm({ item, onSaved, onCancel }: {
     setSaving(true)
     setError('')
     try {
-      const payload = { occurred_date: occurredDate, description: description.trim() }
+      const payload = { occurred_date: occurredDate, description: description.trim(), topic_ids: topicIds }
       if (item) await updatePitfall(item.id, payload)
       else await createPitfall(payload)
       clear()
+      clearTopics()
       onSaved()
     } catch (reason) {
       setError(messageOf(reason))
@@ -91,10 +97,11 @@ function PitfallForm({ item, onSaved, onCancel }: {
     <div className="pitfall-form__meta">
       <label><span>发生日期</span><input type="date" value={occurredDate} required onChange={(event) => change({ ...draft, date: event.target.value })} /></label>
     </div>
-    <label className="pitfall-form__content"><span>踩坑经过</span><textarea value={description} maxLength={10000} rows={item ? 4 : 3} placeholder="发生了什么？先记下事实，之后可继续追加处理过程。" onChange={(event) => change({ ...draft, text: event.target.value })} /></label>
+    <label className="pitfall-form__content"><span>踩坑经过</span><VoiceField><textarea value={description} maxLength={10000} rows={item ? 4 : 3} placeholder="发生了什么？先记下事实，之后可继续追加处理过程。" onChange={(event) => change({ ...draft, text: event.target.value })} /></VoiceField></label>
+    <TopicSelect value={topicIds} onChange={setTopicIds} disabled={saving} />
     <div className="pitfall-form__actions">
       {error && <p className="error-text" role="alert">{error}</p>}
-      {onCancel && <button type="button" className="secondary-button" onClick={() => { clear(); onCancel() }}>放弃修改</button>}
+      {onCancel && <button type="button" className="secondary-button" onClick={() => { clear(); clearTopics(); onCancel() }}>放弃修改</button>}
       <button type="submit" disabled={saving}>{saving ? '保存中…' : item ? '保存修改' : '记下这次踩坑'}</button>
     </div>
   </form>
@@ -132,7 +139,7 @@ function ResolutionForm({ pitfallId, item, onSaved, onCancel }: {
   }
   return <form className="resolution-form" onSubmit={submit}>
     <label><span>处理日期</span><input type="date" value={resolvedDate} required onChange={(event) => change({ ...draft, date: event.target.value })} /></label>
-    <label className="resolution-form__content"><span>处理内容</span><textarea rows={3} maxLength={10000} value={content} placeholder="这次做了什么、结果怎样？" onChange={(event) => change({ ...draft, text: event.target.value })} /></label>
+    <label className="resolution-form__content"><span>处理内容</span><VoiceField><textarea rows={3} maxLength={10000} value={content} placeholder="这次做了什么、结果怎样？" onChange={(event) => change({ ...draft, text: event.target.value })} /></VoiceField></label>
     <div className="resolution-form__actions"><button type="button" className="secondary-button" onClick={() => { clear(); onCancel() }}>{item ? '放弃修改' : '放弃本次处理'}</button><button type="submit" disabled={saving}>{saving ? '保存中…' : item ? '保存修改' : '追加处理记录'}</button></div>
     {error && <p className="error-text" role="alert">{error}</p>}
   </form>
@@ -142,19 +149,24 @@ function AnalysisList({ title, items, empty }: { title: string; items: string[];
   return <section><h4>{title}</h4>{items.length > 0 ? <ul>{items.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : <p className="muted">{empty}</p>}</section>
 }
 
-export function PitfallsView() {
+export function PitfallsView({ initialPitfallId, initialTopicId, initialMatchId }: { initialPitfallId?: string; initialTopicId?: string; initialMatchId?: string } = {}) {
+  const openedInitialPitfall = useRef('')
   const [filter, setFilter] = useState<Filter>('all')
   const [items, setItems] = useState<PitfallEntry[]>([])
   const [summary, setSummary] = useState({ total: 0, unresolved: 0, resolved: 0 })
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [editingId, setEditingId] = useState('')
+  const [editingId, setEditingId] = useState(initialPitfallId ?? '')
   const [addingToId, setAddingToId] = useState('')
   const [editingResolutionId, setEditingResolutionId] = useState('')
+  const focusedMatch = useRef('')
+  useEffect(() => { if (!initialMatchId || focusedMatch.current === initialMatchId) return; const frame = requestAnimationFrame(() => { const node = Array.from(document.querySelectorAll<HTMLElement>('[data-search-match]')).find(element => element.dataset.searchMatch === initialMatchId); if (node) focusedMatch.current = initialMatchId; node?.focus({ preventScroll: true }); node?.scrollIntoView?.({ block: 'center' }) }); return () => cancelAnimationFrame(frame) }, [initialMatchId, items])
   const [analysis, setAnalysis] = useState<PitfallAIAnalysis | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisError, setAnalysisError] = useState('')
   const [revision, setRevision] = useState(0)
+  const analysisGeneration = useRef(0)
+  useEffect(() => () => { analysisGeneration.current += 1 }, [])
   const filterTabsRef = useRef<HTMLDivElement>(null)
   const [filterIndicatorStyle, setFilterIndicatorStyle] = useState<CSSProperties>({})
 
@@ -201,7 +213,21 @@ export function PitfallsView() {
     return () => { active = false }
   }, [filter, revision])
 
+  useEffect(() => {
+    if (!initialPitfallId || loading || openedInitialPitfall.current === initialPitfallId) return
+    openedInitialPitfall.current = initialPitfallId
+    setEditingId(initialPitfallId)
+    requestAnimationFrame(() => {
+      const entry = document.getElementById(`pitfall-${initialPitfallId}`)
+      // 深链接先稳定键盘焦点，再明确把目标事项带到可视区域。
+      entry?.focus({ preventScroll: true }); entry?.scrollIntoView?.({ block: 'start' })
+    })
+  }, [initialPitfallId, loading])
+
   const refresh = () => {
+    analysisGeneration.current += 1
+    setAnalyzing(false)
+    if (analysis || analyzing) setAnalysisError('数据已变化，请重新分析。')
     setEditingId('')
     setAddingToId('')
     setEditingResolutionId('')
@@ -230,22 +256,24 @@ export function PitfallsView() {
   }
 
   const runAnalysis = async () => {
+    const generation = ++analysisGeneration.current
     setAnalyzing(true)
     setAnalysisError('')
     setAnalysis(null)
     try {
-      setAnalysis(await analyzePitfalls())
+      const result = await analyzePitfalls()
+      if (generation === analysisGeneration.current) setAnalysis(result)
     } catch (error) {
-      setAnalysisError(messageOf(error))
+      if (generation === analysisGeneration.current) setAnalysisError(messageOf(error))
     } finally {
-      setAnalyzing(false)
+      if (generation === analysisGeneration.current) setAnalyzing(false)
     }
   }
 
   return <section className="view-panel pitfalls-page">
     <header className="pitfalls-page__header"><div><h2>踩坑记录</h2></div><button type="button" className="secondary-button" disabled={analyzing || summary.total === 0} onClick={runAnalysis}>{analyzing ? 'AI 分析中…' : '一键分析全部'}</button></header>
 
-    <section className="pitfall-capture" aria-labelledby="pitfall-capture-title"><PitfallRegretTheme /><PitfallForm onSaved={refresh} /></section>
+    <section className="pitfall-capture" aria-labelledby="pitfall-capture-title"><PitfallRegretTheme /><PitfallForm initialTopicId={initialTopicId} onSaved={refresh} /></section>
 
     <div className="pitfall-toolbar">
       <div className="pitfall-summary" aria-label="踩坑记录摘要"><span><strong>{summary.total}</strong> 全部</span><span><strong>{summary.unresolved}</strong> 未处理</span><span><strong>{summary.resolved}</strong> 已处理</span></div>
@@ -260,14 +288,14 @@ export function PitfallsView() {
     {loading && <div className="empty-state" role="status"><h3>正在整理时间记录…</h3><p>稍等片刻。</p></div>}
     {!loading && !loadError && items.length === 0 && <div className="empty-state"><h3>{summary.total === 0 ? '还没有踩坑记录' : '当前筛选下没有记录'}</h3><p>{summary.total === 0 ? '从上方快速记下第一条，之后可以持续追加处理过程。' : '切换筛选条件即可查看其他记录。'}</p></div>}
 
-    {!loading && !loadError && items.length > 0 && <div className="pitfall-timeline">{items.map((item, motionIndex) => <article className="pitfall-entry timeline-motion-item" data-motion-index={motionIndex} style={{ '--motion-index': motionIndex } as CSSProperties} key={item.id}>
+    {!loading && !loadError && items.length > 0 && <div className="pitfall-timeline">{items.map((item, motionIndex) => <article id={`pitfall-${item.id}`} tabIndex={-1} className="pitfall-entry timeline-motion-item" data-motion-index={motionIndex} style={{ '--motion-index': motionIndex } as CSSProperties} key={item.id}>
       <div className="pitfall-entry__date"><time dateTime={item.occurred_date}>{formatCalendarDate(item.occurred_date)}</time></div>
       <div className="pitfall-entry__body">
         <header><span className={`status-tag status-tag--${item.status === 'resolved' ? 'success' : 'warning'}`}>{item.status === 'resolved' ? '已处理' : '未处理'}</span><div className="inline-actions"><button type="button" className="text-button" onClick={() => { setEditingId(item.id); setAddingToId('') }}>修改</button><button type="button" className="text-button text-button--danger" onClick={() => void removePitfall(item)}>删除</button></div></header>
         {editingId === item.id ? <PitfallForm item={item} onSaved={refresh} onCancel={() => setEditingId('')} /> : <p className="pitfall-entry__description">{item.description}</p>}
         <section className="resolution-history"><header><div><h4>处理过程</h4><span>{item.resolutions.length} 条</span></div><button type="button" className="secondary-button" onClick={() => { setAddingToId(item.id); setEditingResolutionId(''); setEditingId('') }}>+ 追加处理</button></header>
           {item.resolutions.length === 0 && addingToId !== item.id && <p className="resolution-empty">还没有处理记录，追加第一条后将自动变为“已处理”。</p>}
-          {item.resolutions.map((resolution) => <div className="resolution-item" key={resolution.id}><div className="resolution-item__marker" aria-hidden="true" /><div className="resolution-item__content">{editingResolutionId === resolution.id ? <ResolutionForm pitfallId={item.id} item={resolution} onSaved={refresh} onCancel={() => setEditingResolutionId('')} /> : <><header><time dateTime={resolution.resolved_date}>{formatCalendarDate(resolution.resolved_date)}</time><div className="inline-actions"><button type="button" className="text-button" onClick={() => { setEditingResolutionId(resolution.id); setAddingToId('') }}>修改</button><button type="button" className="text-button text-button--danger" onClick={() => void removeResolution(resolution)}>删除</button></div></header><p>{resolution.content}</p></>}</div></div>)}
+          {item.resolutions.map((resolution) => <div className="resolution-item" key={resolution.id} data-search-match={resolution.id} tabIndex={-1}><div className="resolution-item__marker" aria-hidden="true" /><div className="resolution-item__content">{editingResolutionId === resolution.id ? <ResolutionForm pitfallId={item.id} item={resolution} onSaved={refresh} onCancel={() => setEditingResolutionId('')} /> : <><header><time dateTime={resolution.resolved_date}>{formatCalendarDate(resolution.resolved_date)}</time><div className="inline-actions"><button type="button" className="text-button" onClick={() => { setEditingResolutionId(resolution.id); setAddingToId('') }}>修改</button><button type="button" className="text-button text-button--danger" onClick={() => void removeResolution(resolution)}>删除</button></div></header><p>{resolution.content}</p></>}</div></div>)}
           {addingToId === item.id && <ResolutionForm pitfallId={item.id} onSaved={refresh} onCancel={() => setAddingToId('')} />}
         </section>
       </div>

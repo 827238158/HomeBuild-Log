@@ -17,6 +17,7 @@ from app.audit import log_audit
 from app.auth import CurrentUser, require_user
 from app.db import create_session_factory
 from app.domain_models import DEFAULT_PROJECT_ID, Pitfall, PitfallResolution, Project
+from app.topic_service import get_pitfall_topic_ids, replace_pitfall_topics
 
 router = APIRouter(tags=["pitfalls"], prefix="/pitfalls")
 User = Annotated[CurrentUser, Depends(require_user)]
@@ -41,11 +42,13 @@ def _required_text(value: str, label: str) -> str:
 
 
 class PitfallInput(BaseModel):
+    topic_ids: list[str] = Field(default_factory=list)
     occurred_date: date
     description: str = Field(max_length=10000)
 
 
 class PitfallUpdate(BaseModel):
+    topic_ids: list[str] | None = None
     occurred_date: date | None = None
     description: str | None = Field(default=None, max_length=10000)
 
@@ -79,7 +82,7 @@ def _resolution_json(item: PitfallResolution) -> dict[str, Any]:
     }
 
 
-def _pitfall_json(item: Pitfall) -> dict[str, Any]:
+def _pitfall_json(item: Pitfall, db: Session | None = None) -> dict[str, Any]:
     resolutions = sorted(item.resolutions, key=lambda row: (row.resolved_date, row.created_at))
     return {
         "id": item.id,
@@ -89,6 +92,7 @@ def _pitfall_json(item: Pitfall) -> dict[str, Any]:
         "resolutions": [_resolution_json(row) for row in resolutions],
         "created_at": item.created_at,
         "updated_at": item.updated_at,
+        "topic_ids": get_pitfall_topic_ids(db, item.id) if db is not None else [],
     }
 
 
@@ -138,7 +142,7 @@ def list_pitfalls(
             .where(Pitfall.project_id == DEFAULT_PROJECT_ID)
             .order_by(Pitfall.occurred_date.desc(), Pitfall.created_at.desc())
         ).scalars().all()
-        serialized = [_pitfall_json(item) for item in items]
+        serialized = [_pitfall_json(item, db) for item in items]
         total = len(serialized)
         unresolved = sum(item["status"] == "unresolved" for item in serialized)
         if state != "all":
@@ -163,9 +167,12 @@ def create_pitfall(request: Request, body: PitfallInput, user: User) -> dict[str
         )
         db.add(item)
         db.flush()
-        log_audit(db, "create", "pitfalls", item.id, after=jsonable_encoder(_pitfall_json(item)))
+        replace_pitfall_topics(db, item, body.topic_ids)
+        log_audit(
+            db, "create", "pitfalls", item.id, after=jsonable_encoder(_pitfall_json(item, db)),
+        )
         db.commit()
-        return _pitfall_json(item)
+        return _pitfall_json(item, db)
     finally:
         db.close()
 
@@ -260,13 +267,15 @@ def update_pitfall(
     db = _db(request)
     try:
         item = _get_pitfall(db, pitfall_id)
-        before = _pitfall_json(item)
+        before = _pitfall_json(item, db)
         if body.occurred_date is not None:
             item.occurred_date = body.occurred_date
         if body.description is not None:
             item.description = _required_text(body.description, "踩坑经过")
+        if "topic_ids" in body.model_fields_set:
+            replace_pitfall_topics(db, item, body.topic_ids)
         item.updated_at = _now()
-        after = _pitfall_json(item)
+        after = _pitfall_json(item, db)
         log_audit(
             db,
             "update",

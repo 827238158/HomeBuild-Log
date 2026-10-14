@@ -1,0 +1,29 @@
+.business-entry { margin-block: 16px; }
+/* 表单沿内容区展开，避免大屏被固定宽度截成半屏；字段按长短分列。 */
+.business-entry-fields { border: 0; padding: 20px 0 0; margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; width: 100%; min-width: 0; box-sizing: border-box; }
+.business-entry-wide { grid-column: 1 / -1; }
+.business-entry-fields .field-stack { min-width: 0; }
+.business-entry-fields input, .business-entry-fields textarea { width: 100%; box-sizing: border-box; }
+.business-entry-inline { display: flex; align-items: end; gap: 12px; }
+.business-entry-inline .field-stack { flex: 1; }
+.business-entry button, .business-entry input { min-height: 44px; }
+.business-entry button:not(.multi-select-summary):not(.record-associations__toggle) { padding: 10px 16px; border: 1px solid #1769c2; border-radius: 8px; background: #1769c2; color: #fff; font: inherit; cursor: pointer; }
+.business-entry button:not(.multi-select-summary):not(.record-associations__toggle):hover:not(:disabled) { background: #0d5cad; }
+.business-entry button:not(.multi-select-summary):not(.record-associations__toggle):disabled { background: #eef2f6; border-color: #cfd6de; color: #667085; cursor: default; }
+.business-entry button:focus-visible { outline: 2px solid #1769c2; outline-offset: 3px; }
+.business-entry > button[aria-expanded="true"] { background: #fff; color: #1769c2; }
+.business-entry > button[aria-expanded="true"]:hover { background: #e8f2ff; }
+@media (max-width: 600px) {
+  .business-entry-fields { grid-template-columns: minmax(0, 1fr); }
+  .business-entry-inline { align-items: stretch; flex-direction: column; }
+}
+
+/* 新增入口并入标题行，收起时不留单独的表单占位。 */
+.business-entry--page { margin: 0; }
+.view-panel .business-page-header { display: flex; flex-direction: row; justify-content: space-between; align-items: center; gap: 12px; margin: 0 0 12px; min-width: 0; }
+.view-panel .business-page-header h2 { margin: 0; min-width: 0; }
+.business-page-header .business-entry-toggle { flex-shrink: 0; min-height: 44px; padding: 8px 12px; border: 1px solid var(--primary, #1769c2); border-radius: 8px; background: var(--primary, #1769c2); color: #fff; font: inherit; cursor: pointer; white-space: nowrap; }
+.business-page-header .business-entry-toggle:disabled { cursor: default; opacity: .6; }
+.business-entry--page .business-entry-fields { padding-top: 0; gap: 12px; }
+.business-entry--page form { margin-bottom: 16px; }
+@media (max-width: 600px) { .view-panel .business-page-header h2 { font-size: 22px; } .business-page-header .business-entry-toggle { font-size: 14px; padding-inline: 10px; } }

@@ -1,0 +1,22 @@
+.business-home { margin-bottom: 28px; }
+.business-home h2 { margin: 0 0 16px; font-size: 24px; }
+.business-home > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.business-home button { display: flex; align-items: center; gap: 16px; min-height: 88px; padding: 18px; text-align: left; background: #fff; color: #1f2328; border: 1px solid #e1e6eb; border-radius: 12px; }
+.business-home button:hover { background: #e8f2ff; border-color: #1769c2; }
+.business-home svg { width: 26px; height: 26px; flex: 0 0 auto; color: #1769c2; }
+.business-home strong, .business-home small { display: block; }
+.business-home strong { font-size: 17px; }
+.business-home small { margin-top: 6px; color: #667085; }
+.business-ledger-list { margin: 24px 0; }
+.business-ledger-list > div { max-height: 420px; overflow-y: auto; }
+.business-ledger-list button { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; min-height: 64px; padding: 12px 4px; text-align: left; color: #1f2328; background: transparent; border: 0; border-bottom: 1px solid #e1e6eb; border-radius: 0; }
+.business-ledger-list button:hover { background: #f8fafc; }
+.business-ledger-list button > span { min-width: 0; overflow-wrap: anywhere; }
+.business-ledger-list small { display: block; margin-top: 5px; color: #667085; }
+.business-ledger-list button > span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) {
+  .business-home > div { grid-template-columns: 1fr; gap: 8px; }
+  .business-home button { min-height: 76px; padding: 14px; }
+  .business-ledger-list button { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .business-ledger-list button > span:last-child { text-align: left; }
+}

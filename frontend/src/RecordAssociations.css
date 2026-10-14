@@ -1,0 +1,13 @@
+.record-associations { width: 100%; min-width: 0; grid-column: 1 / -1; }
+.record-associations__toggle { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 12px 0; border: 0; border-top: 1px solid var(--border); background: transparent; color: inherit; }
+.record-associations__toggle > span:first-child { flex-shrink: 0; font-weight: 600; }
+.record-associations__summary { flex: 1; min-width: 0; color: var(--ink-muted); font-size: 12px; overflow-wrap: anywhere; }
+.record-associations__body { min-width: 0; padding: 4px 0 12px; }
+.record-associations__body[hidden] { display: none; }
+.record-associations__body h4 { margin: 12px 0; font-size: 14px; }
+.record-associations__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.record-associations__fields > label { display: grid; gap: 8px; min-width: 0; }
+.record-associations__hint { color: var(--ink-muted); font-size: 12px; margin: 0 0 12px; }
+.association-options input[type="search"] { width: 100%; box-sizing: border-box; margin: 0 0 8px; }
+.association-options [role="listbox"] { min-width: 0; }
+@media (max-width: 600px) { .record-associations__fields { grid-template-columns: minmax(0, 1fr); } .record-associations__toggle { flex-wrap: wrap; } .record-associations__summary { flex-basis: 65%; } }

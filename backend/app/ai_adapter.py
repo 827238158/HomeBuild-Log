@@ -195,6 +195,15 @@ class OpenAICompatibleAdapter(AIAdapter):
                 raw_response=raw_response,
                 duration_ms=round((time.monotonic() - started) * 1000),
             ) from exc
+        except httpx.RequestError as exc:
+            # 连接失败和断连也进入统一失败链，继续备用供应商或本地规则。
+            raise AIAdapterFailure(
+                "AI_NETWORK_ERROR",
+                "供应商连接失败或连接中断。",
+                prompt_text=prompt_text,
+                raw_response=raw_response,
+                duration_ms=round((time.monotonic() - started) * 1000),
+            ) from exc
         except (
             json.JSONDecodeError,
             KeyError,

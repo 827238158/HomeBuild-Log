@@ -5,12 +5,11 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from app.core.config import SecretsConfig, _hash_password
 from app.core.paths import build_storage_paths, ensure_storage_directories
 from app.db import Base, create_database_engine
 from app.main import create_app
+from tests.versioned_client import VersionedTestClient as TestClient
 
 
 def _client() -> TestClient:

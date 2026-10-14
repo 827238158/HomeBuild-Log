@@ -1,25 +1,33 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { defaultPayload, payloadForSave, RecordEditFields, type RecordType } from './DomainWorkspace'
-import { getRecord, getSource, listRelations, listRecordAudit, listSpaces, listRecords, listEntities, createRecord, updateRecord, deleteRecord, reviewRecordSource, type ProjectionRecord, type SourceDetail, type AuditEntry, type DomainRecord, type SpaceEntry, type NamedEntity } from './domainApi'
+import { listIssueActivities, appendIssueActivity, type IssueActivity, getRecord, getSource, listRelations, listRecordAudit, listSpaces, listRecords, listEntities, createRecord, updateRecord, deleteRecord, reviewRecordSource, type ProjectionRecord, type SourceDetail, type AuditEntry, type DomainRecord, type SpaceEntry, type NamedEntity } from './domainApi'
 import { recordStatusLabel, recordTypeLabels } from './recordLabels'
 import { beijingToday, formatCalendarDate, formatBeijingDateTime } from './time'
 import { RecordFacts } from './RecordFacts'
 import { AttachmentViewer } from './AttachmentViewer'
 import { useModalFocus } from './useModalFocus'
 import { confirmNavigation, useNavigationGuard } from './navigationGuard'
+import { RecordConflict, conflictRecord } from './RecordConflict'
+import { VoiceField } from './VoiceField'
 
 const auditLabels: Record<string, string> = { create: '创建记录', update: '修改内容', delete: '删除记录', archive: '隐藏记录', restore: '重新显示', review: '复核来源', confirm: '确认候选' }
 const message = (failure: unknown) => failure instanceof Error ? failure.message : '读取失败，请重试。'
 
-export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComplete, onOpen, onOpenSource, onOpenResearch }: {
+export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComplete, onOpen, onOpenSource, onOpenResearch, initialMatchId }: {
   recordId: string; closing: boolean; onClose: () => void; onChanged: () => void; onExitComplete: () => void
   onOpen: (id: string) => void; onOpenSource: (id: string) => void; onOpenResearch: (id: string) => void
+  initialMatchId?: string
 }) {
   const panel = useRef<HTMLElement>(null)
   const [record, setRecord] = useState<ProjectionRecord | null>(null)
   const [sources, setSources] = useState<SourceDetail[]>([])
   const [related, setRelated] = useState<ProjectionRecord[]>([])
+  const [activities, setActivities] = useState<IssueActivity[]>([])
+  const [note, setNote] = useState(() => { try { return sessionStorage.getItem(`issue:${recordId}:note`) ?? '' } catch { return '' } })
+  const [noteBusy, setNoteBusy] = useState(false)
+  const [noteError, setNoteError] = useState('')
+  const [noteSuccess, setNoteSuccess] = useState('')
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [error, setError] = useState('')
   const [sectionErrors, setSectionErrors] = useState<Record<string, string>>({})
@@ -35,13 +43,22 @@ export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComp
   const [resourcesReady, setResourcesReady] = useState(false)
   const [resourcesLoading, setResourcesLoading] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [voiceBusy, setVoiceBusy] = useState(false)
+  const [noteVoiceBusy, setNoteVoiceBusy] = useState(false)
+  const [conflict, setConflict] = useState<ProjectionRecord | null>(null)
+  const [editVersion, setEditVersion] = useState<number | undefined>()
   const focusReadMode = useRef(false)
   useEffect(() => {
     if (editing && resourcesReady) panel.current?.querySelector<HTMLInputElement>('.detail-edit-section input')?.focus()
     else if (!editing && focusReadMode.current) { focusReadMode.current = false; panel.current?.querySelector<HTMLButtonElement>('[data-edit-record]')?.focus() }
   }, [editing, resourcesReady])
-  useNavigationGuard(editing && (dirty || busy), busy ? '记录正在保存，暂时离开可能无法确认保存结果，确定离开吗？' : undefined)
+  useNavigationGuard((editing && (dirty || busy)) || !!note.trim() || noteBusy, busy ? '记录正在保存，暂时离开可能无法确认保存结果，确定离开吗？' : undefined)
   useModalFocus(panel, true, () => { if (confirmNavigation()) onClose() })
+
+  useEffect(() => {
+    try { setNote(sessionStorage.getItem(`issue:${recordId}:note`) ?? '') } catch { setNote('') }
+    setNoteError(''); setNoteSuccess(''); setActivities([])
+  }, [recordId])
 
   useEffect(() => {
     let active = true
@@ -61,6 +78,7 @@ export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComp
     void Promise.all([
       load('sources', async () => { const values = await Promise.all(record.source_refs.map(item => getSource(item.source_id))); if (active) setSources(values) }),
       load('relations', async () => { const rows = await listRelations(recordId); const ids = [...new Set(rows.flatMap(item => [item.from_record_id, item.to_record_id]).filter(id => id !== recordId))]; const values = await Promise.all(ids.map(getRecord)); if (active) setRelated(values) }),
+      ...(record.record_type === 'issue' ? [load('activities', async () => { const result = await listIssueActivities(recordId); if (active) setActivities(result.items) })] : []),
       load('audit', async () => { const values = await listRecordAudit(recordId); if (active) setAudit(values) }),
     ]).finally(() => { if (active) setSectionsLoading(false) })
     return () => { active = false }
@@ -76,7 +94,8 @@ export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComp
   }
   const beginEdit = () => {
     if (!record) return
-    setRemeasuring(false); setEditPayload(defaultPayload(record.record_type as RecordType, record)); setDirty(false); setEditing(true)
+    setConflict(null); setEditVersion(record.version)
+    setRemeasuring(false); setEditPayload({ ...defaultPayload(record.record_type as RecordType, record), topic_ids: record.topic_ids ?? [] }); setDirty(false); setEditing(true)
     if (!resourcesReady) void loadEditResources()
   }
   const beginRemeasure = () => {
@@ -86,7 +105,7 @@ export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComp
     setEditPayload(defaultPayload('measurement', {
       title: record.title, object_name: record.object_name, measurement_role: 'site_measurement',
       space_ids: record.space_ids, material_ids: record.material_ids, participant_ids: record.participant_ids,
-      stage_id: record.stage_id, related_record_ids: [record.id], values, status: 'active',
+      stage_id: record.stage_id, topic_ids: record.topic_ids ?? [], related_record_ids: [record.id], values, status: 'active',
       occurred_date: beijingToday(), measured_at: null, source_refs: [],
     }))
     setRemeasuring(true); setDirty(true); setEditing(true); setError('')
@@ -104,7 +123,7 @@ export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComp
     })
   }
   const save = async () => {
-    if (!record || busy) return
+    if (!record || busy || voiceBusy || conflict) return
     setBusy(true)
     try {
       const payload = payloadForSave(record.record_type, { ...editPayload, record_type: record.record_type })
@@ -117,25 +136,42 @@ export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComp
         return
       }
       delete payload.source_refs
-      await updateRecord(record.id, payload)
+      await updateRecord(record.id, { ...payload, expected_version: editVersion })
       focusReadMode.current = true
       setEditing(false); setDirty(false); setError(''); setReload(value => value + 1); onChanged()
-    } catch (failure) { setError(message(failure)) } finally { setBusy(false) }
+    } catch (failure) { setConflict(conflictRecord(failure)); setError(message(failure)) } finally { setBusy(false) }
   }
   const cancel = () => {
     if (dirty && !window.confirm('取消会放弃本次未保存的修改，确定取消吗？')) return
-    setEditing(false); setDirty(false); setError('')
+    setConflict(null); setEditing(false); setDirty(false); setError('')
     requestAnimationFrame(() => panel.current?.querySelector<HTMLButtonElement>('[data-edit-record]')?.focus())
   }
   const remove = async () => {
     if (!record || !window.confirm(`确认永久删除“${record.title}”吗？\n\n记录及关联关系会被删除，原始来源和审计历史会保留。`)) return
     setBusy(true)
-    try { await deleteRecord(record.id); onChanged(); onClose() } catch (failure) { setError(message(failure)); setBusy(false) }
+    try { await deleteRecord(record.id, record.version); onChanged(); onClose() } catch (failure) { setError(message(failure)); setBusy(false) }
   }
   const acknowledge = async (sourceId: string) => {
     setBusy(true)
     try { await reviewRecordSource(recordId, sourceId); setReload(value => value + 1) } catch (failure) { setError(message(failure)) } finally { setBusy(false) }
   }
+  const appendNote = async () => {
+    if (noteBusy || noteVoiceBusy || !note.trim()) return
+    setNoteBusy(true); setNoteError(''); setNoteSuccess('')
+    try {
+      // 只有服务端保存成功后清空草稿；失败时可继续修改并重试。
+      const result = await appendIssueActivity(recordId, note.trim())
+      setActivities(result.items); setNote(''); try { sessionStorage.removeItem(`issue:${recordId}:note`) } catch { /* 成功后仍清空本页草稿。 */ }; setNoteSuccess('进展已保存'); setReload(value => value + 1); onChanged()
+    } catch (failure) { setNoteError(message(failure)) } finally { setNoteBusy(false) }
+  }
+  useEffect(() => {
+    if (!initialMatchId || sectionsLoading) return
+    const frame = requestAnimationFrame(() => {
+      const target = Array.from(panel.current?.querySelectorAll<HTMLElement>('[data-search-match]') ?? []).find(element => element.dataset.searchMatch === initialMatchId)
+      target?.scrollIntoView({ block: 'center' }); target?.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [initialMatchId, sectionsLoading])
   const sectionState = (key: string) => sectionErrors[key] ? <p role="alert" className="detail-section-state">{sectionErrors[key]} <button type="button" onClick={() => setReload(value => value + 1)}>重试读取</button></p> : sectionsLoading ? <p role="status">正在读取…</p> : null
   return createPortal(<>
     <button type="button" data-modal-backdrop tabIndex={-1} className="record-detail-backdrop" aria-label="关闭记录详情" onClick={() => { if (confirmNavigation()) onClose() }} />
@@ -147,8 +183,9 @@ export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComp
         {remeasuring && <p className="muted">请填写本次测量值并确认测量日期。保存后新增关联记录，原测量及其来源保留；不会自动替代原记录。</p>}
         {resourcesLoading && <p role="status">正在加载编辑选项…</p>}
         {!resourcesReady && !resourcesLoading && <button type="button" onClick={() => void loadEditResources()}>重试加载编辑选项</button>}
-        {resourcesReady && <RecordEditFields recordType={record.record_type as RecordType} payload={editPayload} spaces={spaces} entities={entities} records={allRecords} currentRecordId={record.id} onChange={change} />}
-        <div className="record-actions"><button type="button" disabled={busy || !resourcesReady} onClick={() => void save()}>{busy ? '保存中…' : remeasuring ? '保存本次测量' : '保存修改'}</button><button type="button" disabled={busy} onClick={cancel}>取消</button></div>
+        {conflict && <RecordConflict key={conflict.version} latest={conflict} draft={payloadForSave(record.record_type, editPayload)} onCancel={() => setConflict(null)} onResolve={(payload, version) => { setEditPayload(payload); setEditVersion(version); setRecord(conflict); setConflict(null); setError(''); setDirty(true) }} />}
+        {resourcesReady && <RecordEditFields active={!closing && !conflict && !busy} onVoiceBusyChange={setVoiceBusy} recordType={record.record_type as RecordType} payload={editPayload} spaces={spaces} entities={entities} records={allRecords} currentRecordId={record.id} onChange={change} error={error} />}
+        <div className="record-actions"><button type="button" disabled={busy || voiceBusy || !!conflict || !resourcesReady} onClick={() => void save()}>{busy ? '保存中…' : remeasuring ? '保存本次测量' : '保存修改'}</button><button type="button" disabled={busy} onClick={cancel}>取消</button></div>
       </section> : record && <>
         <span className="record-type-tag">{recordTypeLabels[record.record_type]}</span><h3>{record.title}</h3><p>{record.description || '暂无补充说明'}</p>
         <RecordFacts record={record} />
@@ -157,6 +194,7 @@ export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComp
         {record.record_type === 'issue' && <><div><dt>严重程度</dt><dd>{({ low: '低', medium: '中', high: '高' } as Record<string, string>)[String(record.severity)] || '未评估'}</dd></div><div><dt>实际完成日期</dt><dd>{formatCalendarDate(record.completed_at)}</dd></div><div><dt>实际处理结果</dt><dd>{record.actual_result || '待补充'}</dd></div></>}
         </dl>
         <div className="detail-record-actions">{record.record_type === 'measurement' && <button type="button" disabled={busy} onClick={beginRemeasure}>再次测量</button>}<button type="button" data-edit-record disabled={busy} onClick={beginEdit}>修改记录</button><button className="danger-button" type="button" disabled={busy} onClick={() => void remove()}>删除记录</button></div>
+        {record.record_type === 'issue' && <section><h4>事项进展与状态历史</h4><p className="muted">升级前过程未回填，原有操作仍可在操作记录中查看。</p>{sectionState('activities')}<ol className="research-history">{activities.map(activity => <li key={activity.id} data-search-match={activity.id} tabIndex={-1}><time>{formatBeijingDateTime(activity.created_at)}</time>{activity.kind === 'status' && <p>{activity.previous_status ? recordStatusLabel('issue', activity.previous_status) : '新增事项'} → {recordStatusLabel('issue', activity.next_status ?? '')}</p>}{activity.content && <p>{activity.content}</p>}</li>)}</ol><label className="field-stack"><span>追加进展备注</span><VoiceField active={!closing && !editing} onBusyChange={setNoteVoiceBusy}><textarea rows={3} maxLength={10000} disabled={noteBusy} value={note} onChange={event => { setNote(event.target.value); try { sessionStorage.setItem(`issue:${recordId}:note`, event.target.value) } catch { /* 保留本页草稿。 */ }; setNoteSuccess('') }} /></VoiceField></label><div className="detail-record-actions"><button type="button" disabled={noteBusy || noteVoiceBusy || !note.trim()} onClick={() => void appendNote()}>{noteBusy ? '保存进展中…' : '保存进展'}</button></div>{noteError && <p role="alert">{noteError}</p>}{noteSuccess && <p role="status">{noteSuccess}</p>}</section>}
         <section><h4>原始来源与附件</h4>{sectionState('sources')}{sources.map(source => <article className="evidence-card" key={source.id}>
           {record.source_refs.find(item => item.source_id === source.id)?.needs_review && <div className="source-review-warning"><span>原始数据已修改，这条正式记录待复核。</span><button type="button" disabled={busy} onClick={() => void acknowledge(source.id)}>已核对，无需修改</button></div>}
           <p>{source.original_text || '仅附件来源'}</p><small>录入时间：{formatBeijingDateTime(source.captured_at)} · 来源版本 {source.revision}</small><button type="button" onClick={() => onOpenSource(source.id)}>打开原始来源</button>
