@@ -222,82 +222,8 @@
   55% { opacity: .2; transform: scale(.8); }
 }
 
-.voice-capsule {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: max-content;
-  max-width: calc(100% - 8px);
-  height: 44px;
-  padding: 4px 5px 4px 10px;
-  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
-  border-radius: 999px;
-  background: var(--surface);
-  box-shadow: 0 3px 12px color-mix(in srgb, var(--primary) 10%, transparent);
-  color: var(--ink);
-  animation: voice-capsule-enter 180ms var(--ease-out) both;
-}
-
-@keyframes voice-capsule-enter {
-  from { opacity: .5; transform: scale(.92); transform-origin: right center; }
-  to { opacity: 1; transform: scale(1); transform-origin: right center; }
-}
-
-.voice-capsule__wave {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  width: 31px;
-  height: 24px;
-  flex: none;
-}
-
-.voice-capsule__wave i {
-  width: 3px;
-  min-height: 5px;
-  border-radius: 3px;
-  background: var(--primary);
-  transition: height 90ms linear;
-}
-
-.voice-capsule__clock {
-  min-width: 36px;
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  color: var(--ink-muted);
-}
-
-.voice-capsule button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 34px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: 999px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.voice-capsule__stop {
-  background: var(--primary);
-  color: var(--surface);
-}
-
-.voice-capsule__stop:hover { background: var(--primary-hover); }
-.voice-capsule__stop span { width: 8px; height: 8px; border-radius: 2px; background: currentColor; }
-.voice-capsule__cancel { background: var(--surface-soft); color: var(--ink-muted); }
-.voice-capsule__cancel:hover { background: var(--surface-muted); color: var(--ink); }
-
 @media (prefers-reduced-motion: reduce) {
   .thinking-lattice i { animation: none; transform: none; opacity: .65; }
-  .voice-capsule { animation: none; }
-  .voice-capsule__wave i { height: 9px !important; transition: none; }
   .state-button,
   .candidate-check__visual,
   .candidate-check__visual svg,

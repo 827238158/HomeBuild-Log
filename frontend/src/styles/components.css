@@ -128,6 +128,28 @@ button:not(:disabled):active {
 .record-form-grid {
   min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+/* 标签占据稳定列宽，长段落仅在内容列换行，避免挤碎中文字段名。 */
+.detail-list > div {
+  min-width: 0;
+  align-items: flex-start;
+}
+
+.detail-list > div > dt {
+  flex: 0 0 min(8em, 40%);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-list > div > dd {
+  min-width: 0;
+  margin-left: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 @media (max-width: 720px) {

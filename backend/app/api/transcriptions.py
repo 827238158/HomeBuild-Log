@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import struct
 import time
 import wave
 from pathlib import Path
@@ -19,12 +20,15 @@ MAX_AUDIO_BYTES = 8 * 1024 * 1024
 MAX_AUDIO_SECONDS = 180
 TRANSCRIPTION_TIMEOUT_SECONDS = 120.0
 TRANSCRIPTION_MODEL = "mimo-v2.6-pro"
+MIN_AUDIO_RMS = 0.001
+MIN_ACTIVE_SAMPLES = 1_920
+NO_AUDIO_MESSAGE = "未检测到有效声音，请靠近麦克风重新录制。"
 TRANSCRIPTION_PROMPT = (
     Path(__file__).resolve().parent.parent / "prompts" / "transcription.txt"
 ).read_text(encoding="utf-8").strip()
 
 
-def _validate_audio(content: bytes) -> None:
+def _validate_audio(content: bytes) -> bytes:
     if not content or len(content) > MAX_AUDIO_BYTES:
         raise HTTPException(status_code=413, detail="录音不能为空，且不能超过 8 MB。")
     try:
@@ -42,10 +46,27 @@ def _validate_audio(content: bytes) -> None:
                 raise ValueError("空音频")
             if frames > MAX_AUDIO_SECONDS * audio.getframerate():
                 raise HTTPException(status_code=413, detail="录音不能超过 3 分钟。")
-            if len(audio.readframes(frames)) != frames * audio.getsampwidth():
+            pcm = audio.readframes(frames)
+            if len(pcm) != frames * audio.getsampwidth():
                 raise ValueError("音频数据不完整")
     except (wave.Error, EOFError, ValueError) as exc:
         raise HTTPException(status_code=415, detail="录音格式无效，请重新录制。") from exc
+    return pcm
+
+
+def _has_effective_audio(pcm: bytes) -> bool:
+    active_samples = 0
+    # 按 20ms 分窗去除直流偏移，累计至少 120ms 的有效能量；这不是人声识别。
+    for offset in range(0, len(pcm), 640):
+        window = pcm[offset:offset + 640]
+        samples = [sample[0] / 32768 for sample in struct.iter_unpack("<h", window)]
+        mean = sum(samples) / len(samples)
+        variance = sum((sample - mean) ** 2 for sample in samples) / len(samples)
+        if variance >= MIN_AUDIO_RMS ** 2:
+            active_samples += len(samples)
+            if active_samples >= MIN_ACTIVE_SAMPLES:
+                return True
+    return False
 
 
 @router.post("/transcriptions")
@@ -55,7 +76,7 @@ def transcribe_audio(request: Request, file: UploadFile, user: User) -> dict[str
 
     # 限量读取，避免不受控的上传占用内存；不将音频写入持久化目录。
     content = file.file.read(MAX_AUDIO_BYTES + 1)
-    _validate_audio(content)
+    pcm = _validate_audio(content)
 
     config = request.app.state.secrets.get_ai_config()
     provider = config.providers.get("mimo")
@@ -66,6 +87,9 @@ def transcribe_audio(request: Request, file: UploadFile, user: User) -> dict[str
         or provider.model != TRANSCRIPTION_MODEL
     ):
         raise HTTPException(status_code=503, detail="小米 MiMo V2.6 Pro 转写尚未配置。")
+
+    if not _has_effective_audio(pcm):
+        raise HTTPException(status_code=422, detail=NO_AUDIO_MESSAGE)
 
     started = time.monotonic()
     headers = (
@@ -107,8 +131,8 @@ def transcribe_audio(request: Request, file: UploadFile, user: User) -> dict[str
         )
         response.raise_for_status()
         text = response.json()["choices"][0]["message"]["content"]
-        if not isinstance(text, str) or not text.strip():
-            raise ValueError("empty transcription")
+        if not isinstance(text, str):
+            raise ValueError("invalid transcription")
     except httpx.TimeoutException as exc:
         raise HTTPException(status_code=504, detail="语音转写超时，请重试。") from exc
     except httpx.HTTPStatusError as exc:
@@ -117,4 +141,6 @@ def transcribe_audio(request: Request, file: UploadFile, user: User) -> dict[str
     except (httpx.RequestError, ValueError, KeyError, IndexError, TypeError) as exc:
         raise HTTPException(status_code=502, detail="语音转写没有返回有效文字，请重试。") from exc
 
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="未识别到可转写的语音，请重新录制。")
     return {"text": text.strip(), "duration_ms": round((time.monotonic() - started) * 1000)}

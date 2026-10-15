@@ -1,5 +1,29 @@
 const TARGET_SAMPLE_RATE = 16_000
 export const MAX_RECORDING_MS = 180_000
+export const NO_AUDIO_MESSAGE = '未检测到有效声音，请靠近麦克风重新录制。'
+
+/** 按编码后的 PCM 检测明显静音；与服务端保持相同窗口和阈值，不将音量当作人声识别。 */
+export function hasAudibleAudio(wav: ArrayBuffer): boolean {
+  const view = new DataView(wav)
+  const samples = (wav.byteLength - 44) / 2
+  const windowSamples = 320 // 16 kHz 下的 20 ms 窗口。
+  let audibleSamples = 0
+  for (let start = 0; start < samples; start += windowSamples) {
+    const count = Math.min(windowSamples, samples - start)
+    let sum = 0
+    let squares = 0
+    for (let index = start; index < start + count; index++) {
+      const value = view.getInt16(44 + index * 2, true) / 32768
+      sum += value
+      squares += value * value
+    }
+    // 去除设备直流偏移，短促点击声不能单独满足累计 120 ms 的要求。
+    const variance = Math.max(0, squares / count - (sum / count) ** 2)
+    if (variance >= 0.001 ** 2) audibleSamples += count
+    if (audibleSamples >= 1920) return true
+  }
+  return false
+}
 
 export interface VoiceRecording {
   finish(): File
@@ -54,6 +78,7 @@ export async function startVoiceRecording(
       finish: () => {
         if (!close()) throw new Error('录音已经结束')
         const wav = encodeWav(chunks, sampleCount, context!.sampleRate)
+        if (!hasAudibleAudio(wav)) throw new Error(NO_AUDIO_MESSAGE)
         return new File([wav], 'recording.wav', { type: 'audio/wav' })
       },
     }

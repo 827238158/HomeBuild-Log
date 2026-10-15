@@ -37,5 +37,5 @@ export function RecordFacts({ record }: { record: ProjectionRecord }) {
   } else if (record.record_type === 'research') {
     rows.push(['调研问题', text(record.question)])
   }
-  return <dl className="detail-list record-core-facts">{rows.map(([label, value], index) => <div key={`${label}-${index}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+  return <dl className="detail-list record-core-facts">{rows.map(([label, value], index) => <div key={`${label}-${index}`}><dt title={label}>{label}</dt><dd>{value}</dd></div>)}</dl>
 }

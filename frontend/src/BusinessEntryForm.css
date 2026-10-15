@@ -7,9 +7,9 @@
 .business-entry-inline { display: flex; align-items: end; gap: 12px; }
 .business-entry-inline .field-stack { flex: 1; }
 .business-entry button, .business-entry input { min-height: 44px; }
-.business-entry button:not(.multi-select-summary):not(.record-associations__toggle) { padding: 10px 16px; border: 1px solid #1769c2; border-radius: 8px; background: #1769c2; color: #fff; font: inherit; cursor: pointer; }
-.business-entry button:not(.multi-select-summary):not(.record-associations__toggle):hover:not(:disabled) { background: #0d5cad; }
-.business-entry button:not(.multi-select-summary):not(.record-associations__toggle):disabled { background: #eef2f6; border-color: #cfd6de; color: #667085; cursor: default; }
+.business-entry :is(.business-entry-inline > button, .business-entry-wide > button) { padding: 10px 16px; border: 1px solid #1769c2; border-radius: 8px; background: #1769c2; color: #fff; font: inherit; cursor: pointer; }
+.business-entry :is(.business-entry-inline > button, .business-entry-wide > button):hover:not(:disabled) { background: #0d5cad; }
+.business-entry :is(.business-entry-inline > button, .business-entry-wide > button):disabled { background: #eef2f6; border-color: #cfd6de; color: #667085; cursor: default; }
 .business-entry button:focus-visible { outline: 2px solid #1769c2; outline-offset: 3px; }
 .business-entry > button[aria-expanded="true"] { background: #fff; color: #1769c2; }
 .business-entry > button[aria-expanded="true"]:hover { background: #e8f2ff; }

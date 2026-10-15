@@ -9,6 +9,7 @@ import { VoiceInput } from './VoiceInput'
 import { VoiceField } from './VoiceField'
 import { transcribeAudio } from './api'
 import { startVoiceRecording } from './voiceAudio'
+import { HttpError } from './http'
 
 const wav = new File(['wav'], 'recording.wav', { type: 'audio/wav' })
 const finish = vi.fn(() => wav)
@@ -37,6 +38,29 @@ beforeEach(() => {
 })
 
 describe('VoiceInput', () => {
+  it('静音结束不上传、不改变草稿并恢复保存', async () => {
+    finish.mockImplementationOnce(() => { throw new Error('未检测到有效声音，请靠近麦克风重新录制。') })
+    render(<form><Harness /><button type="submit">保存</button></form>)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '保留原文' } })
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '开始语音输入' })))
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '停止并转写' })))
+    expect(transcribeAudio).not.toHaveBeenCalled()
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('保留原文')
+    expect(screen.getByText('未检测到有效声音，请靠近麦克风重新录制。')).toBeTruthy()
+    expect((screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.queryByRole('button', { name: '重试转写' })).toBeNull()
+  })
+
+  it('服务端判定无可识别语音时保留原文并要求重录', async () => {
+    vi.mocked(transcribeAudio).mockRejectedValueOnce(new HttpError('未识别到可转写的语音，请重新录制。', 422, 'HTTP_422'))
+    render(<Harness />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '保留原文' } })
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '开始语音输入' })))
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '停止并转写' })))
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('保留原文')
+    expect(screen.queryByRole('button', { name: '重试转写' })).toBeNull()
+  })
+
   it('不同字段录音互斥，录音期间阻止表单保存', async () => {
     const save = vi.fn((event: React.FormEvent) => event.preventDefault())
     render(<form onSubmit={save}><Harness /><Harness /><button type="submit">保存</button></form>)

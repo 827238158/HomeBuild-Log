@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { transcribeAudio } from './api'
+import { HttpError } from './http'
 import { MAX_RECORDING_MS, startVoiceRecording, type VoiceRecording } from './voiceAudio'
+import './VoiceInput.css'
 
 type VoiceStatus = 'idle' | 'requesting' | 'recording' | 'transcribing' | 'done' | 'error'
 let cancelVoiceSession: (() => void) | null = null
@@ -13,7 +15,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '语音转写失败，请重试。'
 }
 
-export function VoiceInput({ active, onTranscript, children, onBusyChange, label = '语音输入' }: { active: boolean; onTranscript: (text: string) => void; children: ReactNode; onBusyChange?: (busy: boolean) => void; label?: string }) {
+export function VoiceInput({ active, onTranscript, children, feedback, onBusyChange, label = '语音输入' }: { active: boolean; onTranscript: (text: string) => void; children: ReactNode; feedback?: ReactNode; onBusyChange?: (busy: boolean) => void; label?: string }) {
   const [status, setStatus] = useState<VoiceStatus>('idle')
   const [error, setError] = useState('')
   const [elapsed, setElapsed] = useState(0)
@@ -104,6 +106,8 @@ export function VoiceInput({ active, onTranscript, children, onBusyChange, label
       setStatus('done')
     } catch (cause) {
       if (generation.current !== current || controller.signal.aborted) return
+      // 无声或无可识别文字需要重录；重复提交同一段录音没有帮助。
+      if (cause instanceof HttpError && cause.status === 422) lastFile.current = null
       setError(errorMessage(cause))
       setStatus('error')
     } finally {
@@ -178,24 +182,29 @@ export function VoiceInput({ active, onTranscript, children, onBusyChange, label
 
   const seconds = Math.floor(elapsed / 1000)
   const clock = `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
-  return <div ref={root} className="source-input-wrap"><div className="source-input-field">
+  return <div ref={root} className="source-input-wrap" data-voice-status={status}><div className="source-input-field">
     {children}
+    <div className="voice-toolbar">
     {status === 'recording' ? <div className="voice-capsule" role="group" aria-label="录音控制">
       {/* 复用录音服务提供的真实音量；胶囊只负责展示与操作，不创建第二条音频流。 */}
-      <span className="voice-capsule__wave" aria-hidden="true">{[0.55, 0.82, 1, 0.72, 0.45].map((factor, index) => <i key={index} style={{ height: `${6 + level * factor * 20}px` }} />)}</span>
+      <span className="voice-capsule__wave" aria-hidden="true">{[0.55, 0.82, 1, 0.72, 0.45].map((factor, index) => <i key={index} style={{ transform: `scaleY(${(3 + level * factor * 11) / 14})` }} />)}</span>
       <span className="voice-capsule__clock" aria-hidden="true">{clock}</span>
       <button className="voice-capsule__stop" type="button" onClick={stop} aria-label="停止并转写"><span aria-hidden="true" />停止</button>
       <button className="voice-capsule__cancel" type="button" onClick={() => cancel()} aria-label="取消录音">取消</button>
       <span className="sr-only" role="status">录音中，最长 3 分钟</span>
-    </div> : <button className="voice-trigger" type="button" aria-label={`开始${label}`} title={`开始${label}`} onClick={() => void start()} disabled={!active || status === 'requesting' || status === 'transcribing'}>
+    </div> : status === 'requesting' || status === 'transcribing' ? <div className="voice-capsule voice-capsule--waiting" role="status" aria-live="polite">
+      <span className="voice-progress" aria-hidden="true" />
+      <span className="voice-wait-label">{status === 'requesting' ? '等待麦克风权限…' : `转写中 · ${Math.floor(transcribeElapsed / 1000)} 秒`}</span>
+      <button className="voice-capsule__cancel" type="button" onClick={() => cancel()}>取消</button>
+    </div> : <button className="voice-trigger" type="button" aria-label={`开始${label}`} title={`开始${label}`} onClick={() => void start()} disabled={!active}>
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="2.5" width="6" height="12.5" rx="3" /><path d="M5 10.5v1a7 7 0 0 0 14 0v-1M12 18.5V22m-4 0h8" /></svg>
     </button>}
     </div>
-    {status !== 'idle' && status !== 'recording' && <div className={`voice-panel voice-panel--${status}`} role="status" aria-live="polite">
-      {status === 'requesting' && <><span>正在请求麦克风权限…</span><button type="button" onClick={() => cancel()}>取消</button></>}
-      {status === 'transcribing' && <><span className="voice-progress" aria-hidden="true" /><span>正在转写 · 已等待 {Math.floor(transcribeElapsed / 1000)} 秒</span><button type="button" onClick={() => cancel()}>取消</button></>}
+    </div>
+    {(status === 'done' || status === 'error') && <div className={`voice-panel voice-panel--${status}`} role="status" aria-live="polite">
       {status === 'done' && <span>已转写</span>}
       {status === 'error' && <><span>{error}</span>{lastFile.current && <button type="button" onClick={retry}>重试转写</button>}</>}
     </div>}
+    {feedback}
   </div>
 }
