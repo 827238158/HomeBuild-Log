@@ -51,7 +51,7 @@ export function MeasurementFields({ payload, onChange }: {
   return <>
     <fieldset className="measurement-fields record-form-grid__wide">
       <legend>尺寸项</legend>
-      <p className="measurement-fields__hint">名称写清测量位置，例如“上部净宽”或“窗台离地”。未知数值可留空，切换单位自动换算。</p>
+      <details className="measurement-fields__hint"><summary>尺寸填写帮助</summary><p>名称注明测量位置，未知数值可留空。切换单位自动换算。</p></details>
       <div className="measurement-fields__templates"><span>添加常用项</span>{Object.keys(templates).map(name => <button type="button" key={name} onClick={() => addTemplate(name)}>{name}</button>)}</div>
       {values.map((item, index) => <div className="measurement-fields__row" key={index}>
         <label className="field-stack"><span>尺寸名称</span><input aria-label={`尺寸名称 ${index + 1}`} maxLength={50} value={measurementAxisLabels[String(item.axis ?? '')] ?? String(item.axis ?? '')} placeholder="例如：墙厚" onChange={event => setValue(index, 'axis', event.target.value || null)} /></label>

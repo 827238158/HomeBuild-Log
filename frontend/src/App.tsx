@@ -323,7 +323,7 @@ export function App() {
     return <main className="app-workspace">
       <CoreViews onCaptureActiveChange={setCaptureActive} onLogout={handleLogout} onOpenSource={openReview} onManageSpaces={() => { openReview(); setManageRequestKey((value) => value + 1) }}>
         <section className="capture-workspace">
-          <header className="capture-workspace__header"><h2>随手记与整理</h2><p className="muted">暂时没想好放在哪里的内容，可以先记下来，稍后整理。</p></header>
+          <header className="capture-workspace__header"><h2>随手记与整理</h2></header>
           {sourceListError && <p className="source-error" role="alert">来源列表加载失败：{sourceListError}<button type="button" onClick={() => void refreshSources().catch(() => undefined)}>重试</button></p>}
           <div className="capture-tabs" role="tablist" aria-label="录入工作区" data-active={captureTab}>
             <button id="capture-tab-quick" className="capture-tab" type="button" role="tab" aria-selected={captureTab === 'quick'} aria-controls="capture-panel-quick" tabIndex={captureTab === 'quick' ? 0 : -1} onKeyDown={handleCaptureTabKeyDown} onClick={() => setCaptureTab('quick')}>快速记录</button>

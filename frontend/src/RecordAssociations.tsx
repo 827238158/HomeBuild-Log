@@ -74,8 +74,8 @@ export function associationRecordOptions(records: DomainRecord[], topicIds: stri
   return [...valid.filter(shared), ...valid.filter(record => !shared(record))].map(record => ({ id: record.id, name: `${recordTypeLabels[record.record_type] ?? '记录'} · ${record.title}`, trailingText: [shared(record) ? '同主题' : '', formatBeijingDate(record.created_at)].filter(Boolean).join(' · ') }))
 }
 
-export function RecordAssociations({ payload, onChange, entities, records, currentRecordId, participantLabel = '相关人员', hideParticipants = false, children, disabled = false, error, loading = false, optionsError, onRetry }: {
-  payload: Record<string, unknown>; onChange: (key: string, value: unknown) => void; entities: AssociationEntities; records: DomainRecord[]; currentRecordId?: string; participantLabel?: string; hideParticipants?: boolean; children?: ReactNode; disabled?: boolean; error?: string; loading?: boolean; optionsError?: string; onRetry?: () => void
+export function RecordAssociations({ payload, onChange, entities, records, currentRecordId, participantLabel = '相关人员', hideParticipants = false, children, disabled = false, error, loading = false, optionsError, onRetry, inline = false }: {
+  payload: Record<string, unknown>; onChange: (key: string, value: unknown) => void; entities: AssociationEntities; records: DomainRecord[]; currentRecordId?: string; participantLabel?: string; hideParticipants?: boolean; children?: ReactNode; disabled?: boolean; error?: string; loading?: boolean; optionsError?: string; onRetry?: () => void; inline?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const regionId = useId()
@@ -104,8 +104,8 @@ export function RecordAssociations({ payload, onChange, entities, records, curre
   if (payload.stage_id) summary.push('已选装修阶段')
   const options = associationRecordOptions(records, associationIds(payload.topic_ids), currentRecordId)
   return <section className="record-associations">
-    <button type="button" className="record-associations__toggle" aria-expanded={expanded} aria-controls={regionId} onClick={() => setExpanded(value => !value)}><span>更多信息与关联</span><span className="record-associations__summary">{summary.join('、') || '可补充背景与具体记录关联'}</span><DropdownChevron open={expanded} /></button>
-    <div id={regionId} ref={regionRef} hidden={!expanded} className="record-associations__body">
+    {!inline && <button type="button" className="record-associations__toggle" aria-expanded={expanded} aria-controls={regionId} onClick={() => setExpanded(value => !value)}><span>更多信息与关联</span><span className="record-associations__summary">{summary.join('、')}</span><DropdownChevron open={expanded} /></button>}
+    <div id={regionId} ref={regionRef} hidden={!inline && !expanded} className="record-associations__body">
       {loading && <p role="status">正在读取信息与关联…</p>}
       {optionsError && <div role="alert">{optionsError} {onRetry && <button type="button" onClick={onRetry}>重试</button>}</div>}
       <h4>补充信息</h4><div className="record-associations__fields">
@@ -114,7 +114,7 @@ export function RecordAssociations({ payload, onChange, entities, records, curre
         {!hideParticipants && <AssociationMultiSelect label={participantLabel} selectedIds={associationIds(payload.participant_ids)} options={entities.participants} onChange={ids => onChange('participant_ids', ids)} disabled={disabled || loading || !!optionsError} />}
         <label><span>装修阶段</span><Select aria-label="装修阶段" value={typeof payload.stage_id === 'string' ? payload.stage_id : ''} onChange={event => onChange('stage_id', event.target.value || null)} disabled={disabled || loading || !!optionsError}><option value="">未选择</option>{entities.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.name}</option>)}{typeof payload.stage_id === 'string' && payload.stage_id && !entities.stages.some(stage => stage.id === payload.stage_id) && <option value={payload.stage_id}>已选阶段（选项待读取）</option>}</Select></label>
       </div>
-      <h4>关联具体记录</h4><p className="record-associations__hint">主题用于归集长期事项；这里只关联与本条记录直接有关的内容。</p>
+      <h4>关联具体记录</h4>
       <AssociationMultiSelect label="关联记录（可选）" selectedIds={associationIds(payload.related_record_ids)} options={options} onChange={ids => onChange('related_record_ids', ids)} disabled={disabled || loading || !!optionsError} searchable />
       {children}
     </div>

@@ -759,7 +759,7 @@ describe('DomainWorkspace', () => {
 
     render(<TestDomainWorkspace refreshKey={0} />)
     fireEvent.click(screen.getByText('管理空间与共享档案'))
-    expect(await screen.findByText(/用于建立“房屋 → 房间 → 局部构件\/表面”层级/)).toBeTruthy()
+    expect(await screen.findByText('上级空间怎么选？')).toBeTruthy()
     await waitFor(() => expect(screen.getByLabelText(/上级空间/, { selector: 'select' })).toHaveProperty('value', house.id))
     expect(screen.getByText('房间 · 上级：房屋')).toBeTruthy()
     expect(screen.getByText('房屋 · 系统根空间')).toBeTruthy()

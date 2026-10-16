@@ -135,3 +135,44 @@ describe('VoiceInput', () => {
     expect(transcribeAudio).toHaveBeenCalledTimes(2)
   })
 })
+
+
+it('可收起字段保留超长转写结果，重新展开后仍可修正应用', async () => {
+  function CollapsibleField() {
+    const [open, setOpen] = useState(true)
+    const [value, setValue] = useState('原文')
+    const [overflow, setOverflow] = useState('')
+    return <><button type="button" onClick={() => setOpen(current => !current)}>展开收起</button>{open && <VoiceField overflowDraft={{ text: overflow, onChange: setOverflow }}><textarea aria-label="可收起字段" value={value} maxLength={6} onChange={event => setValue(event.target.value)} /></VoiceField>}</>
+  }
+  vi.mocked(transcribeAudio).mockResolvedValue({ text: '这段文字超过长度', duration_ms: 100 })
+  render(<CollapsibleField />)
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: '开始语音输入' })))
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: '停止并转写' })))
+  expect((screen.getByRole('textbox', { name: '待修正的语音结果' }) as HTMLTextAreaElement).value).toBe('这段文字超过长度')
+  fireEvent.click(screen.getByRole('button', { name: '展开收起' }))
+  expect(screen.queryByRole('textbox')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '展开收起' }))
+  expect((screen.getByRole('textbox', { name: '待修正的语音结果' }) as HTMLTextAreaElement).value).toBe('这段文字超过长度')
+  fireEvent.change(screen.getByRole('textbox', { name: '待修正的语音结果' }), { target: { value: '好' } })
+  fireEvent.click(screen.getByRole('button', { name: '应用文字' }))
+  expect((screen.getByRole('textbox', { name: '可收起字段' }) as HTMLTextAreaElement).value).toBe('原文\n好')
+})
+
+it('收起正在转写的字段取消请求，迟到结果不覆盖草稿', async () => {
+  const pending = deferred<{ text: string; duration_ms: number }>()
+  vi.mocked(transcribeAudio).mockReturnValue(pending.promise)
+  function CollapsibleField() {
+    const [open, setOpen] = useState(true)
+    const [value, setValue] = useState('保留草稿')
+    return <><button type="button" onClick={() => setOpen(current => !current)}>展开收起</button>{open && <VoiceField><textarea aria-label="可收起字段" value={value} onChange={event => setValue(event.target.value)} /></VoiceField>}</>
+  }
+  render(<CollapsibleField />)
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: '开始语音输入' })))
+  fireEvent.click(screen.getByRole('button', { name: '停止并转写' }))
+  const signal = vi.mocked(transcribeAudio).mock.calls[0][1]
+  fireEvent.click(screen.getByRole('button', { name: '展开收起' }))
+  expect(signal?.aborted).toBe(true)
+  await act(async () => pending.resolve({ text: '不应追加', duration_ms: 100 }))
+  fireEvent.click(screen.getByRole('button', { name: '展开收起' }))
+  expect((screen.getByRole('textbox', { name: '可收起字段' }) as HTMLTextAreaElement).value).toBe('保留草稿')
+})

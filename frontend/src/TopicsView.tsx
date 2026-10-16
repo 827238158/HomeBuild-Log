@@ -65,7 +65,7 @@ function TopicForm({ topic, busy, active, onSubmit, onCancel }: {
       <legend>{topic ? '编辑主题' : '新建主题'}</legend>
       <label><span>主题名称</span><input value={draft.name} maxLength={200} required onChange={event => change({ ...draft, name: event.target.value })} placeholder="例如：全屋智能开关规划" /></label>
       <label><span>目标（可选）</span><VoiceField active={active && !busy}><textarea value={draft.goal ?? ''} rows={2} maxLength={10000} onChange={event => change({ ...draft, goal: event.target.value })} placeholder="这件事最终要完成什么？" /></VoiceField></label>
-      <label><span>当前情况（可选）</span><VoiceField active={active && !busy}><textarea value={draft.current_situation ?? ''} rows={3} maxLength={10000} onChange={event => change({ ...draft, current_situation: event.target.value })} placeholder="目前推进到哪里，还有哪些情况需要留意？" /></VoiceField></label>
+      <label><span>当前情况（可选）</span><VoiceField active={active && !busy}><textarea value={draft.current_situation ?? ''} rows={3} maxLength={10000} onChange={event => change({ ...draft, current_situation: event.target.value })} placeholder="进展与待留意事项" /></VoiceField></label>
       {error && <p className="error-text" role="alert">{error}</p>}
       <div className="topic-actions"><button type="submit">{busy ? '保存中…' : topic ? '保存主题' : '创建主题'}</button><button className="topic-secondary" type="button" onClick={() => { if (confirmNavigation()) { clear(); onCancel() } }}>取消</button></div>
     </fieldset>
@@ -166,9 +166,9 @@ function TopicPane({ id, revision, busy, active, run, onChanged, ...actions }: T
     {errors.topic && <p role="alert" className="error-text">{errors.topic}</p>}
     {editing ? <TopicForm topic={topic} busy={busy} active={active} onCancel={() => setEditing(false)} onSubmit={async payload => { const saved = await mutate(() => updateTopic(id, payload)); if (saved) setEditing(false); return saved }} /> : <>
       <section className="topic-section"><h4>目标</h4><p>{topic.goal || '尚未填写目标。'}</p></section>
-      <section className="topic-section"><h4>当前情况</h4><p>{topic.current_situation || '尚未填写当前情况，可编辑主题补充。'}</p></section>
+      <section className="topic-section"><h4>当前情况</h4><p>{topic.current_situation || '尚未填写当前情况。'}</p></section>
     </>}
-    {archived && <p className="muted">主题已归档。恢复后可继续新增或关联内容，已有事项仍可查看与处理。</p>}
+    {archived && <p className="muted">已归档，恢复后可新增或关联内容。</p>}
     <div className="topic-actions" aria-label="在主题下新建内容">{([['ledger', '记一笔账'], ['issue', '新增待办'], ['research', '新增调研'], ['pitfall', '记下踩坑']] as const).map(([kind, label]) => <button type="button" className="topic-secondary" key={kind} disabled={archived || busy} onClick={() => { if (confirmNavigation()) actions.onCreate(kind, id) }}>{label}</button>)}<button type="button" className="topic-secondary" disabled={archived || busy} onClick={() => setLinking(value => !value)}>{linking ? '收起关联选择' : '关联已有内容'}</button></div>
     {linking && <ExistingContent topic={topic} busy={busy || archived} onLink={(kind, objectId, version) => { void mutate(() => kind === 'record' ? linkTopicRecord(id, objectId, version!) : linkTopicPitfall(id, objectId)) }} />}
     {errors.overview ? <div><p className="error-text" role="alert">{errors.overview}</p><button className="topic-secondary" type="button" onClick={() => setReload(value => value + 1)}>重试读取概览</button></div> : overview && <>
@@ -239,8 +239,8 @@ export function TopicsView({ revision = 0, initialTopicId, active = true, ...act
     {loadError && <div><p className="error-text" role="alert">{loadError}</p><button type="button" className="topic-secondary" onClick={() => setReload(value => value + 1)}>重试读取列表</button></div>}
     <div className="topics-workspace"><div ref={listPane} className="topics-list" aria-label="主题列表">
       {loading && <p role="status">正在读取主题…</p>}
-      {!loading && !loadError && items.length === 0 && <p className="muted">{search || filter !== 'active' ? '当前筛选下没有主题。' : '还没有进行中的主题，可新建主题开始管理。'}</p>}
+      {!loading && !loadError && items.length === 0 && <p className="muted">{search || filter !== 'active' ? '当前筛选下没有主题。' : '还没有进行中的主题。'}</p>}
       {!loading && !loadError && items.map(topic => <button className="topic-list-item" key={topic.id} type="button" aria-pressed={selectedId === topic.id} onClick={() => { if (!confirmNavigation()) return; focusDetail.current = true; setSelectedId(topic.id); setShowDetail(true) }}><strong>{topic.name}</strong><span>{statusLabel(topic.status)}</span>{topic.goal && <p>{topic.goal}</p>}<small>{formatBeijingDateTime(topic.updated_at)}</small></button>)}
-    </div><div ref={detailPane} tabIndex={-1} className="topics-detail-pane" aria-label="主题详情"><button type="button" className="topic-secondary topics-back" onClick={() => { if (confirmNavigation()) { focusList.current = true; setShowDetail(false) } }}>返回主题列表</button>{selectedId ? <TopicPane key={selectedId} id={selectedId} revision={revision} active={active} busy={pending[selectedId] ?? false} run={run} onChanged={() => setReload(value => value + 1)} {...actions} /> : <div className="topics-select-hint"><p>选择一个主题，查看当前情况与持续进展。</p></div>}</div></div>
+    </div><div ref={detailPane} tabIndex={-1} className="topics-detail-pane" aria-label="主题详情"><button type="button" className="topic-secondary topics-back" onClick={() => { if (confirmNavigation()) { focusList.current = true; setShowDetail(false) } }}>返回主题列表</button>{selectedId ? <TopicPane key={selectedId} id={selectedId} revision={revision} active={active} busy={pending[selectedId] ?? false} run={run} onChanged={() => setReload(value => value + 1)} {...actions} /> : <div className="topics-select-hint"><p>选择一个主题查看详情。</p></div>}</div></div>
   </section>
 }

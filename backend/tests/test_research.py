@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from sqlalchemy import func, select
+import pytest
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.api import research as research_api
 from app.domain_models import Record, ResearchConclusion, ResearchDetail
 from app.models import AuditEntry, SourceEntry
 from tests.test_pitfalls import _client
@@ -87,6 +89,56 @@ def test_research_workflow_and_disabled_conclusions() -> None:
     assert client.patch(route, json={"status": None}).status_code == 422
     client.headers.clear()
     assert client.post(route + "/conclusions", json={}).status_code == 401
+
+
+def test_archived_research_requires_restore_without_writing() -> None:
+    client = _client()
+    topic = client.post("/api/v1/research", json={"title": "归档后继续调研"}).json()
+    route = f"/api/v1/research/{topic['id']}"
+    archived = client.patch(route, json={"status": "archived"}).json()
+    with Session(client.app.state.engine) as db:
+        audit_count = db.scalar(select(func.count()).select_from(AuditEntry))
+    entry = {"research_date": "2026-10-16", "content": "补充资料"}
+    response = client.post(route + "/entries", json=entry)
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "research_archived"
+    unchanged = client.get(route).json()
+    assert unchanged["version"] == archived["version"]
+    assert unchanged["updated_at"] == archived["updated_at"]
+    assert unchanged["entries"] == []
+    with Session(client.app.state.engine) as db:
+        assert db.scalar(select(func.count()).select_from(AuditEntry)) == audit_count
+    assert client.patch(route, json={"status": "comparing"}).status_code == 200
+    assert client.post(route + "/entries", json=entry).status_code == 201
+
+
+def test_archive_between_append_check_and_write_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client()
+    topic = client.post("/api/v1/research", json={"title": "并发归档"}).json()
+    route = f"/api/v1/research/{topic['id']}"
+    original_bump = research_api.bump_record_version
+
+    def archive_then_bump(db: Session, record: Record, expected_version: int) -> None:
+        # 模拟通过状态检查后，另一页面先完成归档。
+        with Session(client.app.state.engine) as other:
+            other.execute(update(Record).where(Record.id == record.id).values(
+                status="archived", version=Record.version + 1,
+            ))
+            other.commit()
+        original_bump(db, record, expected_version)
+
+    monkeypatch.setattr(research_api, "bump_record_version", archive_then_bump)
+    response = client.post(route + "/entries", json={
+        "research_date": "2026-10-16", "content": "不应写入的过程",
+    })
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "record_version_conflict"
+    latest = client.get(route).json()
+    assert latest["status"] == "archived"
+    assert latest["entries"] == []
+    assert latest["version"] == topic["version"] + 1
 
 
 def test_old_research_data_is_read_only_and_status_is_projected() -> None:

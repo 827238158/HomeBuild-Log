@@ -207,13 +207,18 @@ def append_entry(
     db = _db(request)
     try:
         item = _topic(db, record_id)
+        if item.status == "archived":
+            raise HTTPException(status_code=409, detail={
+                "code": "research_archived", "message": "请先恢复调研。",
+            })
         entry = ResearchEntry(
             record_id=item.id, research_date=body.research_date,
             content=_required(body.content, "调研内容"),
             sources=[_required(value, "来源") for value in body.sources],
             uncertainties=body.uncertainties,
         )
-        bump_record_version(db, item)
+        # 以读取版本原子写入，防止检查后被其他请求归档仍追加成功。
+        bump_record_version(db, item, item.version)
         db.add(entry)
         item.updated_at = _now()
         db.flush()

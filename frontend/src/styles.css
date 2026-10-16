@@ -7,6 +7,9 @@
 @import './styles/interaction-motion.css';
 @import './styles/immersive-effects.css';
 
+/* 文本域统一取消原生缩放手柄，长文仍可滚动。 */
+textarea { resize: none; }
+
 /* 旧规则作为迁移兼容层保留；未分层的新设计规范始终拥有最终优先级。 */
 @layer legacy {
 .select-control { position: relative; min-width: 0; }
@@ -1012,7 +1015,7 @@ h1 {
   line-height: 1.6;
   font-family: inherit;
   outline: none;
-  resize: vertical;
+  resize: none;
   transition: border-color 0.2s;
 }
 
@@ -2125,7 +2128,7 @@ h1 {
 
 .detail-edit-section textarea {
   width: 100%;
-  resize: vertical;
+  resize: none;
 }
 
 .relation-summary,

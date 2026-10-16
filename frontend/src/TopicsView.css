@@ -9,7 +9,7 @@
 .topics-page label { display: grid; gap: 6px; min-width: 0; }
 .topics-page input, .topics-page textarea { width: 100%; min-width: 0; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--border-strong, #cfd6de); border-radius: 8px; background: var(--surface, #fff); color: var(--ink, #1f2328); font: inherit; }
 .topics-page input { min-height: 44px; }
-.topics-page textarea { resize: vertical; }
+.topics-page textarea { resize: none; }
 .topics-page .error-text { color: var(--risk, #c93434); overflow-wrap: anywhere; }
 .topics-page button:focus-visible, .topics-page input:focus-visible, .topics-page textarea:focus-visible, .topics-page summary:focus-visible { outline: 2px solid var(--primary, #1769c2); outline-offset: 3px; }
 .topic-toolbar { display: flex; gap: 12px; align-items: end; }

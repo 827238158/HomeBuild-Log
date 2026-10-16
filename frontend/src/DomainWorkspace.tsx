@@ -1262,13 +1262,13 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
 
       <details ref={managerRef} className="manage-panel review-data-manager">
         <summary>管理空间与共享档案</summary>
-        <p className="panel-guide">空间用于标记事情发生的位置；共享档案可在多条记录中重复使用。只能删除尚未被正式记录使用的项目。</p>
+        <p className="panel-guide">已被正式记录使用的项目不可删除。</p>
         <div className="manage-grid">
           <section>
             <h3>新增空间</h3>
             <label className="field-stack"><span>空间名称</span><input value={spaceName} onChange={(event) => setSpaceName(event.target.value)} placeholder="例如：主卧、淋浴区或门洞" /></label>
             <label className="field-stack"><span>空间类型</span><Select value={spaceKind} onChange={(event) => setSpaceKind(event.target.value)}>{Object.entries(spaceKindLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>
-            <label className="field-stack"><span>上级空间</span><Select value={spaceParent} disabled={spaceKind === 'house'} onChange={(event) => setSpaceParent(event.target.value)}><option value="" disabled={spaceKind !== 'house'}>{spaceKind === 'house' ? '房屋是根空间，无需上级' : '请选择上级空间'}</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select><small>系统会自动提供“整套房屋”。用于建立“房屋 → 房间 → 局部构件/表面”层级，例如“主卧”的上级就是“整套房屋”。</small></label>
+            <label className="field-stack"><span>上级空间</span><Select value={spaceParent} disabled={spaceKind === 'house'} onChange={(event) => setSpaceParent(event.target.value)}><option value="" disabled={spaceKind !== 'house'}>{spaceKind === 'house' ? '房屋是根空间，无需上级' : '请选择上级空间'}</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><details><summary>上级空间怎么选？</summary><p>房间选择“整套房屋”，局部区域或构件选择所在房间。</p></details>
             <button type="button" onClick={() => void addSpace()}>新增空间</button>
             <div className="manage-list" aria-label="已有空间">
               <h4>已有空间</h4>

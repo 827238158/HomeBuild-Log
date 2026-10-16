@@ -3,14 +3,18 @@ import { VoiceInput } from './VoiceInput'
 import './VoiceField.css'
 
 /** 字段级语音入口：始终读取最新草稿，超长结果留给用户修正。 */
-export function VoiceField({ children, active = true, onBusyChange }: {
+export function VoiceField({ children, active = true, onBusyChange, overflowDraft }: {
   children: ReactElement<TextareaHTMLAttributes<HTMLTextAreaElement>>
   active?: boolean
   onBusyChange?: (busy: boolean) => void
+  overflowDraft?: { text: string; onChange: (text: string) => void }
 }) {
   const latest = useRef(children.props)
   latest.current = children.props
-  const [pending, setPending] = useState('')
+  const [localPending, setLocalPending] = useState('')
+  // 可收起表单由父级保留超长转写草稿，避免卸载输入控件后丢失。
+  const pending = overflowDraft?.text ?? localPending
+  const setPending = overflowDraft?.onChange ?? setLocalPending
   const apply = (text: string) => {
     const props = latest.current
     const current = String(props.value ?? '')

@@ -147,7 +147,7 @@
   background: var(--surface);
   color: var(--ink);
   font: inherit;
-  resize: vertical;
+  resize: none;
 }
 
 .pitfall-form:focus-within {
@@ -447,3 +447,6 @@
   .segmented-control button { flex: 1; }
   .pitfall-analysis__grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* 与踩坑经过共用左右留白，避免主题选择横向突出。 */
+.pitfall-form > .multi-select-field { margin: 12px 12px; min-width: 0; }

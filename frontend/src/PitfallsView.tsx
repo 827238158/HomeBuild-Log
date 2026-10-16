@@ -97,7 +97,7 @@ function PitfallForm({ item, onSaved, onCancel, initialTopicId }: {
     <div className="pitfall-form__meta">
       <label><span>发生日期</span><input type="date" value={occurredDate} required onChange={(event) => change({ ...draft, date: event.target.value })} /></label>
     </div>
-    <label className="pitfall-form__content"><span>踩坑经过</span><VoiceField><textarea value={description} maxLength={10000} rows={item ? 4 : 3} placeholder="发生了什么？先记下事实，之后可继续追加处理过程。" onChange={(event) => change({ ...draft, text: event.target.value })} /></VoiceField></label>
+    <label className="pitfall-form__content"><span>踩坑经过</span><VoiceField><textarea value={description} maxLength={10000} rows={item ? 4 : 3} placeholder="发生了什么？" onChange={(event) => change({ ...draft, text: event.target.value })} /></VoiceField></label>
     <TopicSelect value={topicIds} onChange={setTopicIds} disabled={saving} />
     <div className="pitfall-form__actions">
       {error && <p className="error-text" role="alert">{error}</p>}
@@ -281,12 +281,12 @@ export function PitfallsView({ initialPitfallId, initialTopicId, initialMatchId 
     </div>
 
     {analysisError && <div className="analysis-message analysis-message--error" role="alert"><strong>分析未完成</strong><p>{analysisError}</p><button type="button" className="secondary-button" onClick={runAnalysis}>重试</button></div>}
-    {analyzing && <div className="analysis-message" role="status"><strong>正在回顾全部踩坑与处理过程…</strong><p>分析只读取当前数据，不会修改任何原始记录。</p></div>}
-    {analysis && <article className="pitfall-analysis"><header><div><span className="record-type-tag">AI 复盘</span><h3>全部踩坑分析</h3></div><small>{analysis.provider} · {analysis.model}</small></header><p className="pitfall-analysis__summary">{analysis.summary}</p><div className="pitfall-analysis__grid"><AnalysisList title="重复出现的问题" items={analysis.recurring_patterns} empty="未发现明确的重复模式。" /><AnalysisList title="采取过的处理方式" items={analysis.approaches} empty="暂无可归纳的处理方式。" /><AnalysisList title="尚未处理" items={analysis.unresolved_items} empty="没有识别到未处理事项。" /><AnalysisList title="后续避免建议" items={analysis.prevention_advice} empty="暂无额外建议。" /></div><p className="muted">AI 内容仅供复盘参考，不会回写或覆盖原始记录。</p></article>}
+    {analyzing && <div className="analysis-message" role="status"><strong>正在回顾全部踩坑与处理过程…</strong></div>}
+    {analysis && <article className="pitfall-analysis"><header><div><span className="record-type-tag">AI 复盘</span><h3>全部踩坑分析</h3></div><small>{analysis.provider} · {analysis.model}</small></header><p className="pitfall-analysis__summary">{analysis.summary}</p><div className="pitfall-analysis__grid"><AnalysisList title="重复出现的问题" items={analysis.recurring_patterns} empty="未发现明确的重复模式。" /><AnalysisList title="采取过的处理方式" items={analysis.approaches} empty="暂无可归纳的处理方式。" /><AnalysisList title="尚未处理" items={analysis.unresolved_items} empty="没有识别到未处理事项。" /><AnalysisList title="后续避免建议" items={analysis.prevention_advice} empty="暂无额外建议。" /></div><p className="muted">AI 建议仅供参考，请核实。</p></article>}
 
     {loadError && <div className="empty-state" role="alert"><h3>加载失败</h3><p>{loadError}</p><button type="button" onClick={() => setRevision((value) => value + 1)}>重新加载</button></div>}
-    {loading && <div className="empty-state" role="status"><h3>正在整理时间记录…</h3><p>稍等片刻。</p></div>}
-    {!loading && !loadError && items.length === 0 && <div className="empty-state"><h3>{summary.total === 0 ? '还没有踩坑记录' : '当前筛选下没有记录'}</h3><p>{summary.total === 0 ? '从上方快速记下第一条，之后可以持续追加处理过程。' : '切换筛选条件即可查看其他记录。'}</p></div>}
+    {loading && <div className="empty-state" role="status"><h3>正在加载踩坑记录…</h3></div>}
+    {!loading && !loadError && items.length === 0 && <div className="empty-state"><h3>{summary.total === 0 ? '还没有踩坑记录' : '当前筛选下没有记录'}</h3><p>{summary.total === 0 ? '在上方记下第一条踩坑。' : '试试其他筛选条件。'}</p></div>}
 
     {!loading && !loadError && items.length > 0 && <div className="pitfall-timeline">{items.map((item, motionIndex) => <article id={`pitfall-${item.id}`} tabIndex={-1} className="pitfall-entry timeline-motion-item" data-motion-index={motionIndex} style={{ '--motion-index': motionIndex } as CSSProperties} key={item.id}>
       <div className="pitfall-entry__date"><time dateTime={item.occurred_date}>{formatCalendarDate(item.occurred_date)}</time></div>
