@@ -30,6 +30,30 @@ const tooltip = {
   textStyle: { color: chartPalette.text },
 }
 
+type SelectableDatum = { key?: string; name?: string; itemStyle?: Record<string, unknown>; symbolSize?: number }
+type SelectableSeries = { type?: string; data?: Array<SelectableDatum | number | null>; itemStyle?: Record<string, unknown> }
+
+export function withChartSelection(option: EChartsCoreOption, selectedKey?: string): EChartsCoreOption {
+  if (!selectedKey || !option.series) return option
+  const series = (Array.isArray(option.series) ? option.series : [option.series]) as SelectableSeries[]
+  // 只在服务端当前返回的数据中标记选中项，不补造分布或改变金额口径。
+  const hasSelection = series.some(item => item.data?.some(point => point && typeof point === 'object' && (point.key ?? point.name) === selectedKey))
+  if (!hasSelection) return option
+  return { ...option, series: series.map(item => ({
+    ...item,
+    data: item.data?.map(point => {
+      if (!point || typeof point !== 'object') return point
+      const selected = (point.key ?? point.name) === selectedKey
+      return { ...point,
+        ...(item.type === 'line' && selected ? { symbolSize: 12 } : {}),
+        itemStyle: { ...item.itemStyle, ...point.itemStyle, opacity: selected ? 1 : 0.3,
+          ...(selected ? { borderColor: chartPalette.text, borderWidth: 2 } : {}),
+        },
+      }
+    }),
+  })) } as EChartsCoreOption
+}
+
 export function lineOption(rows: DistributionItem[], unit = '项'): EChartsCoreOption {
   const rotate = rows.length > 8 ? 32 : 0
   return {

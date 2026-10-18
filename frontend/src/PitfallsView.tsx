@@ -138,7 +138,7 @@ function ResolutionForm({ pitfallId, item, onSaved, onCancel }: {
     }
   }
   return <form className="resolution-form" onSubmit={submit}>
-    <label><span>处理日期</span><input type="date" value={resolvedDate} required onChange={(event) => change({ ...draft, date: event.target.value })} /></label>
+    <label className="resolution-form__date"><span>处理日期</span><input type="date" value={resolvedDate} required onChange={(event) => change({ ...draft, date: event.target.value })} /></label>
     <label className="resolution-form__content"><span>处理内容</span><VoiceField><textarea rows={3} maxLength={10000} value={content} placeholder="这次做了什么、结果怎样？" onChange={(event) => change({ ...draft, text: event.target.value })} /></VoiceField></label>
     <div className="resolution-form__actions"><button type="button" className="secondary-button" onClick={() => { clear(); onCancel() }}>{item ? '放弃修改' : '放弃本次处理'}</button><button type="submit" disabled={saving}>{saving ? '保存中…' : item ? '保存修改' : '追加处理记录'}</button></div>
     {error && <p className="error-text" role="alert">{error}</p>}
@@ -294,7 +294,6 @@ export function PitfallsView({ initialPitfallId, initialTopicId, initialMatchId 
         <header><span className={`status-tag status-tag--${item.status === 'resolved' ? 'success' : 'warning'}`}>{item.status === 'resolved' ? '已处理' : '未处理'}</span><div className="inline-actions"><button type="button" className="text-button" onClick={() => { setEditingId(item.id); setAddingToId('') }}>修改</button><button type="button" className="text-button text-button--danger" onClick={() => void removePitfall(item)}>删除</button></div></header>
         {editingId === item.id ? <PitfallForm item={item} onSaved={refresh} onCancel={() => setEditingId('')} /> : <p className="pitfall-entry__description">{item.description}</p>}
         <section className="resolution-history"><header><div><h4>处理过程</h4><span>{item.resolutions.length} 条</span></div><button type="button" className="secondary-button" onClick={() => { setAddingToId(item.id); setEditingResolutionId(''); setEditingId('') }}>+ 追加处理</button></header>
-          {item.resolutions.length === 0 && addingToId !== item.id && <p className="resolution-empty">还没有处理记录，追加第一条后将自动变为“已处理”。</p>}
           {item.resolutions.map((resolution) => <div className="resolution-item" key={resolution.id} data-search-match={resolution.id} tabIndex={-1}><div className="resolution-item__marker" aria-hidden="true" /><div className="resolution-item__content">{editingResolutionId === resolution.id ? <ResolutionForm pitfallId={item.id} item={resolution} onSaved={refresh} onCancel={() => setEditingResolutionId('')} /> : <><header><time dateTime={resolution.resolved_date}>{formatCalendarDate(resolution.resolved_date)}</time><div className="inline-actions"><button type="button" className="text-button" onClick={() => { setEditingResolutionId(resolution.id); setAddingToId('') }}>修改</button><button type="button" className="text-button text-button--danger" onClick={() => void removeResolution(resolution)}>删除</button></div></header><p>{resolution.content}</p></>}</div></div>)}
           {addingToId === item.id && <ResolutionForm pitfallId={item.id} onSaved={refresh} onCancel={() => setAddingToId('')} />}
         </section>

@@ -12,6 +12,9 @@ import {
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption, ECElementEvent } from 'echarts/core'
 import { SVGRenderer } from 'echarts/renderers'
+import { ChartControls } from './ChartControls'
+import { withChartSelection } from './chartConfig'
+import { preserveFilterViewport } from './filterViewport'
 
 echarts.use([
   BarChart,
@@ -35,8 +38,10 @@ export interface EChartProps {
   title: string
   description?: string
   kind: 'line' | 'bar' | 'donut'
+  smoothUpdate?: boolean
   selectedKey?: string
-  interactionHint?: string
+  hasActiveFilter?: boolean
+  onClear?: () => void
   onDataHover?: (event: ChartDataEvent) => void
   onDataLeave?: () => void
   scrollableContentHeight?: number
@@ -67,8 +72,10 @@ export function EChart({
   title,
   description,
   kind,
+  smoothUpdate = false,
   selectedKey,
-  interactionHint,
+  hasActiveFilter = Boolean(selectedKey),
+  onClear,
   onDataHover,
   onDataLeave,
   scrollableContentHeight,
@@ -76,6 +83,11 @@ export function EChart({
 }: EChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null)
+
+  const preserveScroll = (callback: () => void) => {
+    if (selectedKey === undefined && !onClear && !hasActiveFilter) callback()
+    else preserveFilterViewport(containerRef.current, callback)
+  }
 
   useEffect(() => {
     const container = containerRef.current
@@ -93,8 +105,16 @@ export function EChart({
   }, [])
 
   useEffect(() => {
-    chartRef.current?.setOption({ aria: { enabled: true, decal: { show: false } }, ...option }, true)
-  }, [option])
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    const nextOption = {
+      aria: { enabled: true, decal: { show: false } },
+      ...withChartSelection(option, selectedKey),
+      ...(smoothUpdate ? { animationDurationUpdate: reducedMotion ? 0 : 320, animationEasingUpdate: 'cubicOut' as const } : {}),
+    }
+    // 记录分析保留图表实例和同类 series，让 ECharts 对新旧数据做原位过渡。
+    if (smoothUpdate) chartRef.current?.setOption(nextOption)
+    else chartRef.current?.setOption(nextOption, true)
+  }, [option, selectedKey, smoothUpdate])
 
   useEffect(() => {
     const chart = chartRef.current
@@ -119,7 +139,9 @@ export function EChart({
     }
     const clickHandler = (params: ECElementEvent) => {
       if (!onDataClick) return
-      onDataClick(dataEvent(params).key)
+      const key = dataEvent(params).key
+      // 只有筛选图表重复点击时取消；账本等明细入口保持原动作。
+      preserveScroll(() => onDataClick(selectedKey !== undefined && selectedKey === key ? '' : key))
     }
     const hoverHandler = (params: ECElementEvent) => {
       if (onDataHover) onDataHover(dataEvent(params))
@@ -135,7 +157,7 @@ export function EChart({
       chart.off('mouseout', leaveHandler)
       chart.off('globalout', leaveHandler)
     }
-  }, [onDataClick, onDataHover, onDataLeave])
+  }, [onDataClick, onDataHover, onDataLeave, selectedKey])
 
   const scrollable = scrollableContentHeight !== undefined && scrollableMaxHeight !== undefined
   const viewportStyle = scrollable ? {
@@ -144,11 +166,10 @@ export function EChart({
   } as CSSProperties : undefined
 
   return <figure className={`chart-card${onDataClick ? ' chart-card--interactive' : ''}${selectedKey ? ' is-filtered' : ''}`} data-chart-kind={kind}>
-    <header className="chart-card__header"><div><h3>{title}</h3>{description && <p>{description}</p>}</div>{onDataClick && <span>{interactionHint ?? (selectedKey ? '已应用图表筛选' : '点击图形可筛选')}</span>}</header>
+    <header className="chart-card__header"><div><h3>{title}</h3>{description && <p>{description}</p>}</div>{onDataClick && <ChartControls title={title} items={accessibleItems} selectedKey={selectedKey} active={hasActiveFilter} onClear={() => preserveScroll(() => onClear ? onClear() : onDataClick(''))} onChoose={key => preserveScroll(() => onDataClick(selectedKey !== undefined && selectedKey === key ? '' : key))} />}</header>
     <div className={scrollable ? 'chart-scroll-viewport' : undefined} style={viewportStyle}>
       <div ref={containerRef} className={`chart-canvas${scrollable ? ' chart-canvas--scroll-content' : ''}`} aria-hidden="true" />
     </div>
     <figcaption className="sr-only">{summary}</figcaption>
-    {onDataClick && accessibleItems && accessibleItems.length > 0 && <details className="chart-keyboard-actions"><summary>按分类操作</summary><div className="tag-list">{accessibleItems.map(item => <button type="button" key={item.key} aria-pressed={selectedKey === item.key} onClick={() => onDataClick(item.key)}>{item.label}</button>)}</div></details>}
   </figure>
 }

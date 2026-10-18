@@ -10,6 +10,38 @@ function Fixture() {
 }
 
 describe('Select', () => {
+  it('窗口变矮或滚动使触发器移出视口时，菜单仍完整留在可见范围', () => {
+    const heightDescriptor = Object.getOwnPropertyDescriptor(window, 'innerHeight')!
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 })
+    render(<Fixture />)
+    const trigger = screen.getByRole('combobox', { name: /甲/ })
+    let rect = { left: 20, top: 650, bottom: 694, width: 200, height: 44 }
+    const anchor = vi.spyOn(trigger, 'getBoundingClientRect').mockImplementation(() => rect as DOMRect)
+    try {
+      fireEvent.click(trigger)
+      const menu = screen.getByRole('listbox')
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: 420 })
+      const expectInsideViewport = () => {
+        const height = parseFloat(menu.style.maxHeight)
+        const top = menu.style.top === 'auto'
+          ? window.innerHeight - parseFloat(menu.style.bottom) - height
+          : parseFloat(menu.style.top)
+        expect(screen.getByRole('listbox')).toBe(menu)
+        expect(height).toBeGreaterThan(0)
+        expect(top).toBeGreaterThanOrEqual(8)
+        expect(top + height).toBeLessThanOrEqual(window.innerHeight - 8)
+      }
+      fireEvent.resize(window)
+      expectInsideViewport()
+      rect = { ...rect, top: -120, bottom: -76 }
+      fireEvent.scroll(document)
+      expectInsideViewport()
+    } finally {
+      anchor.mockRestore()
+      Object.defineProperty(window, 'innerHeight', heightDescriptor)
+    }
+  })
+
   it('点击标签文字不会激活隐藏代理，焦点直接给可见入口', () => {
     render(<label><span>状态</span><Select value="a" onChange={() => {}}><option value="a">待处理</option></Select></label>)
     const trigger = screen.getByRole('combobox')

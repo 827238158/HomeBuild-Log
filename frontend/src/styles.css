@@ -6,6 +6,7 @@
 @import './styles/responsive.css';
 @import './styles/interaction-motion.css';
 @import './styles/immersive-effects.css';
+@import './styles/buttons.css';
 
 /* 文本域统一取消原生缩放手柄，长文仍可滚动。 */
 textarea { resize: none; }

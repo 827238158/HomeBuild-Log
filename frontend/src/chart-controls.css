@@ -1,0 +1,70 @@
+/* 图表操作用轻量图标表达，固定槽位避免筛选前后标题和画布移动。 */
+.chart-card .chart-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.chart-card__header > div:first-child { min-width: 0; }
+.chart-card__header h3 { padding-block: 10px; }
+.chart-card__header h3 + p { margin-top: 0; }
+.chart-controls { display: flex; align-items: center; flex: 0 0 auto; gap: 2px; }
+
+button.chart-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink-muted);
+  box-shadow: none;
+  cursor: pointer;
+  transform: none;
+}
+
+button.chart-icon-button:hover,
+button.chart-icon-button[aria-expanded='true'] { background: var(--primary-soft); color: var(--primary); }
+button.chart-icon-button.chart-clear { color: var(--primary); }
+button.chart-icon-button:active { background: var(--primary-soft); transform: none; }
+.chart-icon-button svg, .chart-category-menu svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+.chart-icon-button:focus-visible, .chart-category-menu button:focus-visible { outline: 2px solid var(--primary); outline-offset: -3px; }
+
+.chart-category-menu {
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(24 42 51 / 14%);
+}
+
+.chart-category-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-weight: 400;
+  transform: none;
+}
+.chart-category-menu button:hover, .chart-category-menu button[aria-pressed='true'] { background: var(--primary-soft); color: var(--primary-active); }
+.chart-card.chart-card--interactive.is-filtered { border-color: var(--border); box-shadow: var(--shadow-sm); }

@@ -98,7 +98,7 @@
   box-shadow: none;
   content: '';
   pointer-events: none;
-  transition: transform 240ms var(--ease-out);
+  transition: transform 400ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .capture-tabs[data-active='review']::before {
@@ -453,20 +453,6 @@
 .source-maintenance {
   width: 100%;
   margin-inline: 0;
-}
-
-.capture-review .source-picker__trigger::after {
-  grid-column: 3;
-  width: 8px;
-  height: 8px;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  content: '';
-  transform: rotate(45deg) translateY(-2px);
-}
-
-.capture-review .source-picker__trigger[aria-expanded='true']::after {
-  transform: rotate(225deg) translateY(-2px);
 }
 
 .source-picker,
@@ -1006,11 +992,6 @@
 }
 
 /* 空间档案 */
-.space-overview dl div {
-  border-color: var(--border);
-  background: var(--surface-soft);
-}
-
 .space-overview dt {
   color: var(--ink-muted);
 }
@@ -1038,6 +1019,82 @@
 }
 
 /* 数据页与表格 */
+.records-analytics-content .projection-card {
+  /* 同行卡片等高时，只拉伸外壳，不把类型标签所在的网格行撑高。 */
+  align-content: start;
+}
+
+.records-analytics-content .projection-card > .record-type-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  align-self: start;
+  width: max-content;
+  max-width: 100%;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.records-analytics-dashboard {
+  min-width: 0;
+}
+
+.records-analytics-value {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  animation: records-analytics-value-enter 220ms ease-out both;
+}
+
+.records-analytics-value-placeholder {
+  display: inline-block;
+  width: 2.2ch;
+  height: .7em;
+  border-radius: 4px;
+  background: var(--surface-muted);
+  vertical-align: middle;
+}
+
+@keyframes records-analytics-value-enter {
+  from { opacity: .15; }
+  to { opacity: 1; }
+}
+
+.records-analytics-dashboard .chart-canvas,
+.records-analytics-dashboard .records-analytics-records .card-grid {
+  transition: opacity 220ms ease-out;
+}
+
+.records-analytics-dashboard[data-pending='true'] .chart-canvas,
+.records-analytics-dashboard[data-pending='true'] .records-analytics-records .card-grid {
+  opacity: .1;
+}
+
+.records-analytics-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 160px;
+  min-height: 44px;
+  margin: 20px auto 0;
+  padding: 0 20px;
+  cursor: pointer;
+}
+
+.records-analytics-more__chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .records-analytics-value { animation: none; }
+  .records-analytics-dashboard .chart-canvas,
+  .records-analytics-dashboard .records-analytics-records .card-grid { transition: none; }
+}
+
 .type-tabs {
   gap: 6px;
   padding: 4px;

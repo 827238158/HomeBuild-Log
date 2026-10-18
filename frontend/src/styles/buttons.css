@@ -1,0 +1,164 @@
+/* 只统一操作按钮：内容卡片、菜单、选择器和语音工具保留各自的布局与命中区。 */
+button:is(
+  .primary-button, .secondary-button, .filter-button, .source-save, .login-button,
+  .danger-button, .suggestion-remove, .add-manual-suggestion, .candidate-review-back,
+  .clear-filter, .menu-button, .attachment-retry,
+  .dropdown-retry,
+  .timeline-load-more, .timeline-back-to-top,
+  .record-actions > button, .record-edit button, .manage-panel button,
+  .relation-form > button, .relation-row > button, .detail-record-actions > button,
+  .detail-panel__header > button, .ledger-detail-panel__header > button,
+  .measurement-fields button, .search-pagination > button,
+  .capture-next-step > button, .recent-source-row__actions > button:first-child,
+  .attachment-feedback > button,
+  .attachment-viewer > button, .ledger-detail-preview > button,
+  .empty-guidance > button, .source-error > button,
+  .detail-section-state > button, .view-state--error > button,
+  .source-review-warning > button,
+  .record-conflict > [role='alert'] > button,
+  .record-associations__body > [role='alert'] > button,
+  .research-info-body > [role='alert'] > button,
+  .business-page-header .business-entry-toggle,
+  .business-entry .business-entry-inline > button,
+  .business-entry .business-entry-wide > button,
+  .topics-page-heading > button, .topic-actions > button,
+  .topics-page .topic-secondary, .topics-return,
+  .research-capture > button, .research-actions > button,
+  .research-primary, .research-secondary,
+  .pitfall-form__actions > button, .resolution-form__actions > button,
+  .empty-state > button, .view-state > button
+):not(:where(
+  .source-input-wrap *, .select-control *, .multi-select-control *,
+  .select-menu *, .source-picker *, .review-source-actions__menu *,
+  [role='option'], [role='menuitem'], .text-button, .title-button,
+  .record-associations__toggle, .research-info-toggle
+)) {
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--action-border, var(--button-border));
+  border-radius: var(--button-radius);
+  background: var(--action-fill, var(--button-surface));
+  color: var(--action-ink, var(--primary-active));
+  box-shadow: var(--action-shadow, var(--button-shadow));
+  font-family: inherit;
+  font-size: var(--control-font-size);
+  font-weight: 600;
+  line-height: var(--control-line-height);
+  text-align: center;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+
+  /* 主操作显式着色；同一容器里的取消和辅助操作不继承主色。 */
+  &:where(
+    .primary-button, .source-save, .login-button,
+    .filter-button:not(.secondary-button),
+    .business-entry-toggle:not([aria-expanded='true']),
+    .business-entry-wide > button[type='submit'],
+    .topics-page-heading > button, .topic-actions > button[type='submit'],
+    .research-primary, .research-capture > button[type='submit'],
+    .research-actions > button[type='submit'],
+    .pitfall-form__actions > button[type='submit'],
+    .resolution-form__actions > button[type='submit']
+  ) {
+    --action-fill: var(--primary);
+    --action-hover: var(--primary-hover);
+    --action-active: var(--primary-active);
+    --action-ink: #fff;
+    --action-border: var(--primary);
+    --action-shadow: var(--button-primary-shadow);
+    --action-shadow-hover: var(--button-primary-shadow);
+    --action-shadow-pressed: var(--button-primary-pressed);
+  }
+
+  &:is(.danger-button, .suggestion-remove, .attachment-feedback__remove) {
+    --action-fill: var(--risk-soft);
+    --action-hover: #ffe3e3;
+    --action-ink: var(--risk);
+    --action-border: #efd1d1;
+  }
+
+  /* 保存结果继续使用原有状态语义，避免通用材质覆盖成功或失败反馈。 */
+  &.state-button:is([data-state='saved'], [data-state='success']) {
+    --action-fill: var(--success);
+    --action-hover: var(--success);
+    --action-active: var(--success);
+    --action-border: var(--success);
+    --action-ink: #fff;
+  }
+
+  &.state-button:is([data-state='error'], [data-state='attachment-error']) {
+    --action-fill: var(--risk);
+    --action-hover: var(--risk);
+    --action-active: var(--risk);
+    --action-border: var(--risk);
+    --action-ink: #fff;
+  }
+
+  &:hover:not(:disabled) {
+    background: var(--action-hover, var(--button-surface-hover));
+    box-shadow: var(--action-shadow-hover, var(--button-shadow-hover));
+    filter: none;
+  }
+
+  &:active:not(:disabled) {
+    background: var(--action-active, var(--action-hover, var(--button-surface-hover)));
+    box-shadow: var(--action-shadow-pressed, var(--button-shadow-pressed));
+    transform: none;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+  }
+
+  &:is(:disabled, [aria-disabled='true']) {
+    background: var(--surface-muted);
+    border-color: var(--border);
+    color: var(--ink-muted);
+    box-shadow: none;
+    opacity: 1;
+    cursor: not-allowed;
+  }
+
+  &[aria-busy='true'],
+  &.state-button:is([data-state='saving'], [data-state='confirming']) {
+    cursor: wait;
+  }
+
+  @media (max-width: 768px), (pointer: coarse) {
+    min-height: 44px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+
+  /* 系统高对比模式不依赖阴影表达按钮边界。 */
+  @media (forced-colors: active) {
+    border-color: ButtonText;
+    background: ButtonFace;
+    color: ButtonText;
+    box-shadow: none;
+
+    &:disabled { color: GrayText; border-color: GrayText; }
+  }
+}
+
+/* 分段选择沿用原有滑块定位，仅统一外壳与内凹材质。 */
+:is(.type-tabs, .segmented-control, .capture-tabs) {
+  border-radius: var(--button-radius);
+  background: var(--button-surface);
+  box-shadow: inset 1px 1px 3px rgb(133 144 163 / 14%), inset -1px -1px 3px rgb(255 255 255 / 85%);
+}
+
+:is(.type-tabs, .segmented-control, .capture-tabs)::before {
+  border-radius: var(--button-radius);
+  background: var(--primary-soft);
+  box-shadow: var(--button-shadow-pressed);
+}
+
+:is(.type-tabs, .segmented-control) > button,
+.capture-tab {
+  border-radius: var(--button-radius);
+  font-weight: 600;
+}

@@ -35,7 +35,7 @@ export function TopicSelect({ value, onChange, disabled = false, label = '所属
         <span>{summary}</span><DropdownChevron open={open} />
       </button>
       {open && createPortal(<div ref={menuRef} id={`${id}-topics`} className="multi-select-options dropdown-portal" style={style} role="listbox" aria-multiselectable="true" aria-label={label}>
-        {loading ? <span role="status">正在读取主题…</span> : error ? <div><p role="alert">{error}</p><button type="button" onClick={() => setRetry(value => value + 1)}>重试</button></div> : topics.length === 0 ? <span>暂无主题，可在主题页面新建。</span> : topics.map(topic => {
+        {loading ? <span role="status">正在读取主题…</span> : error ? <div><p role="alert">{error}</p><button className="dropdown-retry" type="button" onClick={() => setRetry(value => value + 1)}>重试</button></div> : topics.length === 0 ? <span>暂无主题，可在主题页面新建。</span> : topics.map(topic => {
           const checked = value.includes(topic.id)
           // 已归档的已有归属可以移除，但恢复前不可新增归属。
           return <label key={topic.id} role="option" aria-selected={checked} aria-disabled={topic.status === 'archived' && !checked}>

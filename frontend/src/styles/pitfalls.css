@@ -115,10 +115,14 @@
 
 .resolution-form {
   display: grid;
-  grid-template-columns: minmax(150px, .42fr) minmax(0, 1.58fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
-  align-items: end;
+  min-width: 0;
 }
+
+/* 日期作为辅助字段置顶，正文整行输入，操作集中在表单底部。 */
+.resolution-form__date { width: min(100%, 220px); }
+.resolution-form__content { min-width: 0; }
 
 .resolution-form {
   padding: 14px;
@@ -185,6 +189,26 @@
   gap: 8px;
   justify-content: flex-end;
 }
+
+.resolution-form__actions { flex-wrap: wrap; }
+.resolution-form__actions > button {
+  min-height: 44px;
+  padding: 9px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.resolution-form__actions > button[type="submit"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+.resolution-form__actions > button:hover:not(:disabled) { filter: brightness(.97); }
+.resolution-form__actions > button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.resolution-form__actions > button:disabled { opacity: .6; cursor: wait; }
 
 .pitfall-form__actions {
   align-items: center;
@@ -342,14 +366,6 @@
   font-size: .8rem;
 }
 
-.resolution-empty {
-  margin: 14px 0 0;
-  padding: 12px;
-  border-radius: var(--radius-sm);
-  background: var(--warning-soft);
-  color: var(--warning);
-}
-
 .resolution-item {
   position: relative;
   display: grid;
@@ -428,11 +444,12 @@
 
 @media (max-width: 900px) {
   .pitfall-capture { grid-template-columns: minmax(0, 1fr); }
-  .resolution-form { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
   .pitfall-capture__theme { min-height: 0; aspect-ratio: 1.9 / 1; }
 }
 
 @media (max-width: 620px) {
+  .resolution-form__date { width: 100%; }
+  .resolution-form__actions > button { flex: 1 1 120px; }
   .pitfalls-page__header,
   .pitfall-toolbar { align-items: stretch; flex-direction: column; }
   .pitfalls-page__header > button { width: 100%; }

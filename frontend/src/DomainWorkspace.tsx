@@ -1044,7 +1044,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
           <label className="field-stack"><span>原始文字</span><VoiceField onBusyChange={setVoiceBusy}><textarea rows={3} maxLength={10000} value={sourceDraft} onChange={(event) => setSourceDraft(event.target.value)} /></VoiceField></label>
           <label className="field-stack"><span>原始时间描述（可选）</span><input value={sourceTimeDraft} onChange={(event) => setSourceTimeDraft(event.target.value)} placeholder="例如：2026年6月28日下午" /></label>
           <p className="risk-notice">修改会保留审计历史、使旧候选失效，并要求复核已生成的正式记录。</p>
-          <div className="record-actions"><button type="button" disabled={sourceBusy || voiceBusy} onClick={() => void saveSourceEdit()}>{sourceBusy ? '保存中…' : '保存修改'}</button><button type="button" onClick={() => setEditingSourceId('')}>取消</button></div>
+          <div className="record-actions"><button className="primary-button" type="button" disabled={sourceBusy || voiceBusy} onClick={() => void saveSourceEdit()}>{sourceBusy ? '保存中…' : '保存修改'}</button><button type="button" onClick={() => setEditingSourceId('')}>取消</button></div>
         </div>}
       </section>}
 
@@ -1273,7 +1273,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
             <div className="manage-list" aria-label="已有空间">
               <h4>已有空间</h4>
               {spaces.length === 0 && <p className="muted">还没有空间。</p>}
-              {spaces.map((item) => { const isOnlyRoot = item.kind === 'house' && item.parent_id === null && rootHouseCount === 1; return <div className="manage-list__item" key={item.id}><span><strong>{item.name}</strong><small>{spaceKindLabels[item.kind] || '其他空间'}{isOnlyRoot ? ' · 系统根空间' : item.parent_id ? ` · 上级：${spaces.find((space) => space.id === item.parent_id)?.name || '未知'}` : ' · 无上级'}</small></span>{isOnlyRoot ? <small className="protected-item">系统根空间不可删除</small> : <button type="button" onClick={() => void deleteSpaceItem(item)}>删除</button>}</div> })}
+              {spaces.map((item) => { const isOnlyRoot = item.kind === 'house' && item.parent_id === null && rootHouseCount === 1; return <div className="manage-list__item" key={item.id}><span><strong>{item.name}</strong><small>{spaceKindLabels[item.kind] || '其他空间'}{isOnlyRoot ? ' · 系统根空间' : item.parent_id ? ` · 上级：${spaces.find((space) => space.id === item.parent_id)?.name || '未知'}` : ' · 无上级'}</small></span>{isOnlyRoot ? <small className="protected-item">系统根空间不可删除</small> : <button className="danger-button" type="button" onClick={() => void deleteSpaceItem(item)}>删除</button>}</div> })}
             </div>
           </section>
           <section>
@@ -1285,7 +1285,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
             <div className="manage-list" aria-label={`已有${entityLabels[manageType]}`}>
               <h4>已有{entityLabels[manageType]}</h4>
               {entities[manageType].length === 0 && <p className="muted">还没有{entityLabels[manageType]}。</p>}
-              {entities[manageType].map((item) => <div className="manage-list__item" key={item.id}><strong>{manageType === 'materials' && item.brand ? `${String(item.brand)} · ${item.name}` : item.name}</strong><button type="button" onClick={() => void deleteManagedEntity(item)}>删除</button></div>)}
+              {entities[manageType].map((item) => <div className="manage-list__item" key={item.id}><strong>{manageType === 'materials' && item.brand ? `${String(item.brand)} · ${item.name}` : item.name}</strong><button className="danger-button" type="button" onClick={() => void deleteManagedEntity(item)}>删除</button></div>)}
             </div>
           </section>
         </div>

@@ -317,6 +317,16 @@
   .attachment-picker,
   .capture-tab,
   .filter-button,
+  .workspace-nav button,
+  .workspace-sidebar__footer button,
+  .type-tabs > button,
+  .segmented-control > button,
+  .select-menu button,
+  .multi-select-options label,
+  .workspace-content summary,
+  .ledger-calculation-help summary,
+  .capture-review summary,
+  .record-detail-panel summary,
   .review-source-actions__trigger,
   .record-actions button,
   .record-edit button,
@@ -327,6 +337,20 @@
   .recent-source-row__actions .source-item-close {
     min-width: 44px;
     min-height: 44px;
+  }
+
+  /* 折叠入口扩大实际命中区，保留原有标记与展开语义。 */
+  .workspace-content summary,
+  .ledger-calculation-help summary,
+  .capture-review summary,
+  .record-detail-panel summary {
+    padding-block: 10px;
+  }
+
+  /* 覆盖页面的 font: inherit；输入与语音修正框在手机、平板上保持可读。 */
+  :is(.app-workspace, .shell--auth, .view-panel, .record-detail-panel, .dropdown-portal, .source-input-wrap, .record-conflict)
+  :is(input:not([type='checkbox']):not([type='radio']):not([type='file']), textarea, select) {
+    font-size: 16px;
   }
 
   .recent-source-row__actions .source-item-close {

@@ -1,3 +1,13 @@
+/* 标签内容原位淡入；面板继续常驻，切换不重置草稿或候选状态。 */
+.capture-panel:not([hidden]) {
+  animation: capture-panel-enter 360ms ease-out;
+}
+
+@keyframes capture-panel-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* 短时操作反馈沿用现有语义色；动效不承担状态文案。 */
 .ai-panel__thinking {
   display: inline-flex;
@@ -208,6 +218,14 @@
   transition: left 240ms var(--ease-out), width 240ms var(--ease-out), background-color 180ms ease;
 }
 
+.type-tabs[data-indicator-ready='false']::before {
+  transition: none;
+}
+
+.type-tabs[data-indicator-ready='true']::before {
+  transition: left 400ms cubic-bezier(0.16, 1, 0.3, 1), width 400ms cubic-bezier(0.16, 1, 0.3, 1), background-color 180ms ease;
+}
+
 .type-tabs > button,
 .segmented-control > button {
   position: relative;
@@ -223,6 +241,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .capture-panel:not([hidden]) { animation: none; }
   .thinking-lattice i { animation: none; transform: none; opacity: .65; }
   .state-button,
   .candidate-check__visual,

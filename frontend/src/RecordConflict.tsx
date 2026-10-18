@@ -69,7 +69,7 @@ export function RecordConflict({ latest, draft, onResolve, onCancel }: {
     </fieldset>)}
     {!keys.length && <p>字段内容相同，记录的关联或过程已更新。</p>}
     {namesError && <p role="alert">部分选项名称读取失败。<button type="button" onClick={() => setRetry(value => value + 1)}>重试读取名称</button></p>}
-    <div className="record-actions"><button type="button" disabled={!ready} onClick={() => {
+    <div className="record-actions"><button className="primary-button" type="button" disabled={!ready} onClick={() => {
       // 明确选择后才更新草稿与基准版本，不在冲突发生时自动合并或写入。
       const payload = { ...draft }
       for (const key of keys) if (choices[key] === 'latest') payload[key] = latest[key] ?? null

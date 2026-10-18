@@ -2,6 +2,8 @@
 .view-panel.research-page > .business-page-header { margin-bottom: 0; }
 .research-capture, .research-detail { border: 1px solid var(--border, #e1e6eb); border-radius: 12px; padding: 20px; background: var(--surface, #fff); min-width: 0; }
 .research-capture { display: grid; gap: 12px; }
+/* 新增表单已有字段间距，折叠入口不再绘制孤立的顶部边线。 */
+.research-capture .record-associations__toggle { border-top: 0; }
 .research-capture label { flex: 1; }
 .research-page label { display: grid; gap: 6px; min-width: 0; }
 .research-page input, .research-page textarea, .research-page select { width: 100%; min-width: 0; box-sizing: border-box; }

@@ -12,7 +12,9 @@
 .issue-completion-form textarea { width: 100%; }
 .source-result > button { margin-top: 8px; }
 .detail-record-actions + .record-type-tag { margin-top: 8px; }
-.record-detail-panel { z-index: 180; }
+/* 型号、URL 和原始来源保留全文；连续字符在抽屉可用宽度内断行。 */
+.record-detail-panel { z-index: 180; overflow-wrap: anywhere; }
+.record-detail-panel :is(button, a) { max-width: 100%; white-space: normal; }
 .record-detail-backdrop { position: fixed; inset: 0; z-index: 179; border: 0; padding: 0; border-radius: 0; background: rgb(15 23 42 / 26%); }
 .detail-section-state { padding-block: 10px; }
 .issue-keyboard-filters { margin-bottom: 16px; }

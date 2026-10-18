@@ -59,11 +59,21 @@
 
 .workspace-sidebar {
   width: 224px;
+  /* 横屏或矮屏时只滚动侧栏；背景仍由浮层栈锁定。 */
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   padding: 20px 14px 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
   border-right: 1px solid rgb(255 255 255 / 7%);
   background: var(--sidebar);
   color: #f8fafc;
   box-shadow: none;
+}
+
+.workspace-sidebar > * {
+  flex-shrink: 0;
 }
 
 .workspace-brand {

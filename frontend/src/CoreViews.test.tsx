@@ -37,9 +37,11 @@ vi.mock('./domainApi', () => ({
   analyzePitfalls: vi.fn(),
 }))
 vi.mock('./EChart', () => ({
-  EChart: ({ summary, title, kind, onDataHover, onDataLeave, onDataClick, interactionHint, selectedKey, scrollableContentHeight, scrollableMaxHeight }: {
+  EChart: ({ summary, title, kind, onDataHover, onDataLeave, onDataClick, interactionHint, selectedKey, hasActiveFilter, onClear, scrollableContentHeight, scrollableMaxHeight }: {
     interactionHint?: string
     selectedKey?: string
+    hasActiveFilter?: boolean
+    onClear?: () => void
     summary: string
     title: string
     kind: string
@@ -52,7 +54,7 @@ vi.mock('./EChart', () => ({
     const key = title === '主要商家金额' ? '砖世界'
       : title === '记录类型分布' ? 'issue'
         : title === '记录时间趋势' ? '2026-06' : title === '问题状态分布' ? 'pending' : title === '问题严重程度' ? 'high' : title === '资金构成' ? 'expense' : 'paid'
-    return <figure data-chart-kind={kind} data-scroll-content-height={scrollableContentHeight} data-scroll-max-height={scrollableMaxHeight}><h3>{title}</h3>{interactionHint && <span>{interactionHint}</span>}<span data-selected-key={selectedKey}>{summary}</span><button type="button" aria-label={`${title}测试数据项`} onMouseEnter={() => onDataHover?.({ key, clientX: 100, clientY: 100, anchorRect: { left: 96, top: 96, right: 104, bottom: 104, width: 8, height: 8 } })} onMouseLeave={onDataLeave} onClick={() => onDataClick?.(key)}>数据项</button></figure>
+    return <figure data-chart-kind={kind} data-scroll-content-height={scrollableContentHeight} data-scroll-max-height={scrollableMaxHeight}><h3>{title}</h3>{(hasActiveFilter ?? Boolean(selectedKey)) && <button type="button" aria-label={`清除${title}筛选`} onClick={() => onClear ? onClear() : onDataClick?.('')}>×</button>}{interactionHint && <span>{interactionHint}</span>}<span data-selected-key={selectedKey}>{summary}</span><button type="button" aria-label={`${title}测试数据项`} onMouseEnter={() => onDataHover?.({ key, clientX: 100, clientY: 100, anchorRect: { left: 96, top: 96, right: 104, bottom: 104, width: 8, height: 8 } })} onMouseLeave={onDataLeave} onClick={() => onDataClick?.(selectedKey !== undefined && selectedKey === key ? '' : key)}>数据项</button></figure>
   },
 }))
 
@@ -165,6 +167,53 @@ beforeEach(() => {
 })
 
 describe('CoreViews', () => {
+  it('时间线默认收起，开关保留未应用草稿且不额外查询，图表条件可在收起时清除', async () => {
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '时间线' }))
+    await screen.findByText('现场查看')
+    const toggle = screen.getByRole('button', { name: '筛选' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('textbox', { name: '关键词' })).toBeNull()
+    const count = vi.mocked(api.getTimeline).mock.calls.length
+    fireEvent.click(toggle)
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '未应用草稿' } })
+    fireEvent.click(toggle)
+    expect(api.getTimeline).toHaveBeenCalledTimes(count)
+    fireEvent.click(screen.getByRole('button', { name: '记录类型分布测试数据项' }))
+    await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ q: '', record_type: 'issue' })))
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    expect(screen.getByLabelText('关键词')).toHaveProperty('value', '未应用草稿')
+    fireEvent.click(toggle)
+    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }))
+    await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ q: '', record_type: '' })))
+    expect(document.activeElement).toBe(toggle)
+  })
+
+  it('搜索常显关键词，折叠条件仅在搜索时应用，收起重开保留选择', async () => {
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    const content = document.querySelector('.workspace-content') as HTMLElement
+    const toggle = within(content).getByRole('button', { name: '筛选' })
+    expect(within(content).getByRole('textbox', { name: '关键词' })).toBeTruthy()
+    expect(within(content).queryByRole('combobox')).toBeNull()
+    const count = vi.mocked(api.searchRecords).mock.calls.length
+    fireEvent.click(toggle)
+    fireEvent.change(screen.getByLabelText('记录类型'), { target: { value: 'ledger' } })
+    fireEvent.click(toggle)
+    expect(api.searchRecords).toHaveBeenCalledTimes(count)
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '尾款' } })
+    fireEvent.keyDown(screen.getByLabelText('关键词'), { key: 'Enter' })
+    await waitFor(() => expect(api.searchRecords).toHaveBeenLastCalledWith(expect.objectContaining({ q: '尾款', record_type: 'ledger', offset: '0' })))
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    expect(screen.getByLabelText('记录类型')).toHaveProperty('value', 'ledger')
+    fireEvent.click(toggle)
+    fireEvent.click(screen.getByRole('button', { name: '清除筛选' }))
+    expect(screen.getByLabelText('关键词')).toHaveProperty('value', '')
+    expect(screen.queryByText('共找到 2 项')).toBeNull()
+  })
+
   it('首页直达业务，统一录入位于辅助工具，账本可就地新增', async () => {
     render(<CoreViews><p>辅助整理内容</p></CoreViews>)
     const entry = screen.getByRole('region', { name: '日常记录入口' })
@@ -217,6 +266,7 @@ describe('CoreViews', () => {
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '时间线' }))
     await screen.findByText('现场查看')
+    fireEvent.click(screen.getByRole('button', { name: '筛选' }))
     fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '花砖' } })
     fireEvent.change(screen.getByLabelText('记录类型'), { target: { value: 'ledger' } })
     fireEvent.click(within(document.querySelector('.workspace-content') as HTMLElement).getByRole('button', { name: '搜索' }))
@@ -224,6 +274,7 @@ describe('CoreViews', () => {
     await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ q: '', record_type: '', date_from: '', date_to: '' })))
     expect(screen.getByLabelText('关键词')).toHaveProperty('value', '')
     fireEvent.click(within(screen.getByRole('navigation', { name: '核心功能' })).getByRole('button', { name: '搜索' }))
+    fireEvent.click(screen.getByRole('button', { name: '筛选' }))
     fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '现场' } })
     fireEvent.change(screen.getByLabelText('记录类型'), { target: { value: 'ledger' } })
     fireEvent.click(screen.getAllByRole('button', { name: '搜索' }).at(-1)!)
@@ -441,12 +492,12 @@ describe('CoreViews', () => {
     fireEvent.change(select, { target: { value: 'in_progress' } })
     await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('issue-1', { record_type: 'issue', status: 'in_progress', expected_version: 1 }))
     await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ status: 'pending', severity: 'high' }))
-    fireEvent.click(screen.getByRole('button', { name: '状态：待处理，点击取消' }))
+    fireEvent.click(screen.getByRole('button', { name: '清除问题状态分布筛选' }))
     await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ status: '', severity: 'high' }))
-    fireEvent.click(screen.getByRole('button', { name: '严重程度：高，点击取消' }))
+    fireEvent.click(screen.getByRole('button', { name: '清除问题严重程度筛选' }))
     await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ status: '', severity: '' }))
     fireEvent.click(screen.getByRole('button', { name: '问题严重程度测试数据项' }))
-    fireEvent.click(screen.getByRole('button', { name: '清除全部图表筛选' }))
+    fireEvent.click(screen.getByRole('button', { name: '清除问题严重程度筛选' }))
     await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ status: '', severity: '' }))
   })
 
@@ -464,8 +515,9 @@ describe('CoreViews', () => {
     await waitFor(() => expect(screen.queryByText('地砖破裂')).toBeNull())
     await act(async () => resolveOld(initial))
     expect(screen.queryByText('地砖破裂')).toBeNull()
-    expect(screen.getByRole('button', { name: '严重程度：高，点击取消' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '清除全部图表筛选' }))
+    expect(screen.getByRole('button', { name: '清除问题严重程度筛选' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '清除问题严重程度筛选' }))
+    await waitFor(() => expect(api.getIssueBoard).toHaveBeenLastCalledWith({ status: 'pending', severity: '' }))
     expect(await screen.findByText('地砖破裂')).toBeTruthy()
   })
 
@@ -473,21 +525,22 @@ describe('CoreViews', () => {
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '时间线' }))
     await screen.findByText('现场查看')
+    fireEvent.click(screen.getByRole('button', { name: '筛选' }))
     fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '草稿' } })
     fireEvent.change(screen.getByLabelText('记录类型'), { target: { value: 'ledger' } })
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2025-01-01' } })
-    expect(screen.queryByRole('button', { name: /当前日期/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: '清除记录时间趋势筛选' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '记录时间趋势测试数据项' }))
     await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ q: '', record_type: '', date_from: '2026-06-01', date_to: '2026-06-30' })))
     fireEvent.click(screen.getByRole('button', { name: '记录类型分布测试数据项' }))
     await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ q: '', record_type: 'issue', date_from: '2026-06-01', date_to: '2026-06-30' })))
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2024-02-02' } })
     fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2024-02-29' } })
-    expect(screen.getByRole('button', { name: '当前日期：2026-06-01 至 2026-06-30，点击取消' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '清除记录时间趋势筛选' })).toBeTruthy()
     fireEvent.click(within(document.querySelector('.workspace-content') as HTMLElement).getByRole('button', { name: '搜索' }))
     await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ q: '草稿', record_type: 'issue', date_from: '2024-02-02', date_to: '2024-02-29' })))
     expect(screen.getByRole('heading', { name: '记录时间趋势' }).closest('figure')!.querySelector('[data-selected-key]')?.getAttribute('data-selected-key')).toBe('')
-    fireEvent.click(screen.getByRole('button', { name: /当前日期：2024/ }))
+    fireEvent.click(screen.getByRole('button', { name: '清除记录时间趋势筛选' }))
     await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ q: '草稿', record_type: 'issue', date_from: '', date_to: '' })))
   })
 
@@ -508,7 +561,9 @@ describe('CoreViews', () => {
     await waitFor(() => expect(screen.queryByText('批次记录1')).toBeNull())
     await act(async () => resolveOld(many))
     expect(screen.queryByText('批次记录1')).toBeNull()
-    expect(screen.getByRole('button', { name: /当前日期/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '清除记录时间趋势筛选' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '清除记录时间趋势筛选' }))
+    await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ record_type: 'issue', date_from: '', date_to: '' })))
   })
 
   it('无需加载更多即可回顶，减少动态效果时直接定位页面零点', async () => {
@@ -803,7 +858,7 @@ describe('CoreViews', () => {
     expect(screen.queryByText('现场查看')).toBeNull()
     await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ record_type: 'issue' })))
 
-    fireEvent.click(screen.getByRole('button', { name: '当前按记录类型筛选，点击取消' }))
+    fireEvent.click(screen.getByRole('button', { name: '清除记录类型分布筛选' }))
     expect(await screen.findByText('现场查看')).toBeTruthy()
     expect(screen.queryByText('筛选后的施工问题')).toBeNull()
     await waitFor(() => expect(api.getTimeline).toHaveBeenLastCalledWith(expect.objectContaining({ record_type: '' })))
@@ -971,7 +1026,7 @@ describe('CoreViews', () => {
     fireEvent.click(screen.getByRole('button', { name: '账本' }))
 
     const vendorBar = await screen.findByRole('button', { name: '主要商家金额测试数据项' })
-    expect(screen.getAllByText('点击图形查看明细记录')).toHaveLength(2)
+    expect(screen.queryByText('点击图形查看明细记录')).toBeNull()
     fireEvent.mouseEnter(vendorBar)
     const preview = await screen.findByLabelText('砖世界明细预览')
     expect(within(preview).getByText('占比：100.0%')).toBeTruthy()
@@ -1067,6 +1122,7 @@ describe('CoreViews', () => {
     vi.mocked(api.listSpaces).mockRejectedValueOnce(new Error('空间服务暂不可用'))
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '记录分析' }))
+    fireEvent.click(screen.getByRole('button', { name: '筛选' }))
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('空间服务暂不可用'))
     const callsBeforeRetry = vi.mocked(api.listSpaces).mock.calls.length
     fireEvent.click(screen.getByRole('button', { name: '重试' }))

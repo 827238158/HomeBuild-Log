@@ -17,8 +17,11 @@ export function useDropdownPosition(
     if (!trigger) return
 
     const rect = trigger.getBoundingClientRect()
-    const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - VIEWPORT_GAP - MENU_GAP)
-    const spaceAbove = Math.max(0, rect.top - VIEWPORT_GAP - MENU_GAP)
+    // 横竖屏切换可能让触发器暂时移出视口，菜单仍须留在可见范围内。
+    const anchorTop = Math.max(VIEWPORT_GAP, Math.min(rect.top, window.innerHeight - VIEWPORT_GAP))
+    const anchorBottom = Math.max(VIEWPORT_GAP, Math.min(rect.bottom, window.innerHeight - VIEWPORT_GAP))
+    const spaceBelow = Math.max(0, window.innerHeight - anchorBottom - VIEWPORT_GAP - MENU_GAP)
+    const spaceAbove = Math.max(0, anchorTop - VIEWPORT_GAP - MENU_GAP)
     const openDown = spaceBelow >= MIN_USEFUL_HEIGHT || spaceBelow >= spaceAbove
     const availableHeight = openDown ? spaceBelow : spaceAbove
     const width = Math.min(Math.max(rect.width, minimumWidth), Math.max(0, window.innerWidth - VIEWPORT_GAP * 2))
@@ -31,8 +34,8 @@ export function useDropdownPosition(
       width,
       maxHeight: Math.min(preferredMaxHeight, availableHeight),
       ...(openDown
-        ? { top: rect.bottom + MENU_GAP, bottom: 'auto' }
-        : { top: 'auto', bottom: window.innerHeight - rect.top + MENU_GAP }),
+        ? { top: anchorBottom + MENU_GAP, bottom: 'auto' }
+        : { top: 'auto', bottom: window.innerHeight - anchorTop + MENU_GAP }),
     })
   }, [minimumWidth, preferredMaxHeight, triggerRef])
 

@@ -9,5 +9,12 @@
 .record-associations__fields > label { display: grid; gap: 8px; min-width: 0; }
 .record-associations__hint { color: var(--ink-muted); font-size: 12px; margin: 0 0 12px; }
 .association-options input[type="search"] { width: 100%; box-sizing: border-box; margin: 0 0 8px; }
-.association-options [role="listbox"] { min-width: 0; }
+/* 菜单自身就是 listbox；收缩网格直接子项，避免标题和日期的最小内容宽度撑开菜单。 */
+.association-options { grid-template-columns: minmax(0, 1fr); }
+.association-options > div { min-width: 0; }
+.association-options label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 8px; align-items: start; }
+.association-options input[type="checkbox"] { margin-top: 3px; }
+.association-options .multi-select-option__name { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+/* 日期另起一行，与名称左对齐，窄屏也能完整区分记录。 */
+.association-options .multi-select-option__meta { grid-column: 2; margin-left: 0; white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 600px) { .record-associations__fields { grid-template-columns: minmax(0, 1fr); } .record-associations__toggle { flex-wrap: wrap; } .record-associations__summary { flex-basis: 65%; } }

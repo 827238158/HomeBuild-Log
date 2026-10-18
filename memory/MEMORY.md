@@ -45,6 +45,9 @@ memory/CURRENT.md
 然后根据任务类型按需读取：
 
 - UI、页面、组件、视觉：`PRODUCT.md`、`DESIGN.md`；按需使用 `.agents/skills/impeccable/SKILL.md`，接入与更新见 `docs/impeccable.md`。Windows 命令统一走 `scripts/impeccable.cmd`。
+- 按钮视觉：`frontend/src/styles/buttons.css` 为公共操作按钮与分段控件材质入口，变量在 `frontend/src/styles/tokens.css`；主蓝／辅助浅蓝／危险浅红，`primary-button`／`secondary-button`／`danger-button` 表达用途；`TopicSelect.tsx` 的错误重试显式接入。内容卡片、选择器、菜单选项、导航、图表图标和语音保持独立。
+- 图表筛选：`EChart.tsx`、`ChartControls.tsx`／`chart-controls.css` 管理标题右侧纯图标分类与清除，不常显操作说明或已选项文字。传入 `selectedKey` 表示筛选模式，同项再点取消；未传时保留账本等明细动作。`hasActiveFilter`／`onClear` 支持无单一数据点的手动日期范围；空结果须保留清除入口。高亮由 `chartConfig.ts` 的 `withChartSelection` 作用于当前服务端数据，不补造完整分布。
+- 阅读页筛选折叠：`FilterDisclosure.tsx`／`filter-disclosure.css`；时间线、记录分析、搜索默认收起条件，分析类型标签和搜索关键词常显。面板隐藏不卸载，收起关闭Portal并恢复焦点，保持页面原有查询时机；页面接入在 `CoreViews.tsx`、`AnalyticsViews.tsx`。
 - 启动、测试、构建、部署、迁移：`memory/RUNBOOK.md`。
 - 已知异常、环境坑、恢复方式：`memory/PITFALLS.md`。
 - 重要操作、部署、迁移或长期决策的历史事实：`memory/LOG.md`。

@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
 
-import { chartSummary, compactChartValue, donutOption, lineOption } from './chartConfig'
+import { chartSummary, compactChartValue, donutOption, lineOption, withChartSelection } from './chartConfig'
+
+describe('withChartSelection', () => {
+  it('高亮保留数据数值、原始颜色及输入配置，清除后恢复原图', () => {
+    const option = donutOption([{ key: 'a', label: '甲', value: 12 }, { key: 'b', label: '乙', value: 7 }])
+    const snapshot = JSON.stringify(option)
+    const selected = withChartSelection(option, 'a')
+    expect(selected.series).toMatchObject([{ data: [
+      { key: 'a', value: 12, itemStyle: { color: '#1769c2', opacity: 1, borderWidth: 2 } },
+      { key: 'b', value: 7, itemStyle: { color: '#a4512f', opacity: 0.3 } },
+    ] }])
+    expect(JSON.stringify(option)).toEqual(snapshot)
+    expect(withChartSelection(option, '')).toBe(option)
+    expect(withChartSelection(option, 'missing')).toBe(option)
+  })
+})
 
 describe('lineOption', () => {
   it('月份显示文案与点击使用的原始标识分离，跨年仍可准确定位', () => {
