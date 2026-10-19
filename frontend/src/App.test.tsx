@@ -25,6 +25,17 @@ afterEach(() => {
 })
 
 describe('App', () => {
+  it('最近记录和关闭入口只显示来源摘要，传给整理页仍是完整原文', async () => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    const original = '付款快照\n录入字段：\n' + JSON.stringify({ record_type: 'ledger', title: '付款快照', description: '核对凭证', status: 'paid', ledger_kind: 'payment', direction: 'expense', payment_kind: '全款', amount_minor: 1540, currency: 'CNY', vendor_id: 'vendor-1' })
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => Promise.resolve({ ok: true, json: async () => String(input).endsWith('/sources') ? [{ id: 'generated', original_text: original, captured_at: '2026-10-18T00:00:00Z' }] : { status: 'ok' } })))
+    render(<App />)
+    expect(await screen.findByText('付款快照 核对凭证')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /关闭最近记录：付款快照\s+核对凭证/ })).toBeTruthy()
+    expect(document.body.textContent).not.toContain('录入字段')
+    expect(domainWorkspaceProps.mock.calls.at(-1)?.[0].sources[0].original_text).toBe(original)
+  })
+
   it('登录等待期间重复回车只发送一次请求并播报错误', async () => {
     let rejectLogin!: (reason: Error) => void
     const pending = new Promise((_, reject) => { rejectLogin = reject })

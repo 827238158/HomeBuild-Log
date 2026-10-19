@@ -1,5 +1,5 @@
 vi.mock('./TopicSelect', () => ({ TopicSelect: ({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) => <div><output data-testid="topics">{value.join(',')}</output><button type="button" onClick={() => onChange([])}>清空主题归属</button></div> }))
-import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, cleanup, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { RecordDetail } from './RecordDetail'
 import * as api from './domainApi'
@@ -20,6 +20,37 @@ beforeEach(() => {
   vi.mocked(api.listSpaces).mockResolvedValue([]); vi.mocked(api.listRecords).mockResolvedValue([]); vi.mocked(api.listEntities).mockResolvedValue([])
 })
 afterEach(cleanup)
+it('来源只展示创建时标题说明，保留附件入口及底层快照', async () => {
+  const original = '创建时的账目\n录入字段：\n' + JSON.stringify({ record_type: 'ledger', title: '创建时的账目', description: '创建时的说明', status: 'paid', ledger_kind: 'payment', direction: 'expense', payment_kind: '支出', amount_minor: 1540, currency: 'CNY', vendor_id: 'vendor-1' })
+  const source = { id: 'source', project_id: 'project', input_type: 'text', original_text: original, attachments: [{ id: 'attachment', original_filename: '凭证.pdf', media_type: 'application/pdf', size_bytes: 2048 }], captured_at: '2020-01-01', reported_time_text: null, updated_at: '2020-01-01', revision: 1 }
+  vi.mocked(api.getSource).mockResolvedValue(source)
+  const openSource = vi.fn()
+  render(<RecordDetail recordId="old" closing={false} onClose={vi.fn()} onChanged={vi.fn()} onExitComplete={vi.fn()} onOpen={vi.fn()} onOpenSource={openSource} onOpenResearch={vi.fn()} />)
+  expect(await screen.findByText('创建时的账目 创建时的说明')).toBeTruthy()
+  expect(screen.queryByText(/录入字段/)).toBeNull()
+  expect(screen.getByRole('button', { name: '查看附件' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '打开原始来源' }))
+  expect(openSource).toHaveBeenCalledWith('source')
+  expect(source.original_text).toBe(original)
+})
+
+it('相关记录按列表展示类型与日期，整行继续打开对应详情', async () => {
+  const related = { ...record, id: 'related', title: '复测后的门洞', occurred_date: '2026-10-18' }
+  vi.mocked(api.getRecord).mockImplementation(async id => id === 'related' ? related : { ...record, version: 1 })
+  vi.mocked(api.listRelations).mockResolvedValue([{ id: 'relation', from_record_id: 'old', to_record_id: 'related', relation_type: 'relates_to' }])
+  const open = vi.fn()
+  render(<RecordDetail recordId="old" closing={false} onClose={vi.fn()} onChanged={vi.fn()} onExitComplete={vi.fn()} onOpen={open} onOpenSource={vi.fn()} onOpenResearch={vi.fn()} />)
+  const list = await screen.findByRole('list', { name: '相关记录' })
+  const row = await within(list).findByRole('button', { name: /复测后的门洞/ })
+  expect(within(list).getAllByRole('listitem')).toHaveLength(1)
+  expect(row.textContent).toContain('尺寸')
+  expect(row.textContent).toContain('2026年10月18日')
+  row.focus()
+  expect(document.activeElement).toBe(row)
+  fireEvent.click(row)
+  expect(open).toHaveBeenCalledWith('related')
+})
+
 it('调研详情保留继续调研入口并隐藏旧结论', async () => {
   vi.mocked(api.getRecord).mockResolvedValue({ ...record, record_type: 'research', conclusion: '旧结论', status: 'concluded' })
   const onOpenResearch = vi.fn()

@@ -87,7 +87,17 @@ def test_auto_without_key_persists_local_bundle_and_run(client: TestClient) -> N
     ]
 
 
-@pytest.mark.parametrize("evidence", ["不存在的摘录", "  \r\n ", "现场 查看"])
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "不存在的摘录",
+        "  \r\n ",
+        "现场 查看",
+        "原文 “今天去现场查看。”",
+        "“今天去现场查看。”",
+        "今天去现场查看；记录现场情况",
+    ],
+)
 def test_legacy_evidence_revalidated_and_corrected_without_identity_change(
     client: TestClient, evidence: str,
 ) -> None:
@@ -622,6 +632,11 @@ def test_openai_adapter_uses_provider_auth_and_parses_json(
         request_body = json.loads(request.content)
         assert "原始文字：只发送这段来源" in request_body["messages"][-1]["content"]
         assert "时区：Asia/Shanghai" in request_body["messages"][-1]["content"]
+        # 请求必须携带摘录约束，避免模型为依据添加说明或拼接原文。
+        system_prompt = request_body["messages"][0]["content"]
+        assert "evidence 必须直接复制原始文字中的一个连续片段" in system_prompt
+        assert "不得添加“原文”等说明、额外引号或省略号" in system_prompt
+        assert "不得改写、替换标点或拼接不连续的片段" in system_prompt
         assert "secret" not in request.content.decode()
         return httpx.Response(
             200,

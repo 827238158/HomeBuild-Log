@@ -1,3 +1,57 @@
+/* 兜底与旧组件同层且保持零特异性，取消原生灰白底而不覆盖选择器等已定义外观。 */
+@layer legacy {
+  :where(button) {
+    border: 0;
+    background: transparent;
+    color: var(--primary-active);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  :where(button:disabled, button[aria-disabled='true']) { cursor: not-allowed; }
+
+  @media (forced-colors: active) {
+    :where(button) { color: ButtonText; }
+    :where(button:disabled, button[aria-disabled='true']) { color: GrayText; }
+  }
+}
+
+/* 来源操作保留带箭头的菜单入口形态，只与辅助操作统一配色。 */
+.review-source-actions__trigger {
+  border-color: var(--button-border);
+  background: var(--button-surface);
+  color: var(--primary-active);
+}
+
+.review-source-actions__trigger:hover:not(:disabled) {
+  background: var(--button-surface-hover);
+  color: var(--primary-active);
+}
+
+.review-source-actions__trigger:disabled {
+  border-color: var(--button-disabled-border);
+  background: var(--button-disabled-surface);
+  color: var(--button-disabled-ink);
+  box-shadow: none;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+@media (forced-colors: active) {
+  .review-source-actions__trigger,
+  .review-source-actions__trigger:hover:not(:disabled) {
+    border-color: ButtonText;
+    background: ButtonFace;
+    color: ButtonText;
+  }
+
+  .review-source-actions__trigger:disabled {
+    border-color: GrayText;
+    background: ButtonFace;
+    color: GrayText;
+  }
+}
+
 /* 只统一操作按钮：内容卡片、菜单、选择器和语音工具保留各自的布局与命中区。 */
 button:is(
   .primary-button, .secondary-button, .filter-button, .source-save, .login-button,
@@ -28,7 +82,8 @@ button:is(
   .pitfall-form__actions > button, .resolution-form__actions > button,
   .empty-state > button, .view-state > button
 ):not(:where(
-  .source-input-wrap *, .select-control *, .multi-select-control *,
+  .voice-trigger, .voice-capsule *, .voice-panel > button,
+  .select-control *, .multi-select-control *,
   .select-menu *, .source-picker *, .review-source-actions__menu *,
   [role='option'], [role='menuitem'], .text-button, .title-button,
   .record-associations__toggle, .research-info-toggle
@@ -68,6 +123,9 @@ button:is(
     --action-shadow: var(--button-primary-shadow);
     --action-shadow-hover: var(--button-primary-shadow);
     --action-shadow-pressed: var(--button-primary-pressed);
+    --action-disabled-fill: var(--button-primary-disabled-surface);
+    --action-disabled-ink: var(--button-primary-disabled-ink);
+    --action-disabled-border: var(--button-primary-disabled-border);
   }
 
   &:is(.danger-button, .suggestion-remove, .attachment-feedback__remove) {
@@ -75,6 +133,9 @@ button:is(
     --action-hover: #ffe3e3;
     --action-ink: var(--risk);
     --action-border: #efd1d1;
+    --action-disabled-fill: var(--button-danger-disabled-surface);
+    --action-disabled-ink: var(--button-danger-disabled-ink);
+    --action-disabled-border: var(--button-danger-disabled-border);
   }
 
   /* 保存结果继续使用原有状态语义，避免通用材质覆盖成功或失败反馈。 */
@@ -84,6 +145,9 @@ button:is(
     --action-active: var(--success);
     --action-border: var(--success);
     --action-ink: #fff;
+    --action-disabled-fill: var(--success-soft);
+    --action-disabled-ink: var(--success);
+    --action-disabled-border: #bcddc9;
   }
 
   &.state-button:is([data-state='error'], [data-state='attachment-error']) {
@@ -92,15 +156,18 @@ button:is(
     --action-active: var(--risk);
     --action-border: var(--risk);
     --action-ink: #fff;
+    --action-disabled-fill: var(--button-danger-disabled-surface);
+    --action-disabled-ink: var(--button-danger-disabled-ink);
+    --action-disabled-border: var(--button-danger-disabled-border);
   }
 
-  &:hover:not(:disabled) {
+  &:hover:not(:disabled, [aria-disabled='true']) {
     background: var(--action-hover, var(--button-surface-hover));
     box-shadow: var(--action-shadow-hover, var(--button-shadow-hover));
     filter: none;
   }
 
-  &:active:not(:disabled) {
+  &:active:not(:disabled, [aria-disabled='true']) {
     background: var(--action-active, var(--action-hover, var(--button-surface-hover)));
     box-shadow: var(--action-shadow-pressed, var(--button-shadow-pressed));
     transform: none;
@@ -112,9 +179,10 @@ button:is(
   }
 
   &:is(:disabled, [aria-disabled='true']) {
-    background: var(--surface-muted);
-    border-color: var(--border);
-    color: var(--ink-muted);
+    /* 禁用保留所属色系，靠无阴影与不可点击表达状态，文字保持可读。 */
+    background: var(--action-disabled-fill, var(--button-disabled-surface));
+    border-color: var(--action-disabled-border, var(--button-disabled-border));
+    color: var(--action-disabled-ink, var(--button-disabled-ink));
     box-shadow: none;
     opacity: 1;
     cursor: not-allowed;
@@ -140,7 +208,13 @@ button:is(
     color: ButtonText;
     box-shadow: none;
 
-    &:disabled { color: GrayText; border-color: GrayText; }
+    &:is(:hover, :active):not(:disabled, [aria-disabled='true']) {
+      background: ButtonFace;
+      color: ButtonText;
+      box-shadow: none;
+    }
+
+    &:is(:disabled, [aria-disabled='true']) { background: ButtonFace; color: GrayText; border-color: GrayText; }
   }
 }
 

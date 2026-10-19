@@ -134,6 +134,60 @@ beforeEach(() => {
 })
 
 describe('DomainWorkspace', () => {
+  it('直接录入快照只读展示，切换普通来源后仍可编辑原文', async () => {
+    const original = '创建时的待办\n录入字段：\n' + JSON.stringify({ record_type: 'issue', title: '创建时的待办', status: 'pending', phenomenon: '联系电工核对接线', severity: 'medium' })
+    const generated = { ...source, original_text: original }
+    vi.mocked(api.listSources).mockResolvedValue([generated, anotherSource])
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue(null)
+    render(<TestDomainWorkspace refreshKey={0} initialSources={[generated, anotherSource]} />)
+    expect(await screen.findByText('创建时的待办 联系电工核对接线', { selector: 'p' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '来源操作' }))
+    expect(screen.queryByRole('menuitem', { name: '修改原始数据' })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: '删除原始数据' })).toBeTruthy()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByLabelText('原始文字')).toBeNull()
+    expect(document.body.textContent).not.toContain('录入字段')
+    fireEvent.click(screen.getByRole('button', { name: /创建时的待办\s+联系电工/ }))
+    expect(screen.getAllByRole('option').map(option => option.textContent).join('')).not.toContain('录入字段')
+    fireEvent.click(screen.getByRole('option', { name: /客厅地砖已到场/ }))
+    fireEvent.click(screen.getByRole('button', { name: '来源操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '修改原始数据' }))
+    expect((screen.getByLabelText('原始文字') as HTMLTextAreaElement).value).toBe(anotherSource.original_text)
+    expect(api.updateSource).not.toHaveBeenCalled()
+    expect(generated.original_text).toBe(original)
+  })
+
+  it('候选的完整快照只读展示，但确认仍使用未经摘要转换的原文依据', async () => {
+    const original = '创建时的待办\n录入字段：\n' + JSON.stringify({ record_type: 'issue', title: '创建时的待办', status: 'pending', description: '现场第一行\n现场第二行', phenomenon: '事项内容', severity: 'medium' })
+    const generated = { ...source, original_text: original }
+    vi.mocked(api.listSources).mockResolvedValue([generated])
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({ ...explicitBundle, source_text: original, suggestions: [{ ...explicitBundle.suggestions[0], evidence: original }] })
+    render(<TestDomainWorkspace refreshKey={0} initialSources={[generated]} />)
+    await screen.findByText('查看来源快照')
+    expect(document.body.textContent).not.toContain('录入字段')
+    expect(screen.queryByLabelText('修正原文依据（须为连续片段）')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
+    expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0].evidence).toBe(original)
+  })
+
+  it('生成来源依据不合法时可用来源标题修正，仍提交原文的连续片段', async () => {
+    const title = '  创建时的待办  '
+    const original = title + '\n录入字段：\n' + JSON.stringify({ record_type: 'issue', title, status: 'pending', phenomenon: '事项内容', severity: 'medium' })
+    const generated = { ...source, original_text: original }
+    vi.mocked(api.listSources).mockResolvedValue([generated])
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({ ...explicitBundle, source_text: original, suggestions: [{ ...explicitBundle.suggestions[0], evidence: '无效依据', evidence_validation: 'invalid' }] })
+    render(<TestDomainWorkspace refreshKey={0} initialSources={[generated]} />)
+    fireEvent.click(await screen.findByRole('button', { name: '使用来源标题作为依据' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
+    const evidence = vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0].evidence
+    expect(evidence).toBe(title)
+    expect(original.includes(evidence!)).toBe(true)
+  })
+
   it('切换候选会取消转写且忽略旧候选迟到结果', async () => {
     Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
@@ -163,12 +217,16 @@ describe('DomainWorkspace', () => {
     })
     render(<TestDomainWorkspace refreshKey={0} />)
     const editor = await screen.findByLabelText('修正原文依据（须为连续片段）')
+    expect(screen.getByRole('alert').textContent).toContain('这段摘录与来源原文不一致。')
+    expect(screen.queryByText(/AI 不会代替你确认/)).toBeNull()
+    expect(screen.getByText('请核对问题描述和处理状态。').className).toBe('muted')
     const selected = screen.getByRole('checkbox')
     expect((selected as HTMLInputElement).checked).toBe(false)
     fireEvent.click(selected)
     fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
     expect(api.confirmCandidateBundle).not.toHaveBeenCalled()
     fireEvent.change(editor, { target: { value: '门口地砖有一处破裂' } })
+    expect(screen.queryByText(/这段摘录与来源原文不一致/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
     await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
     expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0]).toMatchObject({
@@ -907,12 +965,15 @@ describe('DomainWorkspace', () => {
     expect(api.confirmCandidateBundle).not.toHaveBeenCalled()
   })
 
-  it('删除其他 AI 候选时保留已编辑内容和勾选状态', async () => {
+  it('删除已关联 AI 候选后清除失效关联，同时保留编辑和勾选状态', async () => {
     const second = {
       ...explicitBundle.suggestions[0], key: 'issue:2', summary: '删除候选',
       payload: { ...explicitBundle.suggestions[0].payload, title: '删除我' },
     }
-    const twoCandidates = { ...explicitBundle, suggestions: [explicitBundle.suggestions[0], second] }
+    const twoCandidates = {
+      ...explicitBundle, suggestions: [explicitBundle.suggestions[0], second],
+      relations: [{ from_key: 'issue:1', to_key: 'issue:2', relation_type: 'relates_to' }],
+    }
     vi.mocked(api.getLatestCandidateBundle).mockResolvedValue(twoCandidates)
     vi.mocked(api.deferCandidate).mockResolvedValue({
       ...twoCandidates, version: 2,
@@ -922,12 +983,48 @@ describe('DomainWorkspace', () => {
 
     const firstTitle = await screen.findByDisplayValue('地砖破裂')
     fireEvent.change(firstTitle, { target: { value: '保留用户编辑' } })
+    const firstPanel = firstTitle.closest('article')!
+    fireEvent.click(within(firstPanel).getByText('更多信息与关联'))
+    expect(within(firstPanel).getByRole('group', { name: '关联本批候选（可选）' }).textContent).toContain('删除我')
     const secondPanel = screen.getByDisplayValue('删除我').closest('article')!
     fireEvent.click(within(secondPanel).getByText('移除'))
 
     await waitFor(() => expect(screen.queryByDisplayValue('删除我')).toBeNull())
     expect(screen.getByDisplayValue('保留用户编辑')).toBeTruthy()
     expect((screen.getByDisplayValue('保留用户编辑').closest('article')!.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(true)
+    expect(within(firstPanel).queryByRole('group', { name: '关联本批候选（可选）' })).toBeNull()
+    expect(firstPanel.textContent).not.toContain('1 个本批关联')
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
+    expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[4]).toEqual([])
+  })
+
+  it('重开候选时清除历史已忽略关联并保留本批已生成记录的可见关联', async () => {
+    const confirmed = {
+      ...explicitBundle.suggestions[0], key: 'issue:2', confirmed_record_id: 'record-2',
+      review_state: 'confirmed' as const,
+      payload: { ...explicitBundle.suggestions[0].payload, title: '已经生成的问题' },
+    }
+    const ignored = { ...confirmed, key: 'issue:3', confirmed_record_id: null, review_state: 'deferred' as const }
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({
+      ...explicitBundle, suggestions: [explicitBundle.suggestions[0], confirmed, ignored],
+      relations: [
+        { from_key: 'issue:1', to_key: 'issue:2', relation_type: 'relates_to' },
+        { from_key: 'issue:1', to_key: 'issue:3', relation_type: 'relates_to' },
+      ],
+    })
+    render(<TestDomainWorkspace refreshKey={0} />)
+    const panel = (await screen.findByDisplayValue('地砖破裂')).closest('article')!
+    fireEvent.click(within(panel).getByText('更多信息与关联'))
+    const field = within(panel).getByRole('group', { name: '关联本批候选（可选）' })
+    expect(field.textContent).toContain('已经生成的问题')
+    expect(panel.textContent).toContain('1 个本批关联')
+    fireEvent.click(within(field).getByRole('button'))
+    expect(await screen.findByLabelText('待办与问题 · 已经生成的问题')).toHaveProperty('checked', true)
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
+    expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[4]).toEqual([{ from_key: 'issue:1', to_key: 'issue:2' }])
   })
 
   it('确认所选时原子忽略未勾选候选且不恢复', async () => {

@@ -102,7 +102,7 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
         </> : <>
           <label className="field-stack"><span>截止日期（可选）</span><input type="date" value={draft.due_date} onChange={event => change('due_date', event.target.value)} /></label><label className="field-stack"><span>严重程度</span><Select disabled={busy} value={draft.severity} onChange={event => change('severity', event.target.value)}><option value="low">低</option><option value="medium">中</option><option value="high">高</option></Select></label>
         </>}
-        {loadError && <div className="business-entry-wide" role="alert">选项加载失败：{loadError} <button type="button" onClick={() => setRetry(value => value + 1)}>重试加载</button></div>}
+        {loadError && <div className="business-entry-wide" role="alert">选项加载失败：{loadError} <button className="secondary-button" type="button" onClick={() => setRetry(value => value + 1)}>重试加载</button></div>}
         <label className="field-stack business-entry-wide"><span>{kind === 'ledger' ? '备注（可选）' : '事项内容'}</span><VoiceField active={open && !busy}><textarea required={kind === 'issue'} rows={3} maxLength={10000} value={draft.description} onChange={event => change('description', event.target.value)} /></VoiceField></label>
         {kind === 'issue' && <label className="field-stack business-entry-wide"><span>处理计划（可选）</span><VoiceField active={open && !busy}><textarea rows={2} maxLength={10000} value={draft.plan} onChange={event => change('plan', event.target.value)} /></VoiceField></label>}
         <div className="business-entry-wide"><TopicSelect value={topicIds} onChange={setTopicIds} disabled={busy} /></div>

@@ -47,6 +47,15 @@
   --button-surface: #e8f2ff;
   --button-surface-hover: #dbeaff;
   --button-border: #b9d4f2;
+  --button-disabled-surface: #e1ecfb;
+  --button-disabled-ink: #3f6591;
+  --button-disabled-border: #c3d8ef;
+  --button-primary-disabled-surface: #bdd6f2;
+  --button-primary-disabled-ink: #315a86;
+  --button-primary-disabled-border: #a7c7e9;
+  --button-danger-disabled-surface: #ffe9e9;
+  --button-danger-disabled-ink: #a03f3f;
+  --button-danger-disabled-border: #edc7c7;
   --button-shadow: -2px -2px 6.5px rgb(255 255 255 / 95%), 2px 2px 6.5px rgb(174 174 192 / 32%);
   --button-shadow-hover: -2px -2px 7px rgb(255 255 255 / 100%), 3px 3px 8px rgb(174 174 192 / 40%);
   --button-shadow-pressed: inset 2px 2px 5px rgb(133 144 163 / 22%), inset -2px -2px 5px rgb(255 255 255 / 90%);

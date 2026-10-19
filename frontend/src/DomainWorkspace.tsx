@@ -39,6 +39,7 @@ import { completedStatusForLedgerKind, recordConfig, statusesForRecord, type Rec
 import { measurementRoleLabels, normalizeMeasurementRole } from './recordFields'
 import { MeasurementFields } from './MeasurementFields'
 import { formatBeijingDateTime } from './time'
+import { presentSourceText } from './sourcePresentation'
 
 interface Props {
   sources: SourceEntry[]
@@ -250,16 +251,16 @@ function SourcePicker({
   }
   return <div ref={rootRef} className="source-picker field-stack">
     <span>原始数据来源</span>
-    <button ref={triggerRef} type="button" className="source-picker__trigger" aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? `${id}-options` : undefined} onPointerDown={event => event.preventDefault()} onClick={toggleMenu}><span className="source-picker__text">{selected?.original_text || '请选择'}</span>{selected && <span className={`source-picker__status source-picker__status--${selected.analysis_status || 'unprocessed'}`}>{status(selected)}</span>}<DropdownChevron open={open} /></button>
+    <button ref={triggerRef} type="button" className="source-picker__trigger" aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? `${id}-options` : undefined} onPointerDown={event => event.preventDefault()} onClick={toggleMenu}><span className="source-picker__text">{presentSourceText(selected?.original_text).text || '请选择'}</span>{selected && <span className={`source-picker__status source-picker__status--${selected.analysis_status || 'unprocessed'}`}>{status(selected)}</span>}<DropdownChevron open={open} /></button>
     {open && createPortal(<div id={`${id}-options`} ref={menuRef} aria-label="原始数据来源" className="source-picker__menu dropdown-portal" style={menuStyle} role="listbox">{sources.map((source) => {
-      const text = source.original_text || '仅附件来源'
+      const text = presentSourceText(source.original_text).text || '仅附件来源'
       return <button key={source.id} type="button" role="option" aria-selected={source.id === value} className="source-picker__option" onClick={() => { onChange(source.id); clearExpandedText(); closeMenu(true) }} onPointerDown={() => beginLongPress(text)} onPointerUp={clearExpandedText} onPointerCancel={clearExpandedText} onPointerLeave={clearExpandedText}><span className="source-picker__text" title={text}>{text}</span><span className={`source-picker__status source-picker__status--${source.analysis_status || 'unprocessed'}`}>{status(source)}</span></button>
     })}</div>, document.body)}
     {expandedText && createPortal(<div ref={popoverRef} className="source-picker__popover" role="tooltip" style={popoverStyle}>{expandedText}</div>, document.body)}
   </div>
 }
 
-function SourceActionsMenu({ busy, onEdit, onDelete }: { busy: boolean; onEdit: () => void; onDelete: () => void }) {
+function SourceActionsMenu({ busy, onEdit, onDelete }: { busy: boolean; onEdit?: () => void; onDelete: () => void }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -273,7 +274,7 @@ function SourceActionsMenu({ busy, onEdit, onDelete }: { busy: boolean; onEdit: 
   return <div ref={rootRef} className="review-source-actions">
     <button id={id} ref={triggerRef} type="button" className="review-source-actions__trigger" disabled={busy} aria-haspopup="menu" aria-expanded={open} onPointerDown={event => event.preventDefault()} onClick={toggleMenu}>来源操作<DropdownChevron open={open} /></button>
     {open && createPortal(<div ref={menuRef} className="review-source-actions__menu dropdown-portal" style={menuStyle} role="menu" aria-labelledby={id}>
-      <button type="button" role="menuitem" onClick={() => choose(onEdit)}>修改原始数据</button>
+      {onEdit && <button type="button" role="menuitem" onClick={() => choose(onEdit)}>修改原始数据</button>}
       <button type="button" role="menuitem" className="danger-button" onClick={() => choose(onDelete)}>删除原始数据</button>
     </div>, document.body)}
   </div>
@@ -553,7 +554,16 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
           ? { ...item, record_type: draft.record_type, type_label: draft.type_label, payload: draft.payload, evidence: draft.evidence, evidence_validation: draft.evidence_validation }
           : item
       })
-      const nextSuggestions = [...serverSuggestions, ...manualSuggestions]
+      // 草稿保留人工编辑，但关联必须随本批候选同步，移除后不能残留已选计数。
+      const availableKeys = new Set(serverSuggestions.map((item) => item.key))
+      const nextSuggestions = [...serverSuggestions.map((item) => ({
+        ...item,
+        payload: {
+          ...item.payload,
+          related_candidate_keys: (Array.isArray(item.payload.related_candidate_keys) ? item.payload.related_candidate_keys.map(String) : [])
+            .filter((key) => key !== item.key && availableKeys.has(key)),
+        },
+      })), ...manualSuggestions]
       setSelectedKeys((currentKeys) => new Set(nextSuggestions
         .filter((item) => !item.confirmed_record_id && item.evidence_validation !== 'invalid' && (!preserveDrafts || currentKeys.has(item.key)))
         .map((item) => item.key)))
@@ -645,6 +655,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
     () => sources.find((source) => source.id === sourceId),
     [sources, sourceId],
   )
+  const sourcePresentation = presentSourceText(selectedSource?.original_text)
   const sourceEditDirty = editingSourceId === sourceId && Boolean(selectedSource) && (
     sourceDraft !== (selectedSource?.original_text || '')
     || sourceTimeDraft !== (selectedSource?.reported_time_text || '')
@@ -876,7 +887,8 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
   }
 
   const beginSourceEdit = () => {
-    if (!selectedSource) return
+    // 系统生成的创建快照只读，业务修改通过正式记录完成。
+    if (!selectedSource || sourcePresentation.isGeneratedSnapshot) return
     setSourceDraft(selectedSource.original_text || '')
     setSourceTimeDraft(selectedSource.reported_time_text || '')
     setEditingSourceId(selectedSource.id)
@@ -884,7 +896,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
 
   const saveSourceEdit = async () => {
     // 草稿始终属于开始编辑时的来源，切换对象后不能借用旧草稿提交。
-    if (voiceBusy || editingSourceId !== selectedSource?.id) return
+    if (voiceBusy || sourcePresentation.isGeneratedSnapshot || editingSourceId !== selectedSource?.id) return
     if (!selectedSource || !sourceDraft.trim()) {
       setMessage('原始文字不能为空。')
       return
@@ -1038,9 +1050,10 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
       {selectedSource && <section className="source-maintenance" aria-label="原始数据管理">
         <div className="source-maintenance__summary">
           <div className="source-maintenance__metadata"><span className="source-maintenance__version">来源版本 {selectedSource.revision}</span><span className="source-maintenance__time">录入时间：{formatBeijingDateTime(selectedSource.captured_at)}</span></div>
-          <SourceActionsMenu key={selectedSource.id} busy={sourceBusy} onEdit={beginSourceEdit} onDelete={() => void deleteSelectedSource()} />
+          <SourceActionsMenu key={selectedSource.id} busy={sourceBusy} onEdit={sourcePresentation.isGeneratedSnapshot ? undefined : beginSourceEdit} onDelete={() => void deleteSelectedSource()} />
         </div>
-        {editingSourceId === sourceId && <div className="source-edit-form">
+        {sourcePresentation.isGeneratedSnapshot && <p className="source-display-text">{sourcePresentation.text}</p>}
+        {editingSourceId === sourceId && !sourcePresentation.isGeneratedSnapshot && <div className="source-edit-form">
           <label className="field-stack"><span>原始文字</span><VoiceField onBusyChange={setVoiceBusy}><textarea rows={3} maxLength={10000} value={sourceDraft} onChange={(event) => setSourceDraft(event.target.value)} /></VoiceField></label>
           <label className="field-stack"><span>原始时间描述（可选）</span><input value={sourceTimeDraft} onChange={(event) => setSourceTimeDraft(event.target.value)} placeholder="例如：2026年6月28日下午" /></label>
           <p className="risk-notice">修改会保留审计历史、使旧候选失效，并要求复核已生成的正式记录。</p>
@@ -1097,7 +1110,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
               const highRisk = ['ledger', 'issue', 'decision'].includes(item.record_type)
               return <button key={item.key} className="candidate-review-item candidate-motion-item" style={{ '--motion-index': Math.min(motionIndex, 7) } as CSSProperties} type="button" aria-current={displayedSuggestionKey === item.key ? 'true' : undefined} onClick={() => openSuggestion(item.key)}>
                 <span className="candidate-review-item__top"><strong>{item.type_label} · {String(item.payload.title || item.summary || '手工记录')}</strong><span>{item.confirmed_record_id ? '已生成' : selectedKeys.has(item.key) ? '已选择' : '未选择'}</span></span>
-                <span className="candidate-review-item__evidence">原文：{item.evidence}</span>
+                <span className="candidate-review-item__evidence">原文：{presentSourceText(item.evidence).text}</span>
                 <span className="candidate-review-item__meta">{item.confirmed_record_id ? '用户已确认' : `可信程度：${item.certainty_label}`}{highRisk && !item.confirmed_record_id ? ' · 需重点核对' : ''}</span>
               </button>
             })}
@@ -1110,11 +1123,17 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
           const recordType = suggestion.record_type as RecordType
           const ledgerKind = String(payload.ledger_kind ?? 'payment')
           const cfg = typeFieldConfig[recordType]
-          const highRisk = ['ledger', 'issue', 'decision'].includes(recordType)
+          const reviewHint = recordType === 'ledger' ? '请核对金额和交易对象。'
+            : recordType === 'issue' ? '请核对问题描述和处理状态。'
+            : recordType === 'decision' ? '请核对决策内容和最终选择。' : ''
+          const highRisk = Boolean(reviewHint)
           const title = String(payload.title ?? '')
           const status = String(payload.status ?? recordConfig[recordType].statuses[0])
           const occurredDate = String(payload.occurred_date ?? '')
           const relatedCandidateKeys = Array.isArray(payload.related_candidate_keys) ? payload.related_candidate_keys : []
+          const relatedCandidateOptions = suggestions
+            .filter((item) => item.key !== suggestion.key && !item.key.startsWith('manual:'))
+            .map((item) => ({ id: item.key, name: `${item.type_label} · ${String(item.payload.title || item.summary)}`, trailingText: item.confirmed_record_id ? '已生成' : undefined }))
           const vendorId = String(payload.vendor_id ?? '')
           const detailA = recordType === 'event' ? String(payload.event_kind ?? '')
             : recordType === 'ledger' ? String(payload.payment_kind ?? '')
@@ -1149,19 +1168,26 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
               </label>
               {!confirmed && <button className="suggestion-remove" type="button" onClick={() => void removeSuggestion(suggestion.key)}>移除</button>}
             </div>
-            <p>原文依据：{suggestion.evidence}</p>
+            <p className="source-display-text">原文依据：{presentSourceText(suggestion.evidence).text}</p>
             {!confirmed && !suggestion.key.startsWith('manual:') && <>
-              <details><summary>对照完整来源原文</summary><p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{bundle?.source_text ?? selectedSource?.original_text ?? ''}</p></details>
-              <label className="field-stack"><span>修正原文依据（须为连续片段）</span><textarea rows={3} value={suggestion.evidence} onChange={event => {
+              <details><summary>{sourcePresentation.isGeneratedSnapshot ? '查看来源快照' : '对照完整来源原文'}</summary><p className="source-display-text">{presentSourceText(bundle?.source_text ?? selectedSource?.original_text).text}</p></details>
+              {!sourcePresentation.isGeneratedSnapshot && <label className="field-stack"><span>修正原文依据（须为连续片段）</span><textarea rows={3} value={suggestion.evidence} onChange={event => {
                 const evidence = event.target.value
                 setSuggestions(current => current.map(item => item.key === suggestion.key ? { ...item, evidence, evidence_validation: validEvidence(evidence, bundle?.source_text ?? selectedSource?.original_text ?? '') ? 'valid' : 'invalid' } : item))
                 setHasUnsavedCandidateEdits(true)
                 setConfirmationState('idle')
-              }} /></label>
-              {!validEvidence(suggestion.evidence, bundle?.source_text ?? selectedSource?.original_text ?? '') && <p className="risk-notice" role="alert">原文依据校验失败：请从来源中选择真实的连续片段，修正后才能确认。</p>}
+              }} /></label>}
+              {!validEvidence(suggestion.evidence, bundle?.source_text ?? selectedSource?.original_text ?? '') && (sourcePresentation.isGeneratedSnapshot
+                ? <div className="risk-notice" role="alert"><p>这段摘录与来源快照不一致。</p><button type="button" className="secondary-button" onClick={() => {
+                  // 展示摘要不能反写为证据；标题保留来源中的精确连续原文。
+                  const evidence = sourcePresentation.snapshotTitle!
+                  setSuggestions(current => current.map(item => item.key === suggestion.key ? { ...item, evidence, evidence_validation: validEvidence(evidence, bundle?.source_text ?? selectedSource?.original_text ?? '') ? 'valid' : 'invalid' } : item))
+                  setHasUnsavedCandidateEdits(true); setConfirmationState('idle')
+                }}>使用来源标题作为依据</button></div>
+                : <p className="risk-notice" role="alert">这段摘录与来源原文不一致。请展开上方原文，复制对应的一段文字，替换输入框内容后再确认。</p>)}
             </>}
             <p>{confirmed ? '已确认并生成正式记录' : `可信程度：${suggestion.certainty_label}`}</p>
-            {highRisk && !confirmed && <p className="risk-notice">请重点核对：此项涉及金额、施工问题或关键决策，AI 不会代替你确认。</p>}
+            {reviewHint && !confirmed && <p className="muted">{reviewHint}</p>}
             {!confirmed && <>
               <div className="suggestion-type-select">
                 <label className="field-stack">
@@ -1242,7 +1268,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
               </div>
               <TopicSelect value={Array.isArray(payload.topic_ids) ? payload.topic_ids.map(String) : []} onChange={ids => updateSuggestion(suggestion.key, 'topic_ids', ids)} />
               <RecordAssociations payload={payload} onChange={(key, value) => updateSuggestion(suggestion.key, key, value)} entities={{ ...entities, spaces }} records={allRecords} optionsError={referenceError} onRetry={() => { void Promise.all([refreshReferences(), refreshRecords()]).catch(() => setReferenceError('信息与关联选项加载失败，请重试。')) }} error={confirmationState === 'error' ? message : undefined} participantLabel={recordType === 'issue' ? '处理人' : '参与者'}>
-                {!suggestion.key.startsWith('manual:') && <AssociationMultiSelect label="关联本批候选（可选）" selectedIds={relatedCandidateKeys.map(String)} options={suggestions.filter((item) => item.key !== suggestion.key && !item.key.startsWith('manual:') && !item.confirmed_record_id).map((item) => ({ id: item.key, name: `${item.type_label} · ${String(item.payload.title || item.summary)}` }))} onChange={(ids) => updateCandidateRelations(suggestion.key, ids)} />}
+                {!suggestion.key.startsWith('manual:') && relatedCandidateOptions.length > 0 && <AssociationMultiSelect label="关联本批候选（可选）" selectedIds={relatedCandidateKeys.map(String)} options={relatedCandidateOptions} onChange={(ids) => updateCandidateRelations(suggestion.key, ids)} />}
               </RecordAssociations>
             </>}
           </article>

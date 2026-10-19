@@ -19,6 +19,7 @@ HomeBuild Log 是本地优先的装修工作台：主题聚合长期事项，账
 - 语音静音防护：`frontend/src/voiceAudio.ts` 与 `backend/app/api/transcriptions.py` 使用一致的PCM能量门控；静音不上传／不调用模型，无可识别文字要求重录并保留草稿。该检测不等同人声识别，真实设备校准状态见CURRENT。语音视觉统一归 `frontend/src/VoiceInput.css`，独立底部工具行避开文字滚动区，文本域统一取消原生缩放手柄。调研可收起字段的超长待修正转写随事项草稿保留。
 - 正式记录：事件、账目、问题、尺寸、决策、调研。
 - 账本与待办业务页通过 `/api/v1/records/direct` 直接创建；来源快照、正式记录与审计原子保存，继续复用既有校验和统计。调研与踩坑沿用各自持续追加流程；当前部署状态以 CURRENT 为准。
+- 来源展示：`frontend/src/sourcePresentation.ts` 严格识别直接录入的生成快照，各阅读入口只显示创建时标题和说明，待办无说明时回退事项内容；数据库与接口完整原文不改。生成快照的原文编辑入口只读，业务修改走正式记录；普通来源仍可编辑。生成快照的无效候选依据可显式使用来源标题修正，摘要不能反写为连续原文证据。
 - 尺寸：使用可增减的命名尺寸项，保留原顺序、重复测点及未知方向；输入支持毫米、厘米、米，保存统一毫米，切换单位保持实际尺寸。近似值、误差口径、方法及测量时间单独保存。“再次测量”创建关联的新记录，清空旧数值与来源，不覆盖旧事实、不自动采用最新值；复测历史通过相关记录查看。
 - 账目：只记录付款、退款、收入；金额统一人民币，净支出为付款减退款再减收入。
 - 待办与问题：待办、普通问题和施工问题仍复用 `issue` 类型，显示名称为“待办与问题”，状态为待处理、处理中、已完成。
@@ -45,7 +46,7 @@ memory/CURRENT.md
 然后根据任务类型按需读取：
 
 - UI、页面、组件、视觉：`PRODUCT.md`、`DESIGN.md`；按需使用 `.agents/skills/impeccable/SKILL.md`，接入与更新见 `docs/impeccable.md`。Windows 命令统一走 `scripts/impeccable.cmd`。
-- 按钮视觉：`frontend/src/styles/buttons.css` 为公共操作按钮与分段控件材质入口，变量在 `frontend/src/styles/tokens.css`；主蓝／辅助浅蓝／危险浅红，`primary-button`／`secondary-button`／`danger-button` 表达用途；`TopicSelect.tsx` 的错误重试显式接入。内容卡片、选择器、菜单选项、导航、图表图标和语音保持独立。
+- 按钮视觉：`frontend/src/styles/buttons.css` 为公共操作按钮与分段控件材质入口，变量在 `frontend/src/styles/tokens.css`；主蓝／辅助浅蓝／危险浅红，禁用保留各自色系、不使用灰白填充，高对比模式尊重系统色。`primary-button`／`secondary-button`／`danger-button` 表达用途，语音超长结果的应用／放弃也接入；裸按钮兜底仅放 legacy 层，不覆盖独立组件。相关记录为整行可点击列表，布局在 `ui-hardening.css`；内容卡片、选择器、菜单选项、导航、图表图标和语音工具保持独立。
 - 图表筛选：`EChart.tsx`、`ChartControls.tsx`／`chart-controls.css` 管理标题右侧纯图标分类与清除，不常显操作说明或已选项文字。传入 `selectedKey` 表示筛选模式，同项再点取消；未传时保留账本等明细动作。`hasActiveFilter`／`onClear` 支持无单一数据点的手动日期范围；空结果须保留清除入口。高亮由 `chartConfig.ts` 的 `withChartSelection` 作用于当前服务端数据，不补造完整分布。
 - 阅读页筛选折叠：`FilterDisclosure.tsx`／`filter-disclosure.css`；时间线、记录分析、搜索默认收起条件，分析类型标签和搜索关键词常显。面板隐藏不卸载，收起关闭Portal并恢复焦点，保持页面原有查询时机；页面接入在 `CoreViews.tsx`、`AnalyticsViews.tsx`。
 - 启动、测试、构建、部署、迁移：`memory/RUNBOOK.md`。

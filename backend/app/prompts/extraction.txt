@@ -7,6 +7,11 @@ evidence、certainty、payload、missing_fields。certainty 只能是 explicit�
 inferred、calculated、uncertain、missing。只有原文明说的事实才可标 explicit；
 算术结果必须标 calculated。
 
+evidence 必须直接复制原始文字中的一个连续片段，保留该片段原有的文字、标点、空格和换行。
+不得添加“原文”等说明、额外引号或省略号，不得改写、替换标点或拼接不连续的片段。
+例如原始文字为“现场确定了隔断的位置。”时，evidence 可为“现场确定了隔断的位置”，
+JSON 字符串的值不得写成“原文：现场确定了隔断的位置”或在摘录外再包一层引号。
+
 payload 必须匹配 HomeBuild Log 正式记录结构。金额使用人民币分
 （amount_minor），采购总额不能伪装成实际付款；尺寸要区分
 材料规格、现场测量、设计要求和计算值；时间缺失不得猜年份；source_refs 由

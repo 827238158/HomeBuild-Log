@@ -10,6 +10,7 @@ import { useModalFocus } from './useModalFocus'
 import { confirmNavigation, useNavigationGuard } from './navigationGuard'
 import { RecordConflict, conflictRecord } from './RecordConflict'
 import { VoiceField } from './VoiceField'
+import { presentSourceText } from './sourcePresentation'
 
 const auditLabels: Record<string, string> = { create: '创建记录', update: '修改内容', delete: '删除记录', archive: '隐藏记录', restore: '重新显示', review: '复核来源', confirm: '确认候选' }
 const message = (failure: unknown) => failure instanceof Error ? failure.message : '读取失败，请重试。'
@@ -197,10 +198,17 @@ export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComp
         {record.record_type === 'issue' && <section><h4>事项进展与状态历史</h4><details className="muted"><summary>历史记录说明</summary><p>较早的进展可能仅保存在下方操作记录中。</p></details>{sectionState('activities')}<ol className="research-history">{activities.map(activity => <li key={activity.id} data-search-match={activity.id} tabIndex={-1}><time>{formatBeijingDateTime(activity.created_at)}</time>{activity.kind === 'status' && <p>{activity.previous_status ? recordStatusLabel('issue', activity.previous_status) : '新增事项'} → {recordStatusLabel('issue', activity.next_status ?? '')}</p>}{activity.content && <p>{activity.content}</p>}</li>)}</ol><label className="field-stack"><span>追加进展备注</span><VoiceField active={!closing && !editing} onBusyChange={setNoteVoiceBusy}><textarea rows={3} maxLength={10000} disabled={noteBusy} value={note} onChange={event => { setNote(event.target.value); try { sessionStorage.setItem(`issue:${recordId}:note`, event.target.value) } catch { /* 保留本页草稿。 */ }; setNoteSuccess('') }} /></VoiceField></label><div className="detail-record-actions"><button className="primary-button" type="button" disabled={noteBusy || noteVoiceBusy || !note.trim()} onClick={() => void appendNote()}>{noteBusy ? '保存进展中…' : '保存进展'}</button></div>{noteError && <p role="alert">{noteError}</p>}{noteSuccess && <p role="status">{noteSuccess}</p>}</section>}
         <section><h4>原始来源与附件</h4>{sectionState('sources')}{sources.map(source => <article className="evidence-card" key={source.id}>
           {record.source_refs.find(item => item.source_id === source.id)?.needs_review && <div className="source-review-warning"><span>原始数据已修改，这条正式记录待复核。</span><button type="button" disabled={busy} onClick={() => void acknowledge(source.id)}>已核对，无需修改</button></div>}
-          <p>{source.original_text || '仅附件来源'}</p><small>录入时间：{formatBeijingDateTime(source.captured_at)} · 来源版本 {source.revision}</small><button className="secondary-button" type="button" onClick={() => onOpenSource(source.id)}>打开原始来源</button>
+          <p className="source-display-text">{presentSourceText(source.original_text).text || '仅附件来源'}</p><small>录入时间：{formatBeijingDateTime(source.captured_at)} · 来源版本 {source.revision}</small><button className="secondary-button" type="button" onClick={() => onOpenSource(source.id)}>打开原始来源</button>
           {source.attachments.map(attachment => <AttachmentViewer key={attachment.id} attachment={attachment} />)}
         </article>)}</section>
-        <section><h4>相关记录</h4>{sectionState('relations')}{!sectionsLoading && !sectionErrors.relations && related.length === 0 && <p className="muted">暂无相关记录。</p>}{related.map(item => <p key={item.id}><button type="button" onClick={() => onOpen(item.id)}>{item.title}</button></p>)}</section>
+        <section><h4 id="related-records-title">相关记录</h4>{sectionState('relations')}{!sectionsLoading && !sectionErrors.relations && related.length === 0 && <p className="muted">暂无相关记录。</p>}
+          <ul className="related-record-list" aria-labelledby="related-records-title">{related.map(item => <li key={item.id}>
+            <button type="button" className="related-record-link" onClick={() => onOpen(item.id)}>
+              <span><strong>{item.title}</strong><small>{recordTypeLabels[item.record_type] || '记录'}{item.occurred_date && <> · {formatCalendarDate(item.occurred_date)}</>}</small></span>
+              <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m7.5 4 6 6-6 6" /></svg>
+            </button>
+          </li>)}</ul>
+        </section>
         <section><h4>操作记录</h4>{sectionState('audit')}{audit.map(item => <p className="audit-row" key={item.id}>{formatBeijingDateTime(item.timestamp)} · {auditLabels[item.action] || '数据操作'}</p>)}</section>
       </>}
     </aside>

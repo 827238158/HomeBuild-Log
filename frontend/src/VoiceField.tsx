@@ -24,7 +24,7 @@ export function VoiceField({ children, active = true, onBusyChange, overflowDraf
     setPending('')
   }
   return <VoiceInput active={active && !children.props.disabled} onTranscript={apply} onBusyChange={onBusyChange}
-    feedback={pending && <div className="voice-overflow" role="alert"><p>转写结果超过字段剩余长度，请缩短后应用。原文字已保留。</p><textarea aria-label="待修正的语音结果" value={pending} onChange={event => setPending(event.target.value)} /><button type="button" onClick={() => apply(pending)}>应用文字</button><button type="button" onClick={() => setPending('')}>放弃本次结果</button></div>}>
+    feedback={pending && <div className="voice-overflow" role="alert"><p>转写结果超过字段剩余长度，请缩短后应用。原文字已保留。</p><textarea aria-label="待修正的语音结果" value={pending} onChange={event => setPending(event.target.value)} /><button className="primary-button" type="button" onClick={() => apply(pending)}>应用文字</button><button className="secondary-button" type="button" onClick={() => setPending('')}>放弃本次结果</button></div>}>
     {children}
   </VoiceInput>
 }

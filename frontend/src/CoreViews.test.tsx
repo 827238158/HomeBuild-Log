@@ -1095,6 +1095,20 @@ describe('CoreViews', () => {
     expect(api.searchRecords).toHaveBeenCalledWith(expect.objectContaining({ q: '现场' }))
   })
 
+  it('搜索来源使用创建快照摘要并保留来源跳转', async () => {
+    const original = '历史待办快照\n录入字段：\n' + JSON.stringify({ record_type: 'issue', title: '历史待办快照', status: 'pending', phenomenon: '核对现场接线', severity: 'medium' })
+    vi.mocked(api.searchRecords).mockResolvedValue({ query: '接线', counts: { sources: 1, records: 0, materials: 0, vendors: 0, spaces: 0 }, groups: { sources: [{ id: 'source-1', original_text: original, captured_at: '2026-10-18T00:00:00Z' }], records: [], materials: [], vendors: [], spaces: [] }, limit: 20, offset: 0 })
+    const onReview = vi.fn()
+    render(<CoreViews onOpenSource={onReview}><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    fireEvent.change(screen.getByPlaceholderText('例如：花砖、主卧、门套'), { target: { value: '接线' } })
+    fireEvent.click(screen.getAllByRole('button', { name: '搜索' }).at(-1)!)
+    expect(await screen.findByText('历史待办快照 核对现场接线')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('录入字段')
+    fireEvent.click(screen.getByRole('button', { name: '打开原始来源' }))
+    expect(onReview).toHaveBeenCalledWith('source-1')
+  })
+
   it('记录分析和AI 运行记录使用中文导航与摘要', async () => {
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '记录分析' }))
