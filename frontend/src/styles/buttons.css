@@ -63,7 +63,7 @@ button:is(
   .relation-form > button, .relation-row > button, .detail-record-actions > button,
   .detail-panel__header > button, .ledger-detail-panel__header > button,
   .measurement-fields button, .search-pagination > button,
-  .capture-next-step > button, .recent-source-row__actions > button:first-child,
+  .recent-source-row__actions > button:first-child,
   .attachment-feedback > button,
   .attachment-viewer > button, .ledger-detail-preview > button,
   .empty-guidance > button, .source-error > button,
@@ -102,6 +102,17 @@ button:is(
   text-align: center;
   cursor: pointer;
   transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+
+  /* 图标按钮只复用材质，单独重置文字按钮的内边距与最小宽度。 */
+  &.timeline-back-to-top {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+    aspect-ratio: 1;
+  }
 
   /* 主操作显式着色；同一容器里的取消和辅助操作不继承主色。 */
   &:where(
@@ -235,4 +246,14 @@ button:is(
 .capture-tab {
   border-radius: var(--button-radius);
   font-weight: 600;
+}
+
+button.timeline-back-to-top svg { display: block; flex: none; }
+
+.capture-quick .source-review { flex: 0 0 auto; min-height: 44px; white-space: nowrap; }
+@media (max-width: 600px) {
+  .capture-quick .source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .capture-quick .attachment-field { grid-column: 1 / -1; }
+  .capture-quick .source-actions .source-save { width: 100%; margin-left: 0; }
+  .capture-quick .source-review { width: 100%; }
 }

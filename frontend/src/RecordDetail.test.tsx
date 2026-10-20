@@ -9,7 +9,7 @@ import { HttpError } from './http'
 vi.mock('./domainApi', () => ({ listIssueActivities: vi.fn(), appendIssueActivity: vi.fn(), getRecord: vi.fn(), getSource: vi.fn(), listRelations: vi.fn(), listRecordAudit: vi.fn(), listSpaces: vi.fn(), listRecords: vi.fn(), listEntities: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(), deleteRecord: vi.fn(), reviewRecordSource: vi.fn() }))
 vi.mock('./DomainWorkspace', async importOriginal => {
   const original = await importOriginal<typeof import('./DomainWorkspace')>()
-  return { ...original, RecordEditFields: ({ payload, onChange }: { payload: Record<string, unknown>; onChange: (field: string, value: unknown) => void }) => <><output data-testid="draft">{JSON.stringify(payload)}</output><button onClick={() => onChange('values', [{ axis: '净宽', value: 898, unit: 'mm' }])}>输入新尺寸</button></> }
+  return { ...original, RecordEditFields: ({ payload, onChange, requireContext }: { payload: Record<string, unknown>; onChange: (field: string, value: unknown) => void; requireContext?: boolean }) => <><output data-testid="draft">{JSON.stringify(payload)}</output><output data-testid="context-required">{String(requireContext)}</output><button onClick={() => onChange('values', [{ axis: '净宽', value: 898, unit: 'mm' }])}>输入新尺寸</button><button onClick={() => onChange('space_ids', ['kitchen'])}>选择复测空间</button><button onClick={() => onChange('stage_id', 'tile')}>选择复测阶段</button></> }
 })
 const record = { id: 'old', record_type: 'measurement', title: '门洞', status: 'active', description: '旧说明', occurred_date: '2020-01-01', original_time_text: null, created_at: '2020-01-01T00:00:00Z', object_name: '厨房门洞', measurement_role: 'site_measurement', values: [{ axis: '净宽', value: 900, unit: 'mm' }], measured_at: '2020-01-01T00:00:00Z', method: '卷尺', approximate: true, tolerance_text: '完成面', source_refs: [{ source_id: 'source', source_revision: 1, evidence_excerpt: null, needs_review: false }], archived_at: null, space_ids: ['kitchen'], material_ids: ['wood'], participant_ids: [], spaces: [], materials: [], participants: [], attachment_ids: [], stage_id: 'tile' }
 beforeEach(() => {
@@ -20,6 +20,40 @@ beforeEach(() => {
   vi.mocked(api.listSpaces).mockResolvedValue([]); vi.mocked(api.listRecords).mockResolvedValue([]); vi.mocked(api.listEntities).mockResolvedValue([])
 })
 afterEach(cleanup)
+it('历史记录缺失空间阶段仍可编辑，不强制补造归属', async () => {
+  vi.mocked(api.getRecord).mockResolvedValue({ ...record, version: 1, space_ids: [], stage_id: null })
+  vi.mocked(api.updateRecord).mockResolvedValue({ ...record, version: 2, space_ids: [], stage_id: null })
+  render(<RecordDetail recordId="old" closing={false} onClose={vi.fn()} onChanged={vi.fn()} onExitComplete={vi.fn()} onOpen={vi.fn()} onOpenSource={vi.fn()} onOpenResearch={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: '修改记录' }))
+  expect((await screen.findByTestId('context-required')).textContent).toBe('false')
+  fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+  await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('old', expect.objectContaining({ space_ids: [], stage_id: null, expected_version: 1 })))
+  expect(api.createRecord).not.toHaveBeenCalled()
+})
+
+it('历史尺寸复测时必须补齐空间阶段，缺项不创建且保留新尺寸草稿', async () => {
+  vi.mocked(api.getRecord).mockResolvedValue({ ...record, version: 1, space_ids: [], stage_id: null })
+  vi.mocked(api.createRecord).mockResolvedValue({ ...record, id: 'new-measurement' })
+  const open = vi.fn()
+  render(<RecordDetail recordId="old" closing={false} onClose={vi.fn()} onChanged={vi.fn()} onExitComplete={vi.fn()} onOpen={open} onOpenSource={vi.fn()} onOpenResearch={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: '再次测量' }))
+  expect((await screen.findByTestId('context-required')).textContent).toBe('true')
+  fireEvent.click(screen.getByRole('button', { name: '输入新尺寸' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存本次测量' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('请选择至少一个空间')
+  expect(api.createRecord).not.toHaveBeenCalled()
+  expect(screen.getByTestId('draft').textContent).toContain('898')
+  fireEvent.click(screen.getByRole('button', { name: '选择复测空间' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存本次测量' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('请选择装修阶段')
+  expect(api.createRecord).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '选择复测阶段' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存本次测量' }))
+  await waitFor(() => expect(open).toHaveBeenCalledWith('new-measurement'))
+  expect(api.createRecord).toHaveBeenCalledWith(expect.objectContaining({ space_ids: ['kitchen'], stage_id: 'tile', values: [{ axis: '净宽', value: 898, unit: 'mm' }] }))
+  expect(api.updateRecord).not.toHaveBeenCalled()
+})
+
 it('来源只展示创建时标题说明，保留附件入口及底层快照', async () => {
   const original = '创建时的账目\n录入字段：\n' + JSON.stringify({ record_type: 'ledger', title: '创建时的账目', description: '创建时的说明', status: 'paid', ledger_kind: 'payment', direction: 'expense', payment_kind: '支出', amount_minor: 1540, currency: 'CNY', vendor_id: 'vendor-1' })
   const source = { id: 'source', project_id: 'project', input_type: 'text', original_text: original, attachments: [{ id: 'attachment', original_filename: '凭证.pdf', media_type: 'application/pdf', size_bytes: 2048 }], captured_at: '2020-01-01', reported_time_text: null, updated_at: '2020-01-01', revision: 1 }

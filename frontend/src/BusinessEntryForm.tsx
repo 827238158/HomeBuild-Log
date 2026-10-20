@@ -1,7 +1,7 @@
 import { VoiceField } from './VoiceField'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { createDirectRecord, createEntity, listEntities, type NamedEntity } from './domainApi'
-import { RecordAssociations, useAssociationOptions } from './RecordAssociations'
+import { RecordAssociations, requiredRecordContextError, useAssociationOptions } from './RecordAssociations'
 import { TopicSelect } from './TopicSelect'
 import { Select } from './Select'
 import { useNavigationGuard } from './navigationGuard'
@@ -30,6 +30,11 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
   const dirty = Object.keys(associations).length > 0 || JSON.stringify(topicIds) !== JSON.stringify(initialTopicId ? [initialTopicId] : []) || JSON.stringify(draft) !== JSON.stringify(emptyDraft()) || !!newVendor.trim()
   useNavigationGuard(dirty || busy)
   const change = (key: keyof typeof draft, value: string) => { setDraft(current => ({ ...current, [key]: value })); setSuccess('') }
+  const changeAssociation = (key: string, value: unknown) => {
+    setAssociations(current => ({ ...current, [key]: value }))
+    // 修正必填背景后撤下旧提示，不在多选过程中触发其他缺项校验。
+    if (key === 'space_ids' || key === 'stage_id') setError(current => current === '请选择至少一个空间' || current === '请选择装修阶段' ? '' : current)
+  }
   useEffect(() => {
     if (!open || kind !== 'ledger') return
     let active = true
@@ -75,6 +80,8 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
         handling_plan: draft.plan.trim() || null, due_date: draft.due_date || null, participant_ids: associations.participant_ids ?? [],
       }),
     }
+    const contextError = requiredRecordContextError(payload)
+    if (contextError) { setError(contextError); return }
     busyRef.current = true; setBusy(true)
     try {
       // 来源与正式记录由服务端一次提交，成功前始终保留本页草稿。
@@ -107,7 +114,7 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
         {kind === 'issue' && <label className="field-stack business-entry-wide"><span>处理计划（可选）</span><VoiceField active={open && !busy}><textarea rows={2} maxLength={10000} value={draft.plan} onChange={event => change('plan', event.target.value)} /></VoiceField></label>}
         <div className="business-entry-wide"><TopicSelect value={topicIds} onChange={setTopicIds} disabled={busy} /></div>
         <div className="business-entry-wide">
-          <RecordAssociations payload={{ ...associations, topic_ids: topicIds }} onChange={(key, value) => setAssociations(current => ({ ...current, [key]: value }))} entities={associationOptions.entities} records={associationOptions.records} participantLabel={kind === 'issue' ? '处理人' : '相关人员'} disabled={busy} loading={associationOptions.loading} optionsError={associationOptions.error} onRetry={associationOptions.retry} error={/空间|材料|阶段|人员|关联|space|material|participant|stage|related/i.test(error) ? error : undefined} />
+          <RecordAssociations requireContext payload={{ ...associations, topic_ids: topicIds }} onChange={changeAssociation} entities={associationOptions.entities} records={associationOptions.records} participantLabel={kind === 'issue' ? '处理人' : '相关人员'} disabled={busy} loading={associationOptions.loading} optionsError={associationOptions.error} onRetry={associationOptions.retry} error={/空间|材料|阶段|人员|关联|space|material|participant|stage|related/i.test(error) ? error : undefined} />
         </div>
         <div className="business-entry-wide"><button type="submit" disabled={busy || (kind === 'ledger' && loading)}>{busy ? '保存中…' : kind === 'ledger' ? '保存账目' : '保存事项'}</button></div>
       </fieldset>

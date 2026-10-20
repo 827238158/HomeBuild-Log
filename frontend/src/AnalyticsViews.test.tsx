@@ -4,7 +4,7 @@ import * as api from './domainApi'
 import { AiAnalyticsView, OverviewView, RecordsAnalyticsView } from './AnalyticsViews'
 
 vi.mock('./domainApi', () => ({ getOverview: vi.fn(), getRecordsAnalytics: vi.fn(), getAiAnalyticsOverview: vi.fn(), getAiAnalyticsRuns: vi.fn(), listSpaces: vi.fn(), listEntities: vi.fn() }))
-vi.mock('./LazyEChart', () => ({ LazyEChart: ({ title, selectedKey, onDataClick }: { title: string; selectedKey?: string; onDataClick?: (key: string) => void }) => <figure><h3>{title}</h3>{onDataClick && <button aria-label={`${title}测试数据项`} onClick={() => onDataClick(selectedKey === 'pending' ? '' : 'pending')}>数据项</button>}{selectedKey && <button aria-label={`清除${title}筛选`} onClick={() => onDataClick?.('')}>×</button>}</figure> }))
+vi.mock('./LazyEChart', () => ({ LazyEChart: ({ title, summary, selectedKey, onDataClick }: { title: string; summary: string; selectedKey?: string; onDataClick?: (key: string) => void }) => <figure><h3>{title}</h3><figcaption>{summary}</figcaption>{onDataClick && <button aria-label={`${title}测试数据项`} onClick={() => onDataClick(selectedKey === 'pending' ? '' : 'pending')}>数据项</button>}{selectedKey && <button aria-label={`清除${title}筛选`} onClick={() => onDataClick?.('')}>×</button>}</figure> }))
 vi.mock('./Select', () => ({ Select: ({ children, value, onChange }: { children: React.ReactNode; value: string; onChange: React.ChangeEventHandler<HTMLSelectElement> }) => <select value={value} onChange={onChange}>{children}</select> }))
 
 function deferred<T>() {
@@ -31,6 +31,39 @@ describe('分析查询保护', () => {
     vi.mocked(api.listSpaces).mockResolvedValue([])
     vi.mocked(api.listEntities).mockResolvedValue([])
     vi.mocked(api.getAiAnalyticsRuns).mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 })
+  })
+
+  it.each([
+    ['event', '事件'], ['ledger', '账目'], ['issue', '待办与问题'],
+    ['measurement', '尺寸'], ['decision', '决策'], ['research', '调研'],
+  ])('%s 类型补齐四图并直接展示服务端聚合，全部页保持两图', async (type, label) => {
+    vi.mocked(api.getRecordsAnalytics).mockImplementation(async filters => ({
+      ...records(2),
+      specific: filters?.record_type ? {
+        distribution: [{ key: 'specific', label: '专属类别', value: 2 }],
+        stage_distribution: [{ key: 'stage-id', label: '安装阶段', value: 2 }],
+        space_distribution: [{ key: 'space-id', label: '客厅', value: 2 }],
+      } : {},
+    }))
+    const view = render(<RecordsAnalyticsView onOpen={vi.fn()} refreshRevision={0} />)
+    await screen.findByText('2')
+    const charts = () => Array.from(view.container.querySelectorAll('.chart-grid figure'))
+    expect(charts()).toHaveLength(2)
+    fireEvent.click(screen.getByRole('tab', { name: label }))
+    await screen.findByText('装修阶段分布：安装阶段2项。')
+    expect(charts()).toHaveLength(4)
+    const thirdTitle = type === 'decision' || type === 'research' ? '空间分布' : '类型专属分布'
+    expect(charts().map(chart => chart.querySelector('h3')?.textContent)).toEqual(['时间趋势', '状态分布', thirdTitle, '装修阶段分布'])
+    expect(screen.queryByRole('button', { name: '装修阶段分布测试数据项' })).toBeNull()
+    if (thirdTitle === '空间分布') {
+      expect(screen.getByText('空间分布：客厅2项。')).toBeTruthy()
+      expect(screen.queryByRole('heading', { name: '类型专属分布' })).toBeNull()
+      const help = screen.getByText('一条记录关联多个空间时，分别计入各空间。')
+      expect(help.closest('details')?.open).toBe(false)
+      expect(screen.queryByRole('button', { name: '空间分布测试数据项' })).toBeNull()
+    }
+    fireEvent.click(screen.getByRole('tab', { name: '全部' }))
+    await waitFor(() => expect(charts()).toHaveLength(2))
   })
 
   it('记录类型切换忽略迟到响应，状态可以键盘筛选，清除恢复全部类型', async () => {

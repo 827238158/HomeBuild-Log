@@ -77,6 +77,25 @@ function TestDomainWorkspace({ initialSources = [source], ...props }: { refreshK
   return <DomainWorkspace {...props} sources={sources} refreshSources={refreshSources} />
 }
 
+const requiredSpace = { id: 'required-space', name: '测试空间', kind: 'room', parent_id: null }
+const requiredStage = { id: 'required-stage', name: '测试阶段' }
+const requiredContext = { space_ids: [requiredSpace.id], stage_id: requiredStage.id }
+
+async function fillRecordContext(panel: HTMLElement) {
+  if (panel.hidden) {
+    const index = Array.from(document.querySelectorAll('.suggestion-card')).indexOf(panel)
+    fireEvent.click(document.querySelectorAll('.candidate-review-item')[index])
+  }
+  const form = within(panel)
+  const space = form.getByRole('button', { name: /^空间：/ })
+  await waitFor(() => expect(space).toHaveProperty('disabled', false))
+  fireEvent.click(space)
+  const checkbox = await screen.findByRole('checkbox', { name: requiredSpace.name })
+  if (!(checkbox as HTMLInputElement).checked) fireEvent.click(checkbox)
+  fireEvent.click(space)
+  fireEvent.change(form.getByLabelText('装修阶段'), { target: { value: requiredStage.id } })
+}
+
 const explicitBundle = {
   id: 'bundle-1', source_id: source.id, extraction_run_id: 'run-1', request_id: 'request-1',
   requested_engine: 'auto' as const, engine: 'local-rule-v1', fallback_reason: null,
@@ -88,7 +107,7 @@ const explicitBundle = {
     summary: '主卧门口地砖有一处破裂', evidence: source.original_text,
     certainty: 'explicit' as const, certainty_label: '明确', selected_by_default: true,
     payload: {
-      record_type: 'issue', title: '地砖破裂', status: 'open', occurred_date: '2026-06-28',
+      ...requiredContext, record_type: 'issue', title: '地砖破裂', status: 'open', occurred_date: '2026-06-28',
       phenomenon: '主卧门口地砖有一处破裂', source_refs: [{ source_id: source.id }],
     },
     missing_fields: [], review_state: 'active' as const, deferred_at: null,
@@ -100,8 +119,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(api.listSources).mockResolvedValue([source])
   vi.mocked(api.listRecords).mockResolvedValue([])
-  vi.mocked(api.listSpaces).mockResolvedValue([])
-  vi.mocked(api.listEntities).mockResolvedValue([])
+  vi.mocked(api.listSpaces).mockResolvedValue([requiredSpace])
+  vi.mocked(api.listEntities).mockImplementation(async type => type === 'stages' ? [requiredStage] : [])
   vi.mocked(api.listRelations).mockResolvedValue([])
   vi.mocked(api.getLatestCandidateBundle).mockResolvedValue(explicitBundle)
   vi.mocked(api.createExtraction).mockResolvedValue(explicitBundle)
@@ -134,6 +153,62 @@ beforeEach(() => {
 })
 
 describe('DomainWorkspace', () => {
+  it.each([
+    { space_ids: [], stage_id: requiredStage.id, message: '请选择至少一个空间' },
+    { space_ids: [requiredSpace.id], stage_id: '  ', message: '请选择装修阶段' },
+  ])('候选归属缺失时阻止确认，补齐后保留原草稿提交：$message', async ({ message, ...context }) => {
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({ ...explicitBundle, suggestions: [{
+      ...explicitBundle.suggestions[0], payload: { ...explicitBundle.suggestions[0].payload, ...context },
+    }] })
+    render(<TestDomainWorkspace refreshKey={0} />)
+    fireEvent.change(await screen.findByLabelText('标题'), { target: { value: '保留人工修改后的标题' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+    expect(await screen.findByText(message)).toBeTruthy()
+    expect(api.confirmCandidateBundle).not.toHaveBeenCalled()
+    expect(api.createRecord).not.toHaveBeenCalled()
+    const panel = screen.getByLabelText('标题').closest('article')!
+    expect(within(panel).getByRole('button', { name: /更多信息与关联/ }).getAttribute('aria-expanded')).toBe('false')
+    await fillRecordContext(panel)
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalledOnce())
+    expect(vi.mocked(api.confirmCandidateBundle).mock.calls[0][2][0].payload).toMatchObject({ ...requiredContext, title: '保留人工修改后的标题' })
+  })
+
+  it('整批先定位缺失归属的第二条候选，取消选择后仅确认完整候选', async () => {
+    const second = { ...explicitBundle.suggestions[0], key: 'issue:2', summary: '第二条尚未归属', payload: { ...explicitBundle.suggestions[0].payload, title: '第二条尚未归属', space_ids: [] } }
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({ ...explicitBundle, suggestions: [explicitBundle.suggestions[0], second] })
+    render(<TestDomainWorkspace refreshKey={0} />)
+    fireEvent.change(await screen.findByDisplayValue('地砖破裂'), { target: { value: '第一条已修改' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+    await screen.findByText('请选择至少一个空间')
+    const secondPanel = screen.getByDisplayValue('第二条尚未归属').closest('article')!
+    expect(secondPanel.hidden).toBe(false)
+    expect(api.confirmCandidateBundle).not.toHaveBeenCalled()
+    expect(api.createRecord).not.toHaveBeenCalled()
+    fireEvent.click(secondPanel.querySelector('.candidate-check__input')!)
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalledOnce())
+    const call = vi.mocked(api.confirmCandidateBundle).mock.calls[0]
+    expect(call[2]).toHaveLength(1)
+    expect(call[2][0].payload.title).toBe('第一条已修改')
+    expect(call[3]).toEqual(['issue:2'])
+  })
+
+  it('手工候选缺失归属时整批不发送请求，补齐后才创建', async () => {
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue(null)
+    render(<TestDomainWorkspace refreshKey={0} />)
+    fireEvent.click(await screen.findByText('+ 添加手工记录'))
+    fireEvent.change(screen.getByLabelText('标题'), { target: { value: '手工草稿保留' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+    await screen.findByText('请选择至少一个空间')
+    expect(api.createRecord).not.toHaveBeenCalled()
+    expect(api.confirmCandidateBundle).not.toHaveBeenCalled()
+    await fillRecordContext(screen.getByLabelText('标题').closest('article')!)
+    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledOnce())
+    expect(api.createRecord).toHaveBeenCalledWith(expect.objectContaining({ ...requiredContext, title: '手工草稿保留' }))
+  })
+
   it('直接录入快照只读展示，切换普通来源后仍可编辑原文', async () => {
     const original = '创建时的待办\n录入字段：\n' + JSON.stringify({ record_type: 'issue', title: '创建时的待办', status: 'pending', phenomenon: '联系电工核对接线', severity: 'medium' })
     const generated = { ...source, original_text: original }
@@ -351,6 +426,8 @@ describe('DomainWorkspace', () => {
     const titles = screen.getAllByLabelText('标题')
     fireEvent.change(titles[0], { target: { value: '第一条手工记录' } })
     fireEvent.change(titles[1], { target: { value: '第二条手工记录' } })
+    await fillRecordContext(titles[0].closest('article')!)
+    await fillRecordContext(titles[1].closest('article')!)
     fireEvent.click(screen.getByText('确认所选'))
     await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(2))
     expect(screen.getByRole('button', { name: '正在确认…' })).toHaveProperty('disabled', true)
@@ -454,7 +531,7 @@ describe('DomainWorkspace', () => {
     expect(screen.getByRole('listbox')).toBe(sourceMenu)
 
     fireEvent.click(screen.getByRole('button', { name: /更多信息与关联/ }))
-    fireEvent.click(screen.getByRole('button', { name: '空间：请选择（可多选）' }))
+    fireEvent.click(screen.getByRole('button', { name: /^空间：/ }))
     const multiMenu = screen.getByRole('listbox')
     fireEvent.scroll(multiMenu)
     fireEvent.wheel(multiMenu)
@@ -496,7 +573,7 @@ describe('DomainWorkspace', () => {
         ...explicitBundle.suggestions[0],
         key: 'todo:1', record_type: 'todo', type_label: '待办',
         payload: {
-          record_type: 'todo', title: '完成验收', status: 'done', action: '完成验收',
+          ...requiredContext, record_type: 'todo', title: '完成验收', status: 'done', action: '完成验收',
           completed_at: '2026-06-30', completion_evidence: '已经验收', source_refs: [{ source_id: source.id }],
         },
       }],
@@ -687,7 +764,7 @@ describe('DomainWorkspace', () => {
       ...explicitBundle, suggestions: [{
         key: 'research:1', record_type: 'research', type_label: '调研',
         summary: '是否更换地砖', evidence: '是否更换地砖', certainty: 'uncertain',
-        certainty_label: '不确定', selected_by_default: false, payload: { title: '调研', occurred_date: null }, missing_fields: ['结论'],
+        certainty_label: '不确定', selected_by_default: false, payload: { ...requiredContext, title: '调研', occurred_date: null }, missing_fields: ['结论'],
         review_state: 'active', deferred_at: null, confirmed_record_id: null,
       }],
     })
@@ -716,7 +793,7 @@ describe('DomainWorkspace', () => {
       type_label: '调研',
       summary: '壁龛如何铺贴',
       payload: {
-        record_type: 'research', title: '壁龛铺贴调研', status: 'collecting',
+        ...requiredContext, record_type: 'research', title: '壁龛铺贴调研', status: 'collecting',
         question: '壁龛如何铺贴', options: ['花砖', '普通砖'],
       },
     }
@@ -796,6 +873,7 @@ describe('DomainWorkspace', () => {
     fireEvent.change(typeSelect, { target: { value: 'decision' } })
     fireEvent.change(form.getByLabelText('标题'), { target: { value: '铺贴方案' } })
     fireEvent.change(form.getByLabelText('决策主题'), { target: { value: '花砖方向' } })
+    await fillRecordContext(manualPanel)
     fireEvent.change(form.getByLabelText('选项（逗号分隔）'), { target: { value: '横贴（省料），竖贴：更整齐' } })
     fireEvent.click(screen.getByText('确认所选'))
 
@@ -959,6 +1037,7 @@ describe('DomainWorkspace', () => {
     await waitFor(() => expect(screen.queryByText('待办与问题：主卧门口地砖有一处破裂')).toBeNull())
     expect(api.deferCandidate).toHaveBeenCalledWith('bundle-1', 'issue:1', 1)
     expect(screen.getAllByLabelText('标题').length).toBe(1)
+    await fillRecordContext(screen.getByLabelText('标题').closest('article')!)
     fireEvent.click(screen.getByText('确认所选'))
 
     await waitFor(() => expect(api.createRecord).toHaveBeenCalled())
@@ -1070,6 +1149,7 @@ describe('DomainWorkspace', () => {
     })
     fireEvent.change(form.getByLabelText('标题'), { target: { value: '现场复核' } })
     fireEvent.change(form.getByLabelText('问题现象'), { target: { value: '等待门套施工后复核' } })
+    await fillRecordContext(manualPanel)
     fireEvent.change(form.getByLabelText('严重程度'), { target: { value: 'low' } })
     fireEvent.click(screen.getByText('确认所选'))
 
@@ -1113,7 +1193,7 @@ describe('DomainWorkspace', () => {
     vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({
       ...explicitBundle,
       suggestions: [{ ...explicitBundle.suggestions[0], key: 'measurement:1', record_type: 'measurement', type_label: '尺寸',
-        payload: { record_type: 'measurement', title: '门洞尺寸', status: 'active', object_name: '门洞', measurement_role: 'site_measurement', values, approximate: true, tolerance_text: '未含门框', method: '卷尺' },
+        payload: { ...requiredContext, record_type: 'measurement', title: '门洞尺寸', status: 'active', object_name: '门洞', measurement_role: 'site_measurement', values, approximate: true, tolerance_text: '未含门框', method: '卷尺' },
       }],
     })
     render(<TestDomainWorkspace refreshKey={0} />)
@@ -1131,6 +1211,7 @@ describe('DomainWorkspace', () => {
     await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
 
     fireEvent.click(screen.getByText('+ 添加手工记录'))
+    await fillRecordContext(screen.getAllByLabelText('标题').at(-1)!.closest('article')!)
     fireEvent.click(screen.getByText('确认所选'))
 
     await waitFor(() => expect(api.createRecord).toHaveBeenCalled())

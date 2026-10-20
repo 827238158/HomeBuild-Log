@@ -236,15 +236,6 @@
     padding-inline: 8px;
   }
 
-  .capture-next-step {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .capture-next-step button {
-    width: 100%;
-  }
-
   .recent-source-row {
     align-items: flex-start;
     flex-wrap: wrap;

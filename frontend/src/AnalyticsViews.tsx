@@ -152,6 +152,8 @@ export function RecordsAnalyticsView({ onOpen, refreshRevision }: { onOpen: (id:
   const requestKey = JSON.stringify([recordType, status, spaceId, stageId, dateFrom, dateTo, refreshRevision, retry])
   const pending = loading || settledKey !== requestKey
   const showDashboard = !error && data !== null && (data.summary.total > 0 || Boolean(status))
+  const stageDistribution = data?.specific.stage_distribution ?? []
+  const spaceDistribution = data?.specific.space_distribution ?? []
   useEffect(() => {
     let active = true
     // 筛选项加载失败要显示重试入口；卸载后忽略迟到的响应。
@@ -206,7 +208,10 @@ export function RecordsAnalyticsView({ onOpen, refreshRevision }: { onOpen: (id:
         <div className="chart-grid">
           <EChart title="时间趋势" kind="line" option={lineOption(data.summary.time_trend)} summary={chartSummary('时间趋势', data.summary.time_trend)} smoothUpdate />
           <EChart title="状态分布" description="" kind="donut" option={donutOption(data.summary.status_distribution)} summary={chartSummary('状态分布', data.summary.status_distribution)} onDataClick={setStatus} selectedKey={status} accessibleItems={data.summary.status_distribution.map(item => ({ key: item.key, label: item.label }))} smoothUpdate />
-          {data.specific.distribution && <EChart title="类型专属分布" description="" kind="bar" option={horizontalBarOption(data.specific.distribution)} summary={chartSummary('类型专属分布', data.specific.distribution)} smoothUpdate />}
+          {recordType && (recordType === 'decision' || recordType === 'research'
+            ? <div className="analytics-space-chart"><details className="analytics-space-help"><summary aria-label="空间分布统计口径">统计口径</summary><p>一条记录关联多个空间时，分别计入各空间。</p></details><EChart title="空间分布" kind="bar" option={horizontalBarOption(spaceDistribution)} summary={chartSummary('空间分布', spaceDistribution)} scrollableContentHeight={spaceDistribution.length > 8 ? spaceDistribution.length * 32 + 44 : undefined} scrollableMaxHeight={290} smoothUpdate /></div>
+            : data.specific.distribution && <EChart title="类型专属分布" description="" kind="bar" option={horizontalBarOption(data.specific.distribution)} summary={chartSummary('类型专属分布', data.specific.distribution)} smoothUpdate />)}
+          {recordType && <EChart title="装修阶段分布" kind="bar" option={horizontalBarOption(stageDistribution)} summary={chartSummary('装修阶段分布', stageDistribution)} scrollableContentHeight={stageDistribution.length > 8 ? stageDistribution.length * 32 + 44 : undefined} scrollableMaxHeight={290} smoothUpdate />}
         </div>
         <section className="projection-section records-analytics-records">
           <h3>对应记录</h3>

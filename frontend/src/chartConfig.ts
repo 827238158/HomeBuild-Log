@@ -97,7 +97,8 @@ export function horizontalBarOption(
     grid: { left: 12, right: 54, top: 12, bottom: 20, containLabel: true },
     xAxis: {
       type: 'value', minInterval: unit === '项' ? 1 : undefined,
-      axisLabel: { color: '#667085' }, axisLine: { show: true, lineStyle: { color: '#cfd6de' } },
+      // 平板双列时隐藏重叠刻度，保留实际数据及悬停金额。
+      axisLabel: { color: '#667085', hideOverlap: true }, axisLine: { show: true, lineStyle: { color: '#cfd6de' } },
       splitLine: { lineStyle: { color: chartPalette.grid } },
     },
     yAxis: {

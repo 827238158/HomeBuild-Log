@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.db import database_url
 from app.domain_models import Record
 from app.record_version import bump_record_version
+from tests.record_context import creation_payload
 from tests.test_direct_records import _issue
 from tests.test_pitfalls import _client
 
@@ -30,7 +31,10 @@ def test_due_date_overview_boundaries_and_completion(monkeypatch):
     for label, due in [("late", "2026-10-13"), ("today", "2026-10-14"),
                        ("last", "2026-10-20"), ("outside", "2026-10-21"),
                        ("none", None)]:
-        row = client.post("/api/v1/records/direct", json=_issue(title=label, due_date=due)).json()
+        row = client.post(
+            "/api/v1/records/direct",
+            json=creation_payload(client, _issue(title=label, due_date=due)),
+        ).json()
         assert row["due_date"] == due
         ids[label] = row
     overview = client.get("/api/v1/overview").json()
@@ -51,8 +55,10 @@ def test_due_date_overview_boundaries_and_completion(monkeypatch):
 
 def test_missing_and_stale_versions_and_transaction_rollback():
     client = _client()
-    first = client.post("/api/v1/records/direct", json=_issue()).json()
-    second = client.post("/api/v1/records/direct", json=_issue(title="另一事项")).json()
+    first = client.post("/api/v1/records/direct", json=creation_payload(client, _issue())).json()
+    second = client.post(
+        "/api/v1/records/direct", json=creation_payload(client, _issue(title="另一事项"))
+    ).json()
     route = f"/api/v1/records/{first['id']}"
     missing = raw(client, "PATCH", route, json={"record_type": "issue", "title": "覆盖"})
     assert missing.status_code == 422
@@ -83,7 +89,7 @@ def test_missing_and_stale_versions_and_transaction_rollback():
 
 def test_two_sessions_cas_never_overwrite_winner():
     client = _client()
-    row = client.post("/api/v1/records/direct", json=_issue()).json()
+    row = client.post("/api/v1/records/direct", json=creation_payload(client, _issue())).json()
     with Session(client.app.state.engine) as first, Session(client.app.state.engine) as second:
         a, b = first.get(Record, row["id"]), second.get(Record, row["id"])
         av, bv = a.version, b.version
@@ -108,14 +114,16 @@ def test_two_sessions_cas_never_overwrite_winner():
 
 def test_process_search_groups_dedup_and_pagination():
     client = _client()
-    research = client.post("/api/v1/research", json={"title": "调研"}).json()
+    research = client.post(
+        "/api/v1/research", json=creation_payload(client, {"title": "调研"})
+    ).json()
     for content, sources, uncertainties in [("专属关键词正文", [], None),
                                             ("第二条", ["专属关键词来源"], "专属关键词疑问")]:
         client.post(f"/api/v1/research/{research['id']}/entries", json={
             "research_date": "2026-10-14", "content": content,
             "sources": sources, "uncertainties": uncertainties,
         })
-    issue = client.post("/api/v1/records/direct", json=_issue()).json()
+    issue = client.post("/api/v1/records/direct", json=creation_payload(client, _issue())).json()
     client.post(f"/api/v1/records/{issue['id']}/activities", json={"content": "专属关键词进展"})
     topic = client.post("/api/v1/topics", json={"name": "主题", "goal": "专属关键词目标"}).json()
     pitfall = client.post("/api/v1/pitfalls", json={

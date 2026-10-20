@@ -745,6 +745,16 @@ def _create_record_in_session(
     origin_key: str | None = None,
 ) -> Record:
     payload = body.model_dump()
+    # 只约束新建：历史记录的编辑与已确认候选的幂等重试继续兼容缺失归属。
+    missing = []
+    if not payload.get("space_ids") or not all(
+        isinstance(value, str) and value.strip() for value in payload["space_ids"]
+    ):
+        missing.append("空间")
+    if not str(payload.get("stage_id") or "").strip():
+        missing.append("装修阶段")
+    if missing:
+        raise HTTPException(status_code=422, detail=f"请选择{'和'.join(missing)}。")
     # 问题完成时自动登记北京时间日期；未完成记录不能伪造完成日期。
     if payload["record_type"] == "issue":
         if payload.get("status") == "done":

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from app.core.config import _hash_password
 from app.core.paths import build_storage_paths
+from tests.record_context import record_context
 from tests.versioned_client import VersionedTestClient as TestClient
 
 
@@ -220,6 +221,7 @@ class TestSourceMaintenance:
         response = client.post(
             "/api/v1/records",
             json={
+                **record_context(client),
                 "record_type": "event",
                 "title": title,
                 "status": "occurred",
@@ -267,6 +269,7 @@ class TestSourceMaintenance:
         record = client.post(
             "/api/v1/records",
             json={
+                **record_context(client),
                 "record_type": "event",
                 "title": "上午八点进场",
                 "status": "occurred",

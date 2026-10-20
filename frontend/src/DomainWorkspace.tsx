@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Select } from './Select'
 import { VoiceField } from './VoiceField'
 import { TopicSelect } from './TopicSelect'
-import { RecordAssociations, AssociationMultiSelect } from './RecordAssociations'
+import { RecordAssociations, AssociationMultiSelect, requiredRecordContextError } from './RecordAssociations'
 import { ThinkingLattice } from './MotionPrimitives'
 import { useDropdownPosition } from './useDropdownPosition'
 import { useDropdown } from './useDropdown'
@@ -381,10 +381,11 @@ function toDateInput(value: unknown): string {
 }
 
 export function RecordEditFields({
-  recordType, payload, spaces, entities, records = [], currentRecordId, onChange, error, active = true, onVoiceBusyChange,
+  recordType, payload, spaces, entities, records = [], currentRecordId, onChange, error, active = true, onVoiceBusyChange, requireContext = false,
 }: {
   recordType: RecordType
   active?: boolean
+  requireContext?: boolean
   onVoiceBusyChange?: (busy: boolean) => void
   payload: Record<string, unknown>
   spaces: SpaceEntry[]
@@ -453,7 +454,7 @@ export function RecordEditFields({
       {status === 'done' && <><label className="field-stack"><span>实际完成日期</span><input type="date" value={toDateInput(payload.completed_at)} onChange={(event) => onChange('completed_at', event.target.value || null)} /></label><label className="field-stack record-form-grid__wide"><span>实际处理结果</span><VoiceField active={active} onBusyChange={onVoiceBusyChange}><textarea required rows={2} maxLength={10000} value={String(payload.actual_result ?? '')} onChange={(event) => onChange('actual_result', event.target.value || null)} /></VoiceField></label></>}
     </>}
     <div className="record-form-grid__wide"><TopicSelect value={Array.isArray(payload.topic_ids) ? payload.topic_ids.map(String) : []} onChange={ids => onChange('topic_ids', ids)} /></div>
-    <RecordAssociations payload={payload} onChange={onChange} entities={{ ...entities, spaces }} records={records} currentRecordId={currentRecordId} participantLabel={recordType === 'issue' ? '处理人' : '参与者'} error={error} />
+    <RecordAssociations requireContext={requireContext} payload={payload} onChange={onChange} entities={{ ...entities, spaces }} records={records} currentRecordId={currentRecordId} participantLabel={recordType === 'issue' ? '处理人' : '参与者'} error={error} />
   </div>
 }
 
@@ -806,6 +807,21 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
     const aiSelections = selected.filter((item) => !item.key.startsWith('manual:'))
     if (aiSelections.some(item => !validEvidence(item.evidence, bundle?.source_text ?? selectedSource?.original_text ?? ''))) {
       setMessage('候选原文依据不是来源中的连续片段，请对照原文修正后确认。')
+      return
+    }
+    // 整批先检查归属；定位缺项候选后保留全部草稿，避免提交一部分才发现必填缺失。
+    const incomplete = selected.find(item => requiredRecordContextError(item.payload))
+    if (incomplete) {
+      setActiveSuggestionKey(incomplete.key)
+      setMobileDetailOpen(true)
+      setMessage(requiredRecordContextError(incomplete.payload))
+      setConfirmationState('error')
+      requestAnimationFrame(() => {
+        const field = requiredRecordContextError(incomplete.payload).includes('空间') ? '空间' : '装修阶段'
+        const target = document.querySelector<HTMLElement>(`.suggestion-card:not([hidden]) .record-associations__context [aria-label^="${field}"]`)
+        target?.focus({ preventScroll: true })
+        target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+      })
       return
     }
     const manualSelections = selected.filter((item) => item.key.startsWith('manual:'))
@@ -1267,7 +1283,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
                 </>}
               </div>
               <TopicSelect value={Array.isArray(payload.topic_ids) ? payload.topic_ids.map(String) : []} onChange={ids => updateSuggestion(suggestion.key, 'topic_ids', ids)} />
-              <RecordAssociations payload={payload} onChange={(key, value) => updateSuggestion(suggestion.key, key, value)} entities={{ ...entities, spaces }} records={allRecords} optionsError={referenceError} onRetry={() => { void Promise.all([refreshReferences(), refreshRecords()]).catch(() => setReferenceError('信息与关联选项加载失败，请重试。')) }} error={confirmationState === 'error' ? message : undefined} participantLabel={recordType === 'issue' ? '处理人' : '参与者'}>
+              <RecordAssociations requireContext={!suggestion.confirmed_record_id} payload={payload} onChange={(key, value) => updateSuggestion(suggestion.key, key, value)} entities={{ ...entities, spaces }} records={allRecords} optionsError={referenceError} onRetry={() => { void Promise.all([refreshReferences(), refreshRecords()]).catch(() => setReferenceError('信息与关联选项加载失败，请重试。')) }} error={confirmationState === 'error' && displayedSuggestionKey === suggestion.key ? message : undefined} participantLabel={recordType === 'issue' ? '处理人' : '参与者'}>
                 {!suggestion.key.startsWith('manual:') && relatedCandidateOptions.length > 0 && <AssociationMultiSelect label="关联本批候选（可选）" selectedIds={relatedCandidateKeys.map(String)} options={relatedCandidateOptions} onChange={(ids) => updateCandidateRelations(suggestion.key, ids)} />}
               </RecordAssociations>
             </>}

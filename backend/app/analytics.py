@@ -89,6 +89,25 @@ def base_record_analytics(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _named_distribution(
+    groups: Iterable[list[dict[str, Any]]], *, unknown_label: str
+) -> list[dict[str, Any]]:
+    counts: Counter[str] = Counter()
+    labels = {"unknown": unknown_label}
+    for entities in groups:
+        # 同名实体按 ID 区分；同一记录中的重复关联只计一次。
+        unique = {entity["id"]: entity["name"] for entity in entities}
+        if not unique:
+            counts["unknown"] += 1
+        for entity_id, name in unique.items():
+            counts[entity_id] += 1
+            labels[entity_id] = name
+    return [
+        {"key": key, "label": labels[key], "value": count}
+        for key, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
+
+
 def type_specific_analytics(
     record_type: str | None, records: list[dict[str, Any]], *, today: date
 ) -> dict[str, Any]:
@@ -120,7 +139,16 @@ def type_specific_analytics(
     result: dict[str, Any] = {
         "dimension": field,
         "distribution": distribution((record.get(field) for record in records), labels),
+        "stage_distribution": _named_distribution(
+            ([record["stage"]] if record.get("stage") else [] for record in records),
+            unknown_label="阶段待补充",
+        ),
     }
+    if record_type in {"decision", "research"}:
+        result["space_distribution"] = _named_distribution(
+            (record.get("spaces", []) for record in records),
+            unknown_label="空间待补充",
+        )
     if record_type == "measurement":
         result["unit_distribution"] = distribution(
             

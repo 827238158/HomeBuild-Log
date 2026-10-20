@@ -87,6 +87,7 @@ describe('App', () => {
     const quickTab = screen.getByRole('tab', { name: '快速记录' })
     const reviewTab = screen.getByRole('tab', { name: '待整理' })
     const tabs = screen.getByRole('tablist', { name: '录入工作区' })
+    expect((screen.getByRole('button', { name: '去整理这条记录' }) as HTMLButtonElement).disabled).toBe(true)
     expect(quickTab.getAttribute('aria-selected')).toBe('true')
     expect(tabs.getAttribute('data-active')).toBe('quick')
     expect(document.getElementById('capture-panel-review')?.hidden).toBe(true)
@@ -117,12 +118,55 @@ describe('App', () => {
     fireEvent.click(saveButton)
     expect(screen.getByRole('button', { name: '正在保存记录' }).getAttribute('data-state')).toBe('saving')
     expect(screen.getByRole('button', { name: '正在保存记录' }).getAttribute('aria-busy')).toBe('true')
+    expect((screen.getByRole('button', { name: '去整理这条记录' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(input, { target: { value: '中间编辑' } })
     fireEvent.change(input, { target: { value: nextText } })
     await act(async () => complete({ ok: true, json: async () => ({ id: 'saved', original_text: '原草稿', captured_at: '2026-09-21T00:00:00Z' }) }))
     expect((input as HTMLTextAreaElement).value).toBe(nextText)
     expect(await screen.findByText('已保存')).toBeTruthy()
     expect(screen.getByRole('button', { name: '记录已保存' }).getAttribute('data-state')).toBe('saved')
+  })
+
+  it('去整理打开最近成功保存的来源，等待期间禁用，后续保存失败不丢失目标', async () => {
+    sessionStorage.setItem('homebuild-log-token', 'test-token')
+    let complete!: (value: unknown) => void
+    const pending = new Promise(resolve => { complete = resolve })
+    let saves = 0
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        saves += 1
+        if (saves === 2) return pending
+        if (saves === 3) return Promise.reject(new Error('第三条保存失败'))
+        return Promise.resolve({ ok: true, json: async () => ({ id: 'saved-first', original_text: '第一条', captured_at: '2026-10-20T00:00:00Z' }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => String(input).endsWith('/sources') ? [] : { status: 'ok' } })
+    }))
+    const view = render(<App />)
+    const input = await screen.findByPlaceholderText('记录今天发生的事情…')
+    const review = screen.getByRole('button', { name: '去整理这条记录' }) as HTMLButtonElement
+    expect(review.disabled).toBe(true)
+    expect(view.container.querySelector('.capture-next-step')).toBeNull()
+    fireEvent.change(input, { target: { value: '第一条' } })
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '保存记录' })))
+    expect(review.disabled).toBe(false)
+    fireEvent.click(review)
+    expect(domainWorkspaceProps.mock.calls.at(-1)?.[0]).toMatchObject({ preferredSourceId: 'saved-first' })
+    fireEvent.click(screen.getByRole('tab', { name: '快速记录' }))
+    fireEvent.change(input, { target: { value: '第二条' } })
+    fireEvent.click(screen.getByRole('button', { name: /保存记录|记录已保存/ }))
+    expect(review.disabled).toBe(true)
+    await act(async () => complete({ ok: true, json: async () => ({ id: 'saved-second', original_text: '第二条', captured_at: '2026-10-20T00:01:00Z' }) }))
+    expect(review.disabled).toBe(false)
+    fireEvent.click(review)
+    expect(domainWorkspaceProps.mock.calls.at(-1)?.[0]).toMatchObject({ preferredSourceId: 'saved-second' })
+    fireEvent.click(screen.getByRole('tab', { name: '快速记录' }))
+    fireEvent.change(input, { target: { value: '第三条' } })
+    fireEvent.click(screen.getByRole('button', { name: /保存记录|记录已保存/ }))
+    expect(review.disabled).toBe(true)
+    await screen.findByText('保存失败')
+    expect(review.disabled).toBe(false)
+    fireEvent.click(review)
+    expect(domainWorkspaceProps.mock.calls.at(-1)?.[0]).toMatchObject({ preferredSourceId: 'saved-second' })
   })
 
   it('附件选中后显示类型、大小并可移除', async () => {
@@ -174,7 +218,7 @@ describe('App', () => {
     expect(await screen.findByText('保存失败')).toBeTruthy()
     expect(input.value).toBe('待重试的现场记录')
     expect(screen.getByRole('tab', { name: '快速记录' }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.queryByRole('button', { name: '去整理这条记录' })).toBeNull()
+    expect((screen.getByRole('button', { name: '去整理这条记录' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it.each([false, true])('附件请求完成时保留新选择（重试：%s）', async (retry) => {
@@ -499,10 +543,15 @@ describe('App', () => {
     fireEvent.click(screen.getByText('保存记录'))
 
     const retry = await screen.findByText('来源已保存，重试附件')
+    expect((screen.getByRole('button', { name: '去整理这条记录' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByText('带附件记录')).toBeTruthy()
     fireEvent.click(retry)
     expect(await screen.findByText('已保存')).toBeTruthy()
     expect(attachmentAttempts).toBe(2)
+    const review = screen.getByRole('button', { name: '去整理这条记录' }) as HTMLButtonElement
+    expect(review.disabled).toBe(false)
+    fireEvent.click(review)
+    expect(domainWorkspaceProps.mock.calls.at(-1)?.[0]).toMatchObject({ preferredSourceId: 'source-2', sourceRequestKey: 1 })
     expect(fetchMock.mock.calls.filter(([url, init]) =>
       String(url).endsWith('/sources') && (init as RequestInit | undefined)?.method === 'POST',
     )).toHaveLength(1)

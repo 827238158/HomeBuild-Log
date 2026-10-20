@@ -8,7 +8,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { appendResearchEntry, createResearch, getResearch, listResearch, updateResearchStatus, updateResearchTopics, type ResearchStatus, type ResearchTopic } from './researchApi'
 import { beijingToday, formatBeijingDateTime, formatCalendarDate } from './time'
 import { useTopicDraft } from './useTopicDraft'
-import { RecordAssociations, useAssociationOptions } from './RecordAssociations'
+import { RecordAssociations, requiredRecordContextError, useAssociationOptions } from './RecordAssociations'
 import { useNavigationGuard } from './navigationGuard'
 import { TopicSelect } from './TopicSelect'
 import { Select } from './Select'
@@ -189,6 +189,11 @@ export function ResearchView({ initialResearchId, initialTopicId, initialMatchId
   useNavigationGuard(!!title.trim() || saving)
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
+  const changeNewAssociation = (key: string, value: unknown) => {
+    associations.change(key, value)
+    // 仅撤下新建表单的必填提示，服务端错误继续保留供用户判断。
+    if (key === 'space_ids' || key === 'stage_id') setError(current => current === '请选择至少一个空间' || current === '请选择装修阶段' ? '' : current)
+  }
   const [revision, setRevision] = useState(0)
   // 写操作与反馈按主题保存在父层，切走再返回不会绕过等待状态。
   const [pending, setPending] = useState<Record<string, Operation | null>>({})
@@ -232,6 +237,8 @@ export function ResearchView({ initialResearchId, initialTopicId, initialMatchId
   const create = async (event: FormEvent) => {
     event.preventDefault()
     if (!title.trim()) { setError('请先写下想调研的问题。'); return }
+    const contextError = requiredRecordContextError(associations.payload)
+    if (contextError) { setError(contextError); return }
     setSaving(true); setError('')
     try { const topic = await createResearch(title.trim(), topicIds, associations.payload); setCaptureOpen(false); associations.clear(); clearTopics(); saved(topic); setSelected(topic); focusDetail.current = true; setDetailMode(true); detailRequest.current += 1; setDetailError(''); setTitle('') } catch (failure) { setError(messageOf(failure)) } finally { setSaving(false) }
   }
@@ -253,7 +260,7 @@ export function ResearchView({ initialResearchId, initialTopicId, initialMatchId
   }, [initialResearchId, loading, items])
   const visible = items.filter(topic => (filter === 'all' || (topic.status === 'concluded' ? 'comparing' : topic.status) === filter) && `${topic.title} ${topic.question} ${topic.description ?? ''} ${topic.entries.map(entry => `${entry.content} ${entry.sources.join(' ')} ${entry.uncertainties ?? ''}`).join(' ')}`.toLowerCase().includes(search.trim().toLowerCase()))
   return <section className={`view-panel research-page${detailMode ? ' research-show-detail' : ''}`}><header className="business-page-header"><h2>调研笔记</h2><button className="business-entry-toggle research-capture-toggle" type="button" aria-expanded={captureOpen} aria-controls="research-capture" disabled={saving} onClick={() => setCaptureOpen(value => !value)}>{captureOpen ? '收起' : '新增调研'}</button></header>
-    {captureOpen && <form id="research-capture" className="research-capture" onSubmit={create}><label>随手记一个问题<input disabled={saving || loading} value={title} maxLength={200} onChange={event => setTitle(event.target.value)} placeholder="想到什么先记下来，之后再调研" /></label><TopicSelect value={topicIds} onChange={setTopicIds} disabled={saving} /><RecordAssociations payload={{ ...associations.payload, topic_ids: topicIds }} onChange={associations.change} entities={options.entities} records={options.records} disabled={saving} loading={options.loading} optionsError={options.error} onRetry={options.retry} error={/空间|材料|阶段|人员|关联|space|material|participant|stage|related/i.test(error) ? error : undefined} /><button type="submit" disabled={saving || loading}>{saving ? '保存中…' : '记下问题'}</button></form>}
+    {captureOpen && <form id="research-capture" className="research-capture" onSubmit={create}><label>随手记一个问题<input disabled={saving || loading} value={title} maxLength={200} onChange={event => setTitle(event.target.value)} placeholder="想到什么先记下来，之后再调研" /></label><TopicSelect value={topicIds} onChange={setTopicIds} disabled={saving} /><RecordAssociations requireContext payload={{ ...associations.payload, topic_ids: topicIds }} onChange={changeNewAssociation} entities={options.entities} records={options.records} disabled={saving} loading={options.loading} optionsError={options.error} onRetry={options.retry} error={/空间|材料|阶段|人员|关联|space|material|participant|stage|related/i.test(error) ? error : undefined} /><button type="submit" disabled={saving || loading}>{saving ? '保存中…' : '记下问题'}</button></form>}
     {error && <div role="alert" className="error-text">{error}<button className="text-button" type="button" onClick={() => setRevision(value => value + 1)}>重新加载</button></div>}
     <div className="research-toolbar"><label>搜索调研<input ref={searchInput} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索事项和调研内容" /></label><label><span>筛选状态</span><Select aria-label="筛选状态" value={filter} onChange={event => setFilter(event.target.value as ResearchStatus | 'all')}><option value="all">全部</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></label></div>
     {loading && <p role="status">正在读取调研事项…</p>}

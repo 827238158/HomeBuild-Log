@@ -704,12 +704,18 @@ describe('CoreViews', () => {
     expect(screen.getByText('可查看的账目明细')).toBeTruthy()
     expect(screen.getByRole('heading', { name: '账目明细' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: '资金流水' })).toBeNull()
+    const ledgerGrid = screen.getByRole('heading', { name: '账目明细' }).closest('.chart-grid')!
+    expect(ledgerGrid).toBeTruthy()
+    expect(within(ledgerGrid as HTMLElement).getAllByRole('heading').map(item => item.textContent)).toEqual(['账目明细', '资金构成', '主要商家金额', '每月净支出趋势'])
+    fireEvent.click(screen.getByRole('button', { name: /可查看的账目明细/ }))
+    expect(await screen.findByLabelText('记录详情')).toBeTruthy()
+    expect(api.getRecord).toHaveBeenLastCalledWith('ledger-trend')
   })
 
   it('主要商家超过八项后启用共享图表纵向滚动参数', async () => {
     vi.mocked(api.getLedgerSummary).mockResolvedValueOnce({
       totals: { expense_minor: 90000, refund_minor: 0, income_minor: 0, net_expense_minor: 90000 },
-      ledger_entries: [],
+      ledger_entries: [{ ...record, id: 'ledger-vendor', record_type: 'ledger', ledger_kind: 'payment', direction: 'expense', status: 'paid', amount_minor: 90000 }],
       analytics: {
         money_trend: [], payment_composition: [],
         vendor_distribution: Array.from({ length: 9 }, (_, index) => ({ key: `商家${index + 1}`, label: `商家${index + 1}`, value: 10000 })),
@@ -1053,7 +1059,7 @@ describe('CoreViews', () => {
     })
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '账本' }))
-    const card = await screen.findByRole('button', { name: /净支出/ })
+    const card = await screen.findByRole('button', { name: /^净支出/ })
     fireEvent.mouseEnter(card)
     expect(screen.queryByLabelText('净支出明细预览')).toBeNull()
     fireEvent.click(card)

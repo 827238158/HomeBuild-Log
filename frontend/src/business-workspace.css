@@ -7,8 +7,9 @@
 .business-home strong, .business-home small { display: block; }
 .business-home strong { font-size: 17px; }
 .business-home small { margin-top: 6px; color: #667085; }
-.business-ledger-list { margin: 24px 0; }
-.business-ledger-list > div { max-height: 420px; overflow-y: auto; }
+.ledger-dashboard .business-ledger-list { display: flex; flex-direction: column; min-width: 0; margin: 0; }
+.business-ledger-list > .business-ledger-list__rows { height: 290px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.business-ledger-list__rows:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .business-ledger-list button { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; min-height: 64px; padding: 12px 4px; text-align: left; color: #1f2328; background: transparent; border: 0; border-bottom: 1px solid #e1e6eb; border-radius: 0; }
 .business-ledger-list button:hover { background: #f8fafc; }
 .business-ledger-list button > span { min-width: 0; overflow-wrap: anywhere; }

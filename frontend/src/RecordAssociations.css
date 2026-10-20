@@ -3,6 +3,8 @@
 .record-associations__toggle > span:first-child { flex-shrink: 0; font-weight: 600; }
 .record-associations__summary { flex: 1; min-width: 0; color: var(--ink-muted); font-size: 12px; overflow-wrap: anywhere; }
 .record-associations__body { min-width: 0; padding: 4px 0 12px; }
+.record-associations__context { min-width: 0; padding-bottom: 12px; }
+.record-associations__required { color: var(--ink-muted); font-size: 12px; font-weight: 400; }
 .record-associations__body[hidden] { display: none; }
 .record-associations__body h4 { margin: 12px 0; font-size: 14px; }
 .record-associations__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

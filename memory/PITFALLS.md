@@ -1,5 +1,9 @@
 # Pitfalls
 
+- 触发：44px回顶部图标按钮外框正常，SVG仍横向偏移；单独写padding:0未生效。
+  原因：公共button:is(...)选择器的权重取整组中最具体的分支，超过简单图标类规则；8px 16px内边距压缩内容区，使20px箭头偏移5px。
+  处理：在公共按钮规则内部用&.timeline-back-to-top覆盖几何尺寸和padding，继续继承材质；真实浏览器同时测量44×44外框、padding为0及SVG与按钮中心差，不能只检查图标path对称或外框宽高。
+
 - 触发：记录详情、搜索或候选列表显示“录入字段”与内部JSON，隐藏后又无法复制摘要通过原文校验。
   原因：直接录入为保留证据，将标题和完整表单JSON写入来源原文；多个入口直接消费原文。格式化摘要会解码JSON中的换行，且标题与说明拼接并非原始来源的连续片段。
   处理：统一只读展示适配器，严格识别生成格式，普通文字及用户JSON不截断；原文、审计与校验提交保持原值。生成快照只读，业务改正式记录；无效候选依据可显式使用来源中的精确标题，不能把摘要反写为证据。测试同时覆盖列表／详情、普通原文编辑、多行说明和最终提交的原始依据。
@@ -194,8 +198,8 @@
   处理：自动化任务使用指南函数的等价操作：显式 `systemctl start/stop mihomo`、设置或清理代理环境变量，并在退出钩子中复核服务和 7890/9090 端口；不要反复 `source ~/.bashrc`。
 
 - 触发：Ubuntu 的 GitHub 直连超时，Mihomo 默认 `AUTO` 节点下 HTTPS 拉取又报 GnuTLS 握手被异常终止。
-  原因：代理服务可启动不代表当前自动选中的节点可访问 GitHub；2026-10-17 经 controller 切换候选节点后，备用节点可返回 GitHub HTTP 200，且 `profile.store-selected: true` 会保存选择。
-  处理：先用带超时的只读请求验证当前节点；失败时通过 controller 切换候选节点并对 GitHub 逐条验证，不要盲目反复重试。确认可用后重启 Mihomo 再复测，以确认持久选择生效；临时部署完成仍关闭服务。所有候选均失败时，才在本地 `main` 与 GitHub `origin/main` 提交完全一致且工作树干净的前提下，创建并校验包含 `origin/main` 的完整 Git bundle，经 SSH 传到服务器；服务器再次 `git bundle verify` 后只允许 `git fetch` 加 `git merge --ff-only`，完成后删除两端临时 bundle。校验不一致或无法 fast-forward 时必须停止并请用户处理。
+  原因：代理服务可启动不代表当前自动选中的节点可访问 GitHub；2026-10-17 经 controller 切换候选节点后，备用节点可返回 GitHub HTTP 200，且 `profile.store-selected: true` 会保存选择，但2026-10-20同一持久选择仍可在后续 Git HTTPS 握手时异常终止。代理输出的 `HTTP/1.1 200 Connection established` 只代表 CONNECT 隧道建立，不能单独视为 GitHub 请求成功。
+  处理：先用带超时的只读请求验证当前节点，并以 curl/Git 的最终退出状态和目标响应为准；失败时通过 controller 切换候选节点并对 GitHub 逐条验证，不要盲目反复重试。确认可用后重启 Mihomo 再复测，以确认持久选择生效；临时部署完成仍关闭服务。若出现一次可复现的 TLS 握手中止，停止重复尝试，在本地 `main` 与 GitHub `origin/main` 提交完全一致且工作树干净的前提下，创建并校验包含 `origin/main` 的完整 Git bundle，经 SSH 传到服务器；服务器再次 `git bundle verify` 后只允许 `git fetch` 加 `git merge --ff-only`，完成后删除两端临时 bundle。校验不一致或无法 fast-forward 时必须停止并请用户处理。
 
 - 触发：非交互部署在执行 `sudo -v` 后仍要求认证；或启用 `pipefail` 时通过 `printf '%s\n' "$password" | sudo -S ...` 传入密码，脚本在容器停止后意外退出。
   原因：sudo 认证缓存不能保证覆盖整个部署过程；sudo 提前关闭标准输入时，管道中的 `printf` 还可能收到 SIGPIPE，被 `pipefail` 视为失败。

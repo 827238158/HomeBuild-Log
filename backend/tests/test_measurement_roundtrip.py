@@ -7,6 +7,7 @@ from app.core.config import SecretsConfig, _hash_password
 from app.core.paths import build_storage_paths, ensure_storage_directories
 from app.db import Base, create_database_engine
 from app.main import create_app
+from tests.record_context import creation_payload
 from tests.versioned_client import VersionedTestClient as TestClient
 
 
@@ -60,14 +61,14 @@ def _detail():
 def _create(client, source_id, **detail):
     response = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             "record_type": "measurement",
             "title": "门洞测量",
             "status": "active",
             "source_refs": [{"source_id": source_id, "evidence_excerpt": "测量原文"}],
             **_detail(),
             **detail,
-        },
+        }),
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -142,14 +143,14 @@ def test_remeasurement_invalid_relation_does_not_leave_partial_record():
     source_id = _source(client, "复测来源")
     response = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             "record_type": "measurement",
             "title": "不应部分保存",
             "status": "active",
             "source_refs": [{"source_id": source_id, "evidence_excerpt": "复测原文"}],
             **_detail(),
             "related_record_ids": ["missing-record"],
-        },
+        }),
     )
     assert response.status_code == 400, response.text
     assert client.get(f"/api/v1/records?source_id={source_id}").json() == []

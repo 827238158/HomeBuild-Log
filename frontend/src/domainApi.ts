@@ -168,6 +168,8 @@ export interface RecordsAnalyticsResponse {
     dimension?: string
     distribution?: DistributionItem[]
     unit_distribution?: DistributionItem[]
+    stage_distribution?: DistributionItem[]
+    space_distribution?: DistributionItem[]
     overdue_count?: number
   }
   records: ProjectionRecord[]

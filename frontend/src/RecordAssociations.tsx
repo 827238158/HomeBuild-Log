@@ -14,6 +14,11 @@ export interface AssociationEntities {
   spaces: AssociationOption[]; materials: AssociationOption[]; participants: AssociationOption[]; stages: AssociationOption[]
 }
 export const associationIds = (value: unknown): string[] => Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
+export function requiredRecordContextError(payload: Record<string, unknown>): string {
+  if (!associationIds(payload.space_ids).some(id => id.trim())) return '请选择至少一个空间'
+  if (typeof payload.stage_id !== 'string' || !payload.stage_id.trim()) return '请选择装修阶段'
+  return ''
+}
 const emptyEntities = (): AssociationEntities => ({ spaces: [], materials: [], participants: [], stages: [] })
 
 export function useAssociationOptions(enabled = true) {
@@ -40,8 +45,8 @@ export function useAssociationOptions(enabled = true) {
   return { entities, records, loading, error, retry }
 }
 
-export function AssociationMultiSelect({ label, selectedIds, options, onChange, disabled = false, searchable = false }: {
-  label: string; selectedIds: string[]; options: AssociationOption[]; onChange: (ids: string[]) => void; disabled?: boolean; searchable?: boolean
+export function AssociationMultiSelect({ label, selectedIds, options, onChange, disabled = false, searchable = false, required = false }: {
+  label: string; selectedIds: string[]; options: AssociationOption[]; onChange: (ids: string[]) => void; disabled?: boolean; searchable?: boolean; required?: boolean
 }) {
   const rootRef = useRef<HTMLFieldSetElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -54,9 +59,9 @@ export function AssociationMultiSelect({ label, selectedIds, options, onChange, 
   const selected = options.filter(item => selectedIds.includes(item.id))
   const summary = selectedIds.length === 0 ? '请选择（可多选）' : selected.length === selectedIds.length && selected.length <= 2 ? selected.map(item => item.name).join('、') : `已选择 ${selectedIds.length} 项`
   const filtered = options.filter(item => item.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
-  return <fieldset ref={rootRef} className="multi-select-field" disabled={disabled}><legend>{label}</legend><div className="multi-select-control">
+  return <fieldset ref={rootRef} className="multi-select-field" disabled={disabled}><legend>{label}{required && <span className="record-associations__required">（必填）</span>}</legend><div className="multi-select-control">
     <button ref={triggerRef} type="button" disabled={disabled} className="multi-select-summary" aria-label={`${label}：${summary}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? `${id}-options` : undefined} onPointerDown={event => event.preventDefault()} onClick={toggleMenu}><span>{summary}</span><DropdownChevron open={open} /></button>
-    {open && createPortal(<div ref={menuRef} id={`${id}-options`} role="listbox" aria-label={label} aria-multiselectable="true" className="multi-select-options dropdown-portal association-options" style={style}>
+    {open && createPortal(<div ref={menuRef} id={`${id}-options`} role="listbox" aria-label={label} aria-multiselectable="true" aria-required={required || undefined} className="multi-select-options dropdown-portal association-options" style={style}>
       {searchable && <input ref={searchRef} type="search" aria-label={`搜索${label}`} placeholder="搜索类型或标题" value={query} onChange={event => setQuery(event.target.value)} />}
       <div>{filtered.length ? filtered.map(item => <label key={item.id} role="option" aria-selected={selectedIds.includes(item.id)}><input type="checkbox" aria-label={item.name} checked={selectedIds.includes(item.id)} disabled={disabled} onChange={() => onChange(selectedIds.includes(item.id) ? selectedIds.filter(value => value !== item.id) : [...selectedIds, item.id])} /><span className="multi-select-option__name">{item.name}</span>{item.trailingText && <span className="multi-select-option__meta">{item.trailingText}</span>}</label>) : <span>{query ? '没有匹配的记录' : '暂无可选项'}</span>}</div>
     </div>, document.body)}
@@ -74,8 +79,8 @@ export function associationRecordOptions(records: DomainRecord[], topicIds: stri
   return [...valid.filter(shared), ...valid.filter(record => !shared(record))].map(record => ({ id: record.id, name: `${recordTypeLabels[record.record_type] ?? '记录'} · ${record.title}`, trailingText: [shared(record) ? '同主题' : '', formatBeijingDate(record.created_at)].filter(Boolean).join(' · ') }))
 }
 
-export function RecordAssociations({ payload, onChange, entities, records, currentRecordId, participantLabel = '相关人员', hideParticipants = false, children, disabled = false, error, loading = false, optionsError, onRetry, inline = false }: {
-  payload: Record<string, unknown>; onChange: (key: string, value: unknown) => void; entities: AssociationEntities; records: DomainRecord[]; currentRecordId?: string; participantLabel?: string; hideParticipants?: boolean; children?: ReactNode; disabled?: boolean; error?: string; loading?: boolean; optionsError?: string; onRetry?: () => void; inline?: boolean
+export function RecordAssociations({ payload, onChange, entities, records, currentRecordId, participantLabel = '相关人员', hideParticipants = false, children, disabled = false, error, loading = false, optionsError, onRetry, inline = false, requireContext = false }: {
+  payload: Record<string, unknown>; onChange: (key: string, value: unknown) => void; entities: AssociationEntities; records: DomainRecord[]; currentRecordId?: string; participantLabel?: string; hideParticipants?: boolean; children?: ReactNode; disabled?: boolean; error?: string; loading?: boolean; optionsError?: string; onRetry?: () => void; inline?: boolean; requireContext?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const regionId = useId()
@@ -88,31 +93,40 @@ export function RecordAssociations({ payload, onChange, entities, records, curre
     ]
     const field = error && fields.find(([pattern]) => new RegExp(pattern).test(error))
     if (!field) return
-    setExpanded(true)
+    // 新建时必填背景常显，背景错误不展开无关的可选关联。
+    if (!requireContext || !['空间', '装修阶段'].includes(field[1])) setExpanded(true)
     const frame = requestAnimationFrame(() => {
       const controls = regionRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')
       const target = Array.from(controls ?? []).find(control => control.getAttribute('aria-label')?.startsWith(field[1]))
       target?.focus({ preventScroll: true })
+      target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
     })
     return () => cancelAnimationFrame(frame)
-  }, [error, participantLabel])
+  }, [error, participantLabel, requireContext])
   const summary = [
-    ['空间', associationIds(payload.space_ids).length], ['材料', associationIds(payload.material_ids).length],
+    ['空间', requireContext ? 0 : associationIds(payload.space_ids).length], ['材料', associationIds(payload.material_ids).length],
     ['人员', associationIds(payload.participant_ids).length], ['记录关联', associationIds(payload.related_record_ids).length],
     ['本批关联', associationIds(payload.related_candidate_keys).length],
   ].filter(([, count]) => Number(count) > 0).map(([name, count]) => `${count} 个${name}`)
-  if (payload.stage_id) summary.push('已选装修阶段')
+  if (!requireContext && payload.stage_id) summary.push('已选装修阶段')
   const options = associationRecordOptions(records, associationIds(payload.topic_ids), currentRecordId)
-  return <section className="record-associations">
+  const contextFields = <>
+    <AssociationMultiSelect label="空间" required={requireContext} selectedIds={associationIds(payload.space_ids)} options={entities.spaces} onChange={ids => onChange('space_ids', ids)} disabled={disabled || loading || !!optionsError} />
+    <label><span>装修阶段{requireContext && <span className="record-associations__required">（必填）</span>}</span><Select aria-label="装修阶段" required={requireContext} value={typeof payload.stage_id === 'string' ? payload.stage_id : ''} onChange={event => onChange('stage_id', event.target.value || null)} disabled={disabled || loading || !!optionsError}><option value="">未选择</option>{entities.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.name}</option>)}{typeof payload.stage_id === 'string' && payload.stage_id && !entities.stages.some(stage => stage.id === payload.stage_id) && <option value={payload.stage_id}>已选阶段（选项待读取）</option>}</Select></label>
+  </>
+  const optionFeedback = <>
+    {loading && <p role="status">正在读取信息与关联…</p>}
+    {optionsError && <div role="alert">{optionsError} {onRetry && <button type="button" onClick={onRetry}>重试</button>}</div>}
+  </>
+  return <section ref={regionRef} className="record-associations">
+    {requireContext && <div className="record-associations__context">{optionFeedback}<div className="record-associations__fields">{contextFields}</div></div>}
     {!inline && <button type="button" className="record-associations__toggle" aria-expanded={expanded} aria-controls={regionId} onClick={() => setExpanded(value => !value)}><span>更多信息与关联</span><span className="record-associations__summary">{summary.join('、')}</span><DropdownChevron open={expanded} /></button>}
-    <div id={regionId} ref={regionRef} hidden={!inline && !expanded} className="record-associations__body">
-      {loading && <p role="status">正在读取信息与关联…</p>}
-      {optionsError && <div role="alert">{optionsError} {onRetry && <button type="button" onClick={onRetry}>重试</button>}</div>}
+    <div id={regionId} hidden={!inline && !expanded} className="record-associations__body">
+      {!requireContext && optionFeedback}
       <h4>补充信息</h4><div className="record-associations__fields">
-        <AssociationMultiSelect label="空间" selectedIds={associationIds(payload.space_ids)} options={entities.spaces} onChange={ids => onChange('space_ids', ids)} disabled={disabled || loading || !!optionsError} />
+        {!requireContext && contextFields}
         <AssociationMultiSelect label="材料" selectedIds={associationIds(payload.material_ids)} options={entities.materials} onChange={ids => onChange('material_ids', ids)} disabled={disabled || loading || !!optionsError} />
         {!hideParticipants && <AssociationMultiSelect label={participantLabel} selectedIds={associationIds(payload.participant_ids)} options={entities.participants} onChange={ids => onChange('participant_ids', ids)} disabled={disabled || loading || !!optionsError} />}
-        <label><span>装修阶段</span><Select aria-label="装修阶段" value={typeof payload.stage_id === 'string' ? payload.stage_id : ''} onChange={event => onChange('stage_id', event.target.value || null)} disabled={disabled || loading || !!optionsError}><option value="">未选择</option>{entities.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.name}</option>)}{typeof payload.stage_id === 'string' && payload.stage_id && !entities.stages.some(stage => stage.id === payload.stage_id) && <option value={payload.stage_id}>已选阶段（选项待读取）</option>}</Select></label>
       </div>
       <h4>关联具体记录</h4>
       <AssociationMultiSelect label="关联记录（可选）" selectedIds={associationIds(payload.related_record_ids)} options={options} onChange={ids => onChange('related_record_ids', ids)} disabled={disabled || loading || !!optionsError} searchable />

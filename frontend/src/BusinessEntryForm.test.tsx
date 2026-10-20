@@ -11,21 +11,30 @@ function select(label: string, value: string) {
   fireEvent.click(screen.getByRole('combobox', { name: new RegExp(`^${label}：`) }))
   fireEvent.click(screen.getByRole('option', { name: value }))
 }
-async function ledger() {
+async function chooseContext() {
+  const spaces = screen.getByRole('button', { name: /^空间：/ })
+  await waitFor(() => expect((spaces as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(spaces)
+  fireEvent.click(screen.getByRole('checkbox', { name: '厨房' }))
+  fireEvent.keyDown(document, { key: 'Escape' })
+  select('装修阶段', '安装')
+}
+async function ledger(withContext = true) {
   const saved = vi.fn()
   render(<BusinessEntryForm kind="ledger" onSaved={saved} />)
   fireEvent.click(screen.getByRole('button', { name: '记一笔账' }))
   await waitFor(() => expect(screen.getByRole('combobox', { name: /^交易对象/ }).getAttribute('aria-disabled')).toBe('false'))
   fill('账目名称', '灯带尾款'); fill('金额（元）', '19.99'); fill('款项性质', '尾款')
   select('交易对象（收付款方）', '灯具店')
+  if (withContext) await chooseContext()
   return saved
 }
 describe('业务页直接创建', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    vi.mocked(api.listSpaces).mockResolvedValue([])
+    vi.mocked(api.listSpaces).mockResolvedValue([{ id: 'kitchen', name: '厨房', kind: 'room', parent_id: null } as api.SpaceEntry])
     vi.mocked(api.listRecords).mockResolvedValue([])
-    vi.mocked(api.listEntities).mockResolvedValue([{ id: 'vendor', name: '灯具店' } as api.NamedEntity])
+    vi.mocked(api.listEntities).mockImplementation(async kind => kind === 'vendors' ? [{ id: 'vendor', name: '灯具店' } as api.NamedEntity] : kind === 'stages' ? [{ id: 'stage', name: '安装' } as api.NamedEntity] : [])
     vi.mocked(api.createDirectRecord).mockResolvedValue({ id: 'new' } as api.DomainRecord)
   })
   it.each([['付款', 'payment', 'expense', 'paid'], ['退款', 'refund', 'refund', 'posted'], ['收入', 'income', 'income', 'posted']])('直接保存%s及准确金额', async (label, kind, direction, status) => {
@@ -40,6 +49,9 @@ describe('业务页直接创建', () => {
     const saved = await ledger()
     fireEvent.click(screen.getByRole('button', { name: '保存账目' }))
     await screen.findByText('网络中断'); expect((screen.getByLabelText('账目名称') as HTMLInputElement).value).toBe('灯带尾款')
+    select('装修阶段', '未选择')
+    expect(screen.getByText('网络中断')).toBeTruthy()
+    select('装修阶段', '安装')
     fireEvent.click(screen.getByRole('button', { name: '收起' }))
     const confirmation = vi.spyOn(window, 'confirm').mockReturnValue(false)
     expect(confirmNavigation()).toBe(false)
@@ -55,11 +67,44 @@ describe('业务页直接创建', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('最多两位小数')
     expect(api.createDirectRecord).not.toHaveBeenCalled()
   })
+  it.each(['ledger', 'issue'] as const)('%s 创建必须选择空间与阶段，拦截时保留草稿并定位常显字段', async kind => {
+    if (kind === 'ledger') await ledger(false)
+    else {
+      render(<BusinessEntryForm kind="issue" onSaved={vi.fn()} />)
+      fireEvent.click(screen.getByRole('button', { name: '新增待办或问题' }))
+      fill('事项标题', '保留事项'); fill('事项内容', '保留现场情况')
+    }
+    const form = screen.getByRole('button', { name: kind === 'ledger' ? '保存账目' : '保存事项' }).closest('form')!
+    const spaces = screen.getByRole('button', { name: /^空间：/ })
+    await waitFor(() => expect((spaces as HTMLButtonElement).disabled).toBe(false))
+    expect(spaces.textContent).toContain('请选择')
+    expect(screen.getByRole('combobox', { name: /^装修阶段：/ }).getAttribute('aria-required')).toBe('true')
+    fireEvent.submit(form)
+    await screen.findByText('请选择至少一个空间')
+    await waitFor(() => expect(document.activeElement).toBe(spaces))
+    expect(api.createDirectRecord).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /更多信息与关联/ }).getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(spaces); fireEvent.click(screen.getByRole('checkbox', { name: '厨房' })); fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByText('请选择至少一个空间')).toBeNull()
+    expect(screen.queryByText('请选择装修阶段')).toBeNull()
+    fireEvent.submit(form)
+    await screen.findByText('请选择装修阶段')
+    await waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('装修阶段：未选择'))
+    expect((screen.getByLabelText(kind === 'ledger' ? '账目名称' : '事项标题') as HTMLInputElement).value).toBe(kind === 'ledger' ? '灯带尾款' : '保留事项')
+    expect(api.createDirectRecord).not.toHaveBeenCalled()
+    select('装修阶段', '安装')
+    expect(screen.queryByText('请选择装修阶段')).toBeNull()
+    expect((screen.getByLabelText(kind === 'ledger' ? '账目名称' : '事项标题') as HTMLInputElement).value).toBe(kind === 'ledger' ? '灯带尾款' : '保留事项')
+    fireEvent.submit(form)
+    await screen.findByText(kind === 'ledger' ? '账目已保存' : '待办与问题已保存')
+    expect(api.createDirectRecord).toHaveBeenCalledWith(expect.objectContaining({ space_ids: ['kitchen'], stage_id: 'stage' }))
+  })
   it('保存待办使用现有字段', async () => {
     const saved = vi.fn()
     render(<BusinessEntryForm kind="issue" onSaved={saved} />)
     fireEvent.click(screen.getByRole('button', { name: '新增待办或问题' }))
     fill('事项标题', '核对尺寸'); fill('事项内容', '与师傅核对柜内净宽'); fill('处理计划（可选）', '明天现场测量')
+    await chooseContext()
     fireEvent.click(screen.getByRole('button', { name: '保存事项' }))
     await screen.findByText('待办与问题已保存')
     expect(api.createDirectRecord).toHaveBeenCalledWith(expect.objectContaining({ record_type: 'issue', status: 'pending', phenomenon: '与师傅核对柜内净宽', severity: 'medium', handling_plan: '明天现场测量' }))
@@ -79,11 +124,13 @@ describe('业务页直接创建', () => {
 })
 
 it('从主题创建待办预选归属，失败重试保留选择', async () => {
-  vi.mocked(api.listEntities).mockResolvedValue([])
+  vi.mocked(api.listSpaces).mockResolvedValue([{ id: 'kitchen', name: '厨房', kind: 'room', parent_id: null } as api.SpaceEntry])
+  vi.mocked(api.listEntities).mockImplementation(async kind => kind === 'stages' ? [{ id: 'stage', name: '安装' } as api.NamedEntity] : [])
   vi.mocked(api.createDirectRecord).mockRejectedValueOnce(new Error('保存中断')).mockResolvedValueOnce({id:'new'} as api.DomainRecord)
   render(<BusinessEntryForm kind="issue" initialTopicId="theme" onSaved={vi.fn()} />)
   expect(screen.getByTestId('topics').textContent).toBe('theme')
   fill('事项标题','核对开关'); fill('事项内容','确认零线')
+  await chooseContext()
   fireEvent.click(screen.getByRole('button',{name:'保存事项'}))
   await screen.findByText('保存中断')
   expect(screen.getByTestId('topics').textContent).toBe('theme')
@@ -96,11 +143,12 @@ it('从主题创建待办预选归属，失败重试保留选择', async () => {
 it('待办补充字段支持多个处理人，收起与保存失败保留', async () => {
   vi.mocked(api.listSpaces).mockResolvedValue([{ id: 'kitchen', name: '厨房', kind: 'room', parent_id: null } as api.SpaceEntry])
   vi.mocked(api.listRecords).mockResolvedValue([])
-  vi.mocked(api.listEntities).mockImplementation(async kind => kind === 'participants' ? [{ id: 'p1', name: '师傅甲' }, { id: 'p2', name: '师傅乙' }] as api.NamedEntity[] : [])
+  vi.mocked(api.listEntities).mockImplementation(async kind => kind === 'participants' ? [{ id: 'p1', name: '师傅甲' }, { id: 'p2', name: '师傅乙' }] as api.NamedEntity[] : kind === 'stages' ? [{ id: 'stage', name: '安装' } as api.NamedEntity] : [])
   vi.mocked(api.createDirectRecord).mockRejectedValueOnce(new Error('保存失败')).mockResolvedValueOnce({ id: 'new' } as api.DomainRecord)
   render(<BusinessEntryForm kind="issue" onSaved={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: '新增待办或问题' }))
   fill('事项标题', '测量柜体'); fill('事项内容', '共同复核净宽')
+  await chooseContext()
   fireEvent.click(screen.getByRole('button', { name: /更多信息与关联/ }))
   const trigger = await screen.findByRole('button', { name: /^处理人：/ })
   await waitFor(() => expect((trigger as HTMLButtonElement).disabled).toBe(false))

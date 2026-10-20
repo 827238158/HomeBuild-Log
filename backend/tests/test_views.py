@@ -9,6 +9,7 @@ from app.core.config import SecretsConfig, _hash_password
 from app.core.paths import build_storage_paths, ensure_storage_directories
 from app.db import Base, create_database_engine
 from app.main import create_app
+from tests.record_context import clear_historical_context, creation_payload
 from tests.versioned_client import VersionedTestClient as TestClient
 
 
@@ -55,13 +56,13 @@ def _record(client: TestClient, source_id: str, payload: dict) -> dict:
         payload = {**payload, "vendor_id": vendor["id"]}
     response = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             "title": payload["title"],
             "record_type": payload["record_type"],
             "status": payload["status"],
             "source_refs": [{"source_id": source_id, "evidence_excerpt": "原文依据"}],
             **payload,
-        },
+        }),
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -175,7 +176,7 @@ def test_records_only_accept_renminbi() -> None:
     source_id = _source(client, "支付材料款100元。")
     response = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             "record_type": "ledger",
             "title": "材料款",
             "status": "paid",
@@ -184,7 +185,7 @@ def test_records_only_accept_renminbi() -> None:
             "payment_kind": "full",
             "amount_minor": 10000,
             "currency": "USD",
-        },
+        }),
     )
     assert response.status_code == 422
 
@@ -345,7 +346,8 @@ def test_space_archive_combines_ancestors_and_descendants_and_root_matches_ledge
     ledger("书房付款", "payment", "paid", "expense", 20000, [room["id"]])
     ledger("书柜退款", "refund", "posted", "refund", 5000, [component["id"]])
     ledger("主卧付款", "payment", "paid", "expense", 90000, [sibling["id"]])
-    ledger("未分配收入", "income", "posted", "income", 3000, [])
+    legacy = ledger("未分配收入", "income", "posted", "income", 3000, [house["id"]])
+    clear_historical_context(client, legacy["id"])
     shared = ledger(
         "全屋与书房共同付款",
         "payment",

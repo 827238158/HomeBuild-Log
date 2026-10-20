@@ -12,6 +12,7 @@ from app.core.paths import build_storage_paths, ensure_storage_directories
 from app.db import Base, create_database_engine
 from app.local_suggestions import suggest_from_text
 from app.main import create_app
+from tests.record_context import confirmation_payload, creation_payload
 from tests.versioned_client import VersionedTestClient as TestClient
 
 
@@ -107,7 +108,7 @@ def test_create_all_six_record_types_and_ledger_subtypes(
     if record_type == "ledger":
         vendor = client.post("/api/v1/vendors", json={"name": "交易对象"}).json()
         payload["vendor_id"] = vendor["id"]
-    response = client.post("/api/v1/records", json=payload)
+    response = client.post("/api/v1/records", json=creation_payload(client, payload))
     assert response.status_code == 201, response.text
     data = response.json()
     assert data["record_type"] == record_type
@@ -122,22 +123,22 @@ def test_issue_completed_date_follows_done_status() -> None:
 
     invalid = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "issue", "pending"),
             "phenomenon": "等待验收",
             "severity": "medium",
             "completed_at": "2026-07-01",
-        },
+        }),
     )
     assert invalid.status_code == 422
 
     created = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "issue", "pending"),
             "phenomenon": "等待验收",
             "severity": "medium",
-        },
+        }),
     )
     assert created.status_code == 201, created.text
     record_id = created.json()["id"]
@@ -158,12 +159,12 @@ def test_issue_completed_date_follows_done_status() -> None:
 
     done_on_create = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "issue", "done"),
             "phenomenon": "等待验收",
             "severity": "low",
             "actual_result": "已经验收",
-        },
+        }),
     )
     assert done_on_create.status_code == 201, done_on_create.text
     assert len(done_on_create.json()["completed_at"]) == 10
@@ -199,12 +200,12 @@ def test_project_space_shared_entities_and_source_listing() -> None:
 
     record = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "event", "occurred"),
             "event_kind": "site_visit",
             "space_ids": [room["id"]],
             "material_ids": [material.json()["id"]],
-        },
+        }),
     )
     assert record.status_code == 201, record.text
     assert record.json()["space_ids"] == [room["id"]]
@@ -258,38 +259,38 @@ def test_delete_rejects_child_spaces_and_referenced_shared_entities() -> None:
 
     event = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "event", "occurred"),
             "event_kind": "construction",
             "space_ids": [room["id"]],
             "material_ids": [material["id"]],
             "participant_ids": [participant["id"]],
             "stage_id": stage["id"],
-        },
+        }),
     )
     assert event.status_code == 201, event.text
     ledger = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "ledger", "paid"),
             "ledger_kind": "payment",
             "direction": "expense",
             "payment_kind": "deposit",
             "amount_minor": 10000,
             "vendor_id": vendor["id"],
-        },
+        }),
     )
     assert ledger.status_code == 201, ledger.text
     income = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "ledger", "posted"),
             "ledger_kind": "income",
             "direction": "income",
             "payment_kind": "reimbursement",
             "amount_minor": 5000,
             "vendor_id": procurement_vendor["id"],
-        },
+        }),
     )
     assert income.status_code == 201, income.text
 
@@ -316,15 +317,17 @@ def test_update_archive_restore_relation_and_audit() -> None:
     source_id = _source(client)
     first = client.post(
         "/api/v1/records",
-        json={**_common(source_id, "event", "occurred"), "event_kind": "construction"},
+        json=creation_payload(
+            client, {**_common(source_id, "event", "occurred"), "event_kind": "construction"}
+        ),
     ).json()
     second = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "issue", "pending"),
             "phenomenon": "现场复核",
             "severity": "low",
-        },
+        }),
     ).json()
 
     updated = client.patch(
@@ -381,17 +384,19 @@ def test_record_payload_synchronizes_generic_relations_and_measurement_status() 
     source_id = _source(client, "尺寸与关联")
     event = client.post(
         "/api/v1/records",
-        json={**_common(source_id, "event", "occurred"), "event_kind": "site_visit"},
+        json=creation_payload(
+            client, {**_common(source_id, "event", "occurred"), "event_kind": "site_visit"}
+        ),
     ).json()
     measurement = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "measurement", "active"),
             "object_name": "门洞",
             "measurement_role": "site_measurement",
             "values": [{"axis": "height", "value": 2100, "unit": "mm"}],
             "related_record_ids": [event["id"], event["id"]],
-        },
+        }),
     )
     assert measurement.status_code == 201, measurement.text
     measurement_id = measurement.json()["id"]
@@ -422,11 +427,11 @@ def test_issue_completion_date_follows_status_transitions() -> None:
     source_id = _source(client)
     issue = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "issue", "pending"),
             "phenomenon": "墙面渗水",
             "severity": "high",
-        },
+        }),
     ).json()
     assert issue["completed_at"] is None
 
@@ -519,7 +524,7 @@ def test_update_detail_fields_for_all_record_types(
     source_id = _source(client)
     record = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, record_type, record_status),
             **detail,
             **(
@@ -531,7 +536,7 @@ def test_update_detail_fields_for_all_record_types(
                 if record_type == "ledger"
                 else {}
             ),
-        },
+        }),
     ).json()
     response = client.patch(
         f"/api/v1/records/{record['id']}",
@@ -557,11 +562,11 @@ def test_ledger_update_rejects_empty_required_fields_without_changing_totals(cha
     client = _client()
     source_id = _source(client)
     vendor_id = client.post("/api/v1/vendors", json={"name": "交易对象"}).json()["id"]
-    response = client.post("/api/v1/records", json={
+    response = client.post("/api/v1/records", json=creation_payload(client, {
         **_common(source_id, "ledger", "paid"),
         "ledger_kind": "payment", "direction": "expense", "vendor_id": vendor_id,
         "payment_kind": "deposit", "amount_minor": 50000,
-    })
+    }))
     assert response.status_code == 201, response.text
     record_id = response.json()["id"]
     rejected = client.patch(f"/api/v1/records/{record_id}", json={
@@ -580,34 +585,34 @@ def test_record_requires_source_and_rejects_invalid_measurement() -> None:
     client = _client()
     without_source = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             "record_type": "issue",
             "title": "无来源",
             "status": "pending",
             "source_refs": [],
             "phenomenon": "不应创建",
             "severity": "low",
-        },
+        }),
     )
     assert without_source.status_code == 422
     source_id = _source(client)
     invalid_value = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "measurement", "active"),
             "object_name": "门洞",
             "measurement_role": "site_measurement",
             "values": [{"axis": "width", "value": 0, "unit": "mm"}],
-        },
+        }),
     )
     assert invalid_value.status_code == 422
     invalid_month = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "event", "occurred"),
             "event_kind": "site_visit",
             "occurred_date": "2026-02-30",
-        },
+        }),
     )
     assert invalid_month.status_code == 422
 
@@ -619,20 +624,20 @@ def test_delete_record_keeps_source_and_releases_persisted_candidate() -> None:
     candidate = bundle["suggestions"][0]
     confirmed = client.post(
         f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
-        json={
+        json=confirmation_payload(client, f"/api/v1/candidate-bundles/{bundle['id']}/confirm", {
             "expected_version": bundle["version"],
             "selections": [{"key": candidate["key"], "payload": candidate["payload"]}],
-        },
+        }),
     )
     assert confirmed.status_code == 200, confirmed.text
     record = confirmed.json()["records"][0]["record"]
     other = client.post(
         "/api/v1/records",
-        json={
+        json=creation_payload(client, {
             **_common(source_id, "issue", "pending"),
             "phenomenon": "后续复核",
             "severity": "low",
-        },
+        }),
     ).json()
     relation = client.post(
         "/api/v1/record-relations",
@@ -777,10 +782,10 @@ def test_seven_real_samples_can_be_manually_mapped_without_ai() -> None:
                 detail = {**detail, "vendor_id": vendor["id"]}
             response = client.post(
                 "/api/v1/records",
-                json={
+                json=creation_payload(client, {
                     **_common(source_ids[index], record_type, record_status),
                     **detail,
-                },
+                }),
             )
             assert response.status_code == 201, response.text
 
@@ -901,12 +906,22 @@ def test_local_suggestion_batch_confirmation_is_atomic_and_idempotent() -> None:
     request_body = {
         "selections": [{"key": item["key"], "payload": item["payload"]} for item in selected]
     }
-    first = client.post(f"/api/v1/sources/{source_id}/suggestions/confirm", json=request_body)
+    first = client.post(
+        f"/api/v1/sources/{source_id}/suggestions/confirm",
+        json=confirmation_payload(
+            client, f"/api/v1/sources/{source_id}/suggestions/confirm", request_body
+        ),
+    )
     assert first.status_code == 200, first.text
     assert all(item["created"] for item in first.json()["records"])
     first_count = len(client.get(f"/api/v1/records?source_id={source_id}").json())
 
-    second = client.post(f"/api/v1/sources/{source_id}/suggestions/confirm", json=request_body)
+    second = client.post(
+        f"/api/v1/sources/{source_id}/suggestions/confirm",
+        json=confirmation_payload(
+            client, f"/api/v1/sources/{source_id}/suggestions/confirm", request_body
+        ),
+    )
     assert second.status_code == 200, second.text
     assert all(not item["created"] for item in second.json()["records"])
     assert len(client.get(f"/api/v1/records?source_id={source_id}").json()) == first_count
@@ -932,12 +947,12 @@ def test_local_suggestion_validation_failure_rolls_back_whole_batch() -> None:
     invalid_refund.pop("amount_minor")
     response = client.post(
         f"/api/v1/sources/{source_id}/suggestions/confirm",
-        json={
+        json=confirmation_payload(client, f"/api/v1/sources/{source_id}/suggestions/confirm", {
             "selections": [
                 {"key": ledger["key"], "payload": ledger["payload"]},
                 {"key": refund["key"], "payload": invalid_refund},
             ]
-        },
+        }),
     )
     assert response.status_code == 422
     assert client.get(f"/api/v1/records?source_id={source_id}").json() == []

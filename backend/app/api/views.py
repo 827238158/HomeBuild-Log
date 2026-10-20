@@ -229,6 +229,15 @@ def ledger_summary(
                 or serialized[record.id].get("vendor_id") == vendor_id
             )
         ]
+        # 明细按实际发生日期排序，不能用录入时间代替缺失的发生日期。
+        selected.sort(
+            key=lambda record: (
+                record.get("occurred_date") or "",
+                record.get("created_at") or "",
+                record["id"],
+            ),
+            reverse=True,
+        )
         totals, effective_ledgers = _ledger_totals(selected)
 
         vendor_amounts: dict[str, int] = defaultdict(int)

@@ -75,3 +75,7 @@
 - 2026-10-17：图表筛选视觉经公开案例调研与小主确认后落地，最新要求为标题旁纯图标取消，不新增已选项／处理中等说明文字。移除常驻操作提示和分散取消按钮，分类收为标题栏图标菜单；筛选图表同项再点取消，单独清除不影响其他维度，空结果仍可清除，账本保持打开明细。选中反馈集中在图形，不加整卡蓝框。前端290项全量与最终构建通过，四种宽度8组隔离Edge模拟验收通过；未提交部署，真实设备待验收。
 
 - 2026-10-18：Ubuntu Docker 服务更新至 `b71b8c766d9a`。服务器通过已验证的 Mihomo 代理完成 GitHub fast-forward，随后关闭代理；以 DaoCloud、npmmirror 和阿里云 PyPI 的一次性临时 Dockerfile 构建并切换 `homebuild-log:b71b8c766d9a`，无后端或数据库迁移。本次未创建数据恢复点，仅重建 app，Caddy 与 HTTPS 证书卷保留。新容器 healthy，SQLite 完整性 `ok`、revision `0022_add_due_date_and_record_version`、35 张业务表均通过，`192.168.1.17` 的 HTTP/HTTPS 健康接口返回 200，Mihomo 最终 inactive。
+
+- 2026-10-20：Ubuntu Docker 服务更新至 `b4fdfb9beb8e`。Mihomo 到 GitHub 的 TLS 握手中止后未重复尝试，改由本地与服务器两端 `git bundle verify` 校验的完整 Git bundle 将源码 fast-forward；临时 bundle 与后台构建日志均在验收后清理。以 DaoCloud、npmmirror 和阿里云 PyPI 的一次性临时 Dockerfile 构建并切换 `homebuild-log:b4fdfb9beb8e`，无数据库迁移；仅重建 app，Caddy 与 HTTPS 证书卷保留，未创建数据恢复点。新容器 healthy，SQLite 完整性 `ok`、revision `0022_add_due_date_and_record_version`、35 张业务表和 `192.168.1.17` 的 HTTP/HTTPS 健康接口均通过，Mihomo 最终 inactive。
+
+| 2026-10-20 | 新增正式记录归属必填 | 按用户要求，新建六类正式记录必须选择至少一个空间和一个装修阶段；原始来源允许先保存，历史编辑／追加和已确认候选重复确认保持兼容，不自动补归属。前端常显必填与草稿保护，服务端统一创建边界校验，失败原子回滚；无数据库迁移，尚未部署。 |

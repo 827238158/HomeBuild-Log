@@ -7,7 +7,7 @@ import { confirmNavigation } from './navigationGuard'
 import { ResearchView } from './ResearchView'
 
 vi.mock('./topicsApi', () => ({ listTopics: vi.fn(async () => ({ items: [], summary: { total: 0, active: 0, archived: 0 } })) }))
-vi.mock('./domainApi', () => ({ listSpaces: vi.fn(async () => []), listEntities: vi.fn(async () => []), listRecords: vi.fn(async () => []) }))
+vi.mock('./domainApi', () => ({ listSpaces: vi.fn(async () => [{ id: 'kitchen', name: '厨房', kind: 'room', parent_id: null }]), listEntities: vi.fn(async (kind: string) => kind === 'stages' ? [{ id: 'stage', name: '安装' }] : []), listRecords: vi.fn(async () => []) }))
 vi.mock('./researchApi', () => ({ listResearch: vi.fn(), getResearch: vi.fn(), createResearch: vi.fn(), appendResearchEntry: vi.fn(), updateResearchStatus: vi.fn(), updateResearchTopics: vi.fn() }))
 const topic = (id: string): api.ResearchTopic => ({ id, version: 1, title: `主题${id}`, question: '', description: null, status: 'collecting', conclusion: '原结论', limitations: null, created_at: '2026-10-03T00:00:00Z', updated_at: '2026-10-03T00:00:00Z', entries: [], conclusion_history: [] })
 const a = topic('A'); const b = topic('B')
@@ -19,6 +19,12 @@ const chooseStatus = (label: string, option: string) => {
 const openAppend = () => { const button = screen.queryByRole('button', { name: /^(追加调研|继续追加)$/ }); if (button) fireEvent.click(button) }
 const editInfo = () => { const toggle = screen.getByRole('button', { name: '事项信息' }); if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle); const button = screen.queryByRole('button', { name: /^(编辑信息|继续编辑信息)$/ }); if (button) fireEvent.click(button) }
 const openA = async () => { render(<ResearchView />); fireEvent.click(await screen.findByRole('button', { name: /主题A/ })); await waitFor(() => expect(api.getResearch).toHaveBeenCalledWith('A')); openAppend() }
+const chooseContext = async () => {
+  const spaces = screen.getByRole('button', { name: /^空间：/ })
+  await waitFor(() => expect((spaces as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(spaces); fireEvent.click(screen.getByRole('checkbox', { name: '厨房' })); fireEvent.keyDown(document, { key: 'Escape' })
+  chooseStatus('装修阶段', '安装')
+}
 describe('调研笔记', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
   beforeEach(() => {
@@ -42,15 +48,57 @@ describe('调研笔记', () => {
     // 详情刷新不能重复定位并覆盖用户已移动的阅读位置。
     expect(focus).toHaveBeenCalledTimes(1)
   })
-  it('只需一句话创建，失败保留输入', async () => {
+  it('选择背景后创建，失败保留输入与背景', async () => {
     vi.mocked(api.createResearch).mockRejectedValue(new Error('保存失败'))
     render(<ResearchView />); await screen.findByRole('button', { name: /主题A/ })
     fireEvent.click(screen.getByRole('button', { name: '新增调研' }))
     fireEvent.change(screen.getByLabelText('随手记一个问题'), { target: { value: '要不要回水管' } })
+    await chooseContext()
     fireEvent.click(screen.getByRole('button', { name: '记下问题' }))
     await screen.findByText('保存失败')
     expect((screen.getByLabelText('随手记一个问题') as HTMLInputElement).value).toBe('要不要回水管')
-    expect(api.createResearch).toHaveBeenCalledWith('要不要回水管', [], {})
+    expect(api.createResearch).toHaveBeenCalledWith('要不要回水管', [], { space_ids: ['kitchen'], stage_id: 'stage' })
+    expect(screen.getByRole('button', { name: '空间：厨房' })).toBeTruthy()
+    expect(screen.getByRole('combobox', { name: '装修阶段：安装' })).toBeTruthy()
+    chooseStatus('装修阶段', '未选择')
+    expect(screen.getByText('保存失败')).toBeTruthy()
+    expect((screen.getByLabelText('随手记一个问题') as HTMLInputElement).value).toBe('要不要回水管')
+  })
+  it('缺少空间或阶段时不创建，保留草稿且可选关联保持收起', async () => {
+    vi.mocked(api.createResearch).mockResolvedValue(topic('created'))
+    render(<ResearchView />); await screen.findByRole('button', { name: /主题A/ })
+    fireEvent.click(screen.getByRole('button', { name: '新增调研' }))
+    fireEvent.change(screen.getByLabelText('随手记一个问题'), { target: { value: '保留调研草稿' } })
+    const spaces = screen.getByRole('button', { name: /^空间：/ })
+    await waitFor(() => expect((spaces as HTMLButtonElement).disabled).toBe(false))
+    const form = screen.getByRole('button', { name: '记下问题' }).closest('form')!
+    fireEvent.submit(form)
+    await screen.findByText('请选择至少一个空间')
+    expect(api.createResearch).not.toHaveBeenCalled()
+    fireEvent.click(spaces); fireEvent.click(screen.getByRole('checkbox', { name: '厨房' })); fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByText('请选择至少一个空间')).toBeNull()
+    expect(screen.queryByText('请选择装修阶段')).toBeNull()
+    fireEvent.submit(form)
+    await screen.findByText('请选择装修阶段')
+    expect(api.createResearch).not.toHaveBeenCalled()
+    expect((screen.getByLabelText('随手记一个问题') as HTMLInputElement).value).toBe('保留调研草稿')
+    expect(screen.getByRole('button', { name: /更多信息与关联/ }).getAttribute('aria-expanded')).toBe('false')
+    chooseStatus('装修阶段', '安装')
+    expect(screen.queryByText('请选择装修阶段')).toBeNull()
+    expect((screen.getByLabelText('随手记一个问题') as HTMLInputElement).value).toBe('保留调研草稿')
+    fireEvent.submit(form)
+    await screen.findByRole('heading', { name: '主题created' })
+    expect(api.createResearch).toHaveBeenCalledWith('保留调研草稿', [], { space_ids: ['kitchen'], stage_id: 'stage' })
+  })
+  it('历史调研缺少空间阶段仍可编辑保存，不强制补齐背景', async () => {
+    vi.mocked(api.updateResearchTopics).mockResolvedValue(a)
+    await openA(); editInfo()
+    const stage = await screen.findByRole('combobox', { name: '装修阶段：未选择' })
+    expect(stage.getAttribute('aria-required')).toBe('false')
+    expect(screen.getByRole('button', { name: /^空间：/ }).textContent).toContain('请选择')
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+    await screen.findByText('事项信息已保存。')
+    expect(api.updateResearchTopics).toHaveBeenCalledWith('A', [], expect.objectContaining({ space_ids: [], stage_id: null }), 1)
   })
   it('保留不同主题的调研草稿', async () => {
     await openA()
@@ -287,6 +335,7 @@ it('新增调研默认收起，收起保留草稿，成功关闭并展示详情'
   expect(screen.queryByLabelText('随手记一个问题')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: '新增调研' }))
   expect((screen.getByLabelText('随手记一个问题') as HTMLInputElement).value).toBe('比较智能开关')
+  await chooseContext()
   fireEvent.click(screen.getByRole('button', { name: '记下问题' }))
   await screen.findByRole('heading', { name: '主题new' })
   expect(screen.queryByLabelText('随手记一个问题')).toBeNull()
@@ -301,6 +350,7 @@ it('从主题进入自动展开创建，保存中不能收起', async () => {
   render(<ResearchView initialTopicId="theme" />)
   await screen.findByText('还没有调研事项，从上方记下第一个问题。')
   fireEvent.change(screen.getByLabelText('随手记一个问题'), { target: { value: '确认开关方案' } })
+  await chooseContext()
   fireEvent.click(screen.getByRole('button', { name: '记下问题' }))
   expect((screen.getByRole('button', { name: '收起' }) as HTMLButtonElement).disabled).toBe(true)
   await act(async () => finish(topic('saved')))

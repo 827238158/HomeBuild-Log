@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { associationRecordOptions, RecordAssociations, useAssociationOptions } from './RecordAssociations'
+import { associationRecordOptions, RecordAssociations, requiredRecordContextError, useAssociationOptions } from './RecordAssociations'
 import type { DomainRecord } from './domainApi'
 import * as api from './domainApi'
 
@@ -9,6 +9,33 @@ const entities = { spaces: [{ id: 's', name: '客厅' }], materials: [], partici
 const record = (id: string, title: string, topic_ids: string[] = []): DomainRecord => ({ id, title, topic_ids, record_type: 'research', status: 'collecting', description: null, archived_at: null, source_refs: [] })
 
 describe('RecordAssociations', () => {
+  it('创建背景校验只检查必填，实际ID有效性交给服务端', () => {
+    expect(requiredRecordContextError({})).toBe('请选择至少一个空间')
+    expect(requiredRecordContextError({ space_ids: [' ', null] })).toBe('请选择至少一个空间')
+    expect(requiredRecordContextError({ space_ids: ['space'], stage_id: ' ' })).toBe('请选择装修阶段')
+    expect(requiredRecordContextError({ space_ids: ['space'], stage_id: 'stage' })).toBe('')
+  })
+  it('必填空间和阶段常显，读取失败就近重试，错误聚焦不展开可选区', async () => {
+    const retry = vi.fn()
+    const props = { requireContext: true, payload: {}, onChange: vi.fn(), entities: { ...entities, stages: [{ id: 'stage', name: '安装' }] }, records: [] }
+    const { rerender } = render(<RecordAssociations {...props} loading />)
+    expect(screen.getByRole('status').textContent).toContain('正在读取')
+    expect((screen.getByRole('button', { name: /^空间：/ }) as HTMLButtonElement).disabled).toBe(true)
+    rerender(<RecordAssociations {...props} optionsError="背景读取失败" onRetry={retry} />)
+    expect(screen.getByRole('alert').textContent).toContain('背景读取失败')
+    fireEvent.click(screen.getByRole('button', { name: '重试' })); expect(retry).toHaveBeenCalledOnce()
+    rerender(<RecordAssociations {...props} error="请选择至少一个空间" />)
+    const spaces = screen.getByRole('button', { name: /^空间：/ })
+    await waitFor(() => expect(document.activeElement).toBe(spaces))
+    expect(screen.getByRole('button', { name: /更多信息与关联/ }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByRole('button', { name: /^材料：/ })).toBeNull()
+    fireEvent.click(spaces)
+    expect(screen.getByRole('listbox', { name: '空间' }).getAttribute('aria-required')).toBe('true')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    rerender(<RecordAssociations {...props} error="请选择装修阶段" />)
+    await waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('装修阶段：未选择'))
+    expect(screen.getByRole('combobox', { name: /^装修阶段：/ }).getAttribute('aria-required')).toBe('true')
+  })
   it('同主题优先且保持分组原序，去重并排除自身', () => {
     const rows = [record('a', '其他'), record('b', '主题甲', ['t']), record('self', '当前', ['t']), record('b', '重复', ['t']), record('c', '主题乙', ['u']), record('d', '其他乙')]
     expect(associationRecordOptions(rows, ['t', 'u'], 'self').map(item => item.id)).toEqual(['b', 'c', 'a', 'd'])

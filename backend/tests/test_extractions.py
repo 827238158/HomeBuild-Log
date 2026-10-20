@@ -20,6 +20,7 @@ from app.core.paths import build_storage_paths, ensure_storage_directories
 from app.db import Base, create_database_engine
 from app.domain_models import CandidateBundle
 from app.main import create_app
+from tests.record_context import confirmation_payload
 from tests.versioned_client import VersionedTestClient as TestClient
 
 
@@ -115,15 +116,30 @@ def test_legacy_evidence_revalidated_and_corrected_without_identity_change(
     assert loaded["suggestions"][0]["evidence_validation"] == "invalid"
     assert loaded["suggestions"][0]["selected_by_default"] is False
     body = {"expected_version": bundle["version"], "selections": [{"key": candidate["key"]}]}
-    rejected = client.post(f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json=body)
+    rejected = client.post(
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json=confirmation_payload(
+            client, f"/api/v1/candidate-bundles/{bundle['id']}/confirm", body
+        ),
+    )
     assert rejected.status_code == 422
     assert client.get(f"/api/v1/records?source_id={source_id}").json() == []
     body["selections"][0]["evidence"] = "  今天去现场查看。\n记录现场情况。  "
-    corrected = client.post(f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json=body)
+    corrected = client.post(
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json=confirmation_payload(
+            client, f"/api/v1/candidate-bundles/{bundle['id']}/confirm", body
+        ),
+    )
     assert corrected.status_code == 200, corrected.text
     assert corrected.json()["bundle"]["suggestions"][0]["key"] == candidate["key"]
     body["expected_version"] = corrected.json()["bundle"]["version"]
-    repeated = client.post(f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json=body)
+    repeated = client.post(
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json=confirmation_payload(
+            client, f"/api/v1/candidate-bundles/{bundle['id']}/confirm", body
+        ),
+    )
     assert repeated.status_code == 200, repeated.text
     assert repeated.json()["records"][0]["created"] is False
 
@@ -190,15 +206,30 @@ def test_partial_confirmation_relation_invalidates_existing_record_edit(client: 
             "relations": [{"from_key": first["key"], "to_key": second["key"]}],
         }
         db.commit()
-    first_result = client.post(f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json={
-        "expected_version": bundle["version"], "selections": [{"key": first["key"]}],
-    })
+    first_result = client.post(
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json=confirmation_payload(
+            client,
+            f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+            {
+                "expected_version": bundle["version"],
+                "selections": [{"key": first["key"]}],
+            },
+        ),
+    )
     assert first_result.status_code == 200, first_result.text
     record = first_result.json()["records"][0]["record"]
-    second_result = client.post(f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json={
-        "expected_version": first_result.json()["bundle"]["version"],
-        "selections": [{"key": second["key"]}],
-    })
+    second_result = client.post(
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json=confirmation_payload(
+            client,
+            f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+            {
+                "expected_version": first_result.json()["bundle"]["version"],
+                "selections": [{"key": second["key"]}],
+            },
+        ),
+    )
     assert second_result.status_code == 200, second_result.text
     latest = client.get(f"/api/v1/records/{record['id']}").json()
     assert latest["version"] > record["version"]
@@ -234,7 +265,10 @@ def test_candidate_confirmation_is_atomic_and_idempotent(client: TestClient) -> 
         ] if len(explicit) > 1 else [],
     }
     first = client.post(
-        f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json=body
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json=confirmation_payload(
+            client, f"/api/v1/candidate-bundles/{bundle['id']}/confirm", body
+        ),
     )
     assert first.status_code == 200, first.text
     assert all(item["created"] for item in first.json()["records"])
@@ -255,7 +289,10 @@ def test_candidate_confirmation_is_atomic_and_idempotent(client: TestClient) -> 
         "expected_version": first.json()["bundle"]["version"],
     }
     second = client.post(
-        f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json=second_body
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json=confirmation_payload(
+            client, f"/api/v1/candidate-bundles/{bundle['id']}/confirm", second_body
+        ),
     )
     assert second.status_code == 200, second.text
     assert all(not item["created"] for item in second.json()["records"])
@@ -282,10 +319,10 @@ def test_confirmation_respects_manual_candidate_type_change(client: TestClient) 
 
     response = client.post(
         f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
-        json={
+        json=confirmation_payload(client, f"/api/v1/candidate-bundles/{bundle['id']}/confirm", {
             "expected_version": bundle["version"],
             "selections": [{"key": research["key"], "payload": issue_payload}],
-        },
+        }),
     )
 
     assert response.status_code == 200, response.text
@@ -323,11 +360,11 @@ def test_confirmation_atomically_ignores_unselected_candidates(client: TestClien
 
     response = client.post(
         f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
-        json={
+        json=confirmation_payload(client, f"/api/v1/candidate-bundles/{bundle['id']}/confirm", {
             "expected_version": bundle["version"],
             "selections": [{"key": selected["key"], "payload": selected["payload"]}],
             "ignored_keys": ignored_keys,
-        },
+        }),
     )
 
     assert response.status_code == 200, response.text
@@ -372,10 +409,10 @@ def test_deferred_candidate_stays_removed_and_cannot_be_confirmed(client: TestCl
 
     rejected = client.post(
         f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
-        json={
+        json=confirmation_payload(client, f"/api/v1/candidate-bundles/{bundle['id']}/confirm", {
             "expected_version": data["version"],
             "selections": [{"key": candidate["key"], "payload": candidate["payload"]}],
-        },
+        }),
     )
     assert rejected.status_code == 409
 
@@ -399,10 +436,10 @@ def test_source_edit_supersedes_bundle_and_rejects_stale_confirmation(
 
     confirmation = client.post(
         f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
-        json={
+        json=confirmation_payload(client, f"/api/v1/candidate-bundles/{bundle['id']}/confirm", {
             "expected_version": bundle["version"],
             "selections": [{"key": candidate["key"], "payload": candidate["payload"]}],
-        },
+        }),
     )
     assert confirmation.status_code == 409
     assert "重新加载" in confirmation.json()["detail"]

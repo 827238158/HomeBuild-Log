@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.db import database_url
 from app.domain_models import Project, Record
 from app.topic_models import IssueActivity, RecordTopic, Topic
+from tests.record_context import confirmation_payload, creation_payload
 from tests.test_direct_records import _counts, _issue
 from tests.test_pitfalls import _client
 
@@ -32,7 +33,7 @@ def test_topic_crud_archive_and_idempotent_membership() -> None:
     assert client.patch(route, json={"name": "电路改造"}).status_code == 409
     assert client.patch(route, json={"name": None}).status_code == 422
     assert client.patch(route, json={"status": None}).status_code == 422
-    record = client.post("/api/v1/records/direct", json=_issue()).json()
+    record = client.post("/api/v1/records/direct", json=creation_payload(client, _issue())).json()
     link = route + f"/records/{record['id']}"
     for _ in range(2):
         assert client.put(link).status_code == 200
@@ -60,11 +61,13 @@ def test_topic_ids_validation_transaction_and_clear() -> None:
     topic = _topic(client)
     route = f"/api/v1/topics/{topic['id']}"
     before = _counts(client)
-    assert client.post("/api/v1/records/direct", json=_issue(
+    assert client.post("/api/v1/records/direct", json=creation_payload(client, _issue(
         topic_ids=[topic["id"], "missing"],
-    )).status_code == 422
+    ))).status_code == 422
     assert _counts(client) == before
-    record = client.post("/api/v1/records/direct", json=_issue(topic_ids=[topic["id"]])).json()
+    record = client.post(
+        "/api/v1/records/direct", json=creation_payload(client, _issue(topic_ids=[topic["id"]]))
+    ).json()
     record_route = f"/api/v1/records/{record['id']}"
     client.patch(route, json={"status": "archived"})
     assert client.patch(record_route, json={
@@ -89,7 +92,9 @@ def test_topic_ids_validation_transaction_and_clear() -> None:
 def test_issue_history_completion_notes_and_old_baseline() -> None:
     client = _client()
     topic = _topic(client)
-    record = client.post("/api/v1/records/direct", json=_issue(topic_ids=[topic["id"]])).json()
+    record = client.post(
+        "/api/v1/records/direct", json=creation_payload(client, _issue(topic_ids=[topic["id"]]))
+    ).json()
     route = f"/api/v1/records/{record['id']}"
     activities = route + "/activities"
     assert client.get(activities).json()["items"][0]["previous_status"] is None
@@ -112,7 +117,9 @@ def test_issue_history_completion_notes_and_old_baseline() -> None:
     }).status_code == 200
     reopened = client.get(activities).json()["items"][0]
     assert "已完成接线" in reopened["content"] and previous_date in reopened["content"]
-    research = client.post("/api/v1/research", json={"title": "比较开关"}).json()
+    research = client.post(
+        "/api/v1/research", json=creation_payload(client, {"title": "比较开关"})
+    ).json()
     assert client.get(f"/api/v1/records/{research['id']}/activities").status_code == 422
     # 模拟迁移前已有事项，读取不会凭空制造历史。
     with Session(client.app.state.engine) as db:
@@ -126,9 +133,9 @@ def test_aggregate_processes_pagination_unknown_dates_and_delete_cascade() -> No
     client = _client()
     topic = _topic(client)
     route = f"/api/v1/topics/{topic['id']}"
-    research = client.post("/api/v1/research", json={
+    research = client.post("/api/v1/research", json=creation_payload(client, {
         "title": "比较开关", "topic_ids": [topic["id"]],
-    }).json()
+    })).json()
     for day in ["2026-10-01", "2026-10-03"]:
         client.post(f"/api/v1/research/{research['id']}/entries", json={
             "research_date": day, "content": "过程" + day,
@@ -197,7 +204,9 @@ def test_topic_migration_preserves_existing_tables(tmp_path: Path, monkeypatch) 
 def test_record_deletion_cleans_links_and_issue_history() -> None:
     client = _client()
     topic = _topic(client)
-    record = client.post("/api/v1/records/direct", json=_issue(topic_ids=[topic["id"]])).json()
+    record = client.post(
+        "/api/v1/records/direct", json=creation_payload(client, _issue(topic_ids=[topic["id"]]))
+    ).json()
     client.delete(f"/api/v1/records/{record['id']}")
     with Session(client.app.state.engine) as db:
         assert list(db.scalars(select(RecordTopic))) == []
@@ -212,17 +221,17 @@ def test_foreign_project_topic_rejected_and_ledger_statistics_not_duplicated() -
         db.flush()
         db.add(Topic(id="foreign", project_id="other", name="外部主题"))
         db.commit()
-    assert client.post("/api/v1/records/direct", json=_issue(
+    assert client.post("/api/v1/records/direct", json=creation_payload(client, _issue(
         topic_ids=["foreign"],
-    )).status_code == 422
+    ))).status_code == 422
     assert client.get("/api/v1/topics/foreign").status_code == 404
     vendor = client.post("/api/v1/vendors", json={"name": "开关店"}).json()
-    result = client.post("/api/v1/records/direct", json={
+    result = client.post("/api/v1/records/direct", json=creation_payload(client, {
         "record_type": "ledger", "title": "开关货款", "status": "paid",
         "ledger_kind": "payment", "direction": "expense", "payment_kind": "full",
         "vendor_id": vendor["id"], "amount_minor": 35000,
         "topic_ids": [first["id"], second["id"]],
-    })
+    }))
     assert result.status_code == 201, result.text
     assert client.get("/api/v1/ledger/summary").json()["totals"]["expense_minor"] == 35000
     for topic in [first, second]:
@@ -236,9 +245,9 @@ def test_generic_record_create_captures_issue_baseline_and_membership() -> None:
     source = client.post("/api/v1/sources", json={
         "input_type": "text", "original_text": "确认灯带接线",
     }).json()
-    response = client.post("/api/v1/records", json=_issue(
+    response = client.post("/api/v1/records", json=creation_payload(client, _issue(
         source_refs=[{"source_id": source["id"]}], topic_ids=[topic["id"]],
-    ))
+    )))
     assert response.status_code == 201, response.text
     record = response.json()
     assert record["topic_ids"] == [topic["id"]]
@@ -263,13 +272,13 @@ def test_candidate_confirmation_topics_and_issue_history_atomic_and_idempotent()
         {"key": candidate["key"], "payload": {**payload, "topic_ids": ["missing"]}},
     ]}
     before = _counts(client)
-    assert client.post(route, json=body).status_code == 422
+    assert client.post(route, json=confirmation_payload(client, route, body)).status_code == 422
     assert _counts(client) == before
     assert client.get(f"/api/v1/sources/{source['id']}").json()["original_text"] == original
     unchanged = client.get(f"/api/v1/candidate-bundles/{bundle['id']}").json()
     assert unchanged["version"] == bundle["version"]
     body["selections"][0]["payload"] = payload
-    response = client.post(route, json=body)
+    response = client.post(route, json=confirmation_payload(client, route, body))
     assert response.status_code == 200, response.text
     confirmed = response.json()
     record = confirmed["records"][0]["record"]
@@ -277,7 +286,7 @@ def test_candidate_confirmation_topics_and_issue_history_atomic_and_idempotent()
     activities = f"/api/v1/records/{record['id']}/activities"
     assert len(client.get(activities).json()["items"]) == 1
     body["expected_version"] = confirmed["bundle"]["version"]
-    repeat = client.post(route, json=body)
+    repeat = client.post(route, json=confirmation_payload(client, route, body))
     assert repeat.status_code == 200, repeat.text
     assert not repeat.json()["records"][0]["created"]
     assert len(client.get(activities).json()["items"]) == 1
@@ -294,12 +303,20 @@ def test_candidate_later_invalid_membership_rolls_back_earlier_record_and_histor
     assert len(bundle["suggestions"]) >= 2
     before = _counts(client)
     first, second = bundle["suggestions"][:2]
-    response = client.post(f"/api/v1/candidate-bundles/{bundle['id']}/confirm", json={
-        "expected_version": bundle["version"], "selections": [
-            {"key": first["key"], "payload": _issue(topic_ids=[topic["id"]])},
-            {"key": second["key"], "payload": _issue(topic_ids=["missing"])},
-        ],
-    })
+    response = client.post(
+        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+        json=confirmation_payload(
+            client,
+            f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
+            {
+                "expected_version": bundle["version"],
+                "selections": [
+                    {"key": first["key"], "payload": _issue(topic_ids=[topic["id"]])},
+                    {"key": second["key"], "payload": _issue(topic_ids=["missing"])},
+                ],
+            },
+        ),
+    )
     assert response.status_code == 422, response.text
     assert _counts(client) == before
     with Session(client.app.state.engine) as db:
@@ -320,7 +337,8 @@ def test_specialized_patch_topic_omission_clear_and_archived_validation(kind: st
         "occurred_date": "2026-10-11", "description": "底盒问题",
     }
     item = client.post(f"/api/v1/{kind}", json={
-        **create, "topic_ids": [topic["id"]],
+        **(creation_payload(client, create) if kind == "research" else create),
+        "topic_ids": [topic["id"]],
     }).json()
     route = f"/api/v1/{kind}/{item['id']}"
     field = "title" if kind == "research" else "description"

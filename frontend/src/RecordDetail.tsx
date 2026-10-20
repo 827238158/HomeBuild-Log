@@ -10,6 +10,7 @@ import { useModalFocus } from './useModalFocus'
 import { confirmNavigation, useNavigationGuard } from './navigationGuard'
 import { RecordConflict, conflictRecord } from './RecordConflict'
 import { VoiceField } from './VoiceField'
+import { requiredRecordContextError } from './RecordAssociations'
 import { presentSourceText } from './sourcePresentation'
 
 const auditLabels: Record<string, string> = { create: '创建记录', update: '修改内容', delete: '删除记录', archive: '隐藏记录', restore: '重新显示', review: '复核来源', confirm: '确认候选' }
@@ -128,6 +129,7 @@ export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComp
     setBusy(true)
     try {
       const payload = payloadForSave(record.record_type, { ...editPayload, record_type: record.record_type })
+      if (remeasuring && requiredRecordContextError(payload)) throw new Error(requiredRecordContextError(payload))
       if (remeasuring && (!Array.isArray(payload.values) || !payload.values.length)) throw new Error('请至少填写一项本次测量的数值。')
       if (remeasuring) {
         // 单次提交创建与关联，避免分步操作半成功后重试造成重复测量。
@@ -185,7 +187,7 @@ export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComp
         {resourcesLoading && <p role="status">正在加载编辑选项…</p>}
         {!resourcesReady && !resourcesLoading && <button className="secondary-button" type="button" onClick={() => void loadEditResources()}>重试加载编辑选项</button>}
         {conflict && <RecordConflict key={conflict.version} latest={conflict} draft={payloadForSave(record.record_type, editPayload)} onCancel={() => setConflict(null)} onResolve={(payload, version) => { setEditPayload(payload); setEditVersion(version); setRecord(conflict); setConflict(null); setError(''); setDirty(true) }} />}
-        {resourcesReady && <RecordEditFields active={!closing && !conflict && !busy} onVoiceBusyChange={setVoiceBusy} recordType={record.record_type as RecordType} payload={editPayload} spaces={spaces} entities={entities} records={allRecords} currentRecordId={record.id} onChange={change} error={error} />}
+        {resourcesReady && <RecordEditFields requireContext={remeasuring} active={!closing && !conflict && !busy} onVoiceBusyChange={setVoiceBusy} recordType={record.record_type as RecordType} payload={editPayload} spaces={spaces} entities={entities} records={allRecords} currentRecordId={record.id} onChange={change} error={error} />}
         <div className="record-actions"><button className="primary-button" type="button" disabled={busy || voiceBusy || !!conflict || !resourcesReady} onClick={() => void save()}>{busy ? '保存中…' : remeasuring ? '保存本次测量' : '保存修改'}</button><button type="button" disabled={busy} onClick={cancel}>取消</button></div>
       </section> : record && <>
         <span className="record-type-tag">{recordTypeLabels[record.record_type]}</span><h3>{record.title}</h3><p>{record.description || '暂无补充说明'}</p>

@@ -252,7 +252,6 @@ export function App() {
 
   const handleSaveSource = async () => {
     if (!sourceText.trim()) return
-    setLastSavedSourceId('')
     setSaveStatus('saving')
     try {
       await saveSource(sourceText, attachment)
@@ -339,6 +338,7 @@ export function App() {
             <div className="source-actions">
               <label className={`attachment-field${attachment ? ' is-selected' : ''}`}><span className="sr-only">附件（可选，单个文件）</span><input ref={attachmentInput} type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.pdf" onChange={(event) => handleAttachmentChange(event.target.files?.[0] ?? null)} />{!attachment && <span className="attachment-picker"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M7.5 10.5 12.6 5.4a3 3 0 0 1 4.2 4.2l-7.2 7.2a5 5 0 0 1-7.1-7.1l7.5-7.5" /></svg>选择图片或 PDF</span>}</label>
               <button className="source-save state-button" data-state={saveStatus || 'idle'} aria-busy={saveStatus === 'saving'} aria-label={saveStatus === 'saving' ? '正在保存记录' : saveStatus === 'saved' ? '记录已保存' : saveStatus === 'error' ? '重试保存记录' : '保存记录'} onClick={handleSaveSource} disabled={!sourceText.trim() || saveStatus === 'saving'}>{saveStatus === 'saving' && <ThinkingLattice compact />}<span className="state-button__label" aria-live="polite">{saveStatus === 'saving' ? '保存中…' : saveStatus === 'saved' ? '已保存' : saveStatus === 'error' ? '重试保存' : '保存记录'}</span></button>
+              <button className="source-review secondary-button" type="button" aria-label="去整理这条记录" disabled={!lastSavedSourceId || saveStatus === 'saving' || saveStatus === 'attachment-error'} onClick={() => openReview(lastSavedSourceId)}>去整理</button>
             </div>
             {attachment && <div className="attachment-feedback" role="status" aria-label={`已选择附件：${attachment.name}`}>
               <span className="attachment-feedback__icon" data-file-type={attachment.type === 'application/pdf' ? 'pdf' : 'image'} aria-hidden="true">{attachment.type === 'application/pdf' ? 'PDF' : '图'}</span>
@@ -349,7 +349,6 @@ export function App() {
             {attachmentError && <p className="source-error" role="alert">{attachmentError}</p>}
             {saveStatus === 'error' && <p className="source-error" role="alert">保存失败</p>}
             {saveStatus === 'attachment-error' && pendingUpload && <button className="attachment-retry" type="button" onClick={handleRetryAttachment}>来源已保存，重试附件</button>}
-            {lastSavedSourceId && saveStatus !== 'attachment-error' && <div className="capture-next-step"><span>原始记录已保存，整理可以稍后再做。</span><button type="button" onClick={() => openReview(lastSavedSourceId)}>去整理这条记录</button></div>}
           </div>
             {visibleRecentSources.length > 0 && <div className="source-list"><h3 className="source-list-title">最近记录</h3>{visibleRecentSources.map((s) => <div key={s.id} className="source-item recent-source-row"><p className="source-item-text source-display-text">{presentSourceText(s.original_text).text}</p><time className="source-item-time">{formatBeijingDateTime(s.captured_at)}</time><div className="recent-source-row__actions"><button type="button" onClick={() => openReview(s.id)}>去整理</button><button className="source-item-close" type="button" aria-label={`关闭最近记录：${presentSourceText(s.original_text).text || '仅附件记录'}`} onClick={() => hideRecentSource(s.id)}>×</button></div></div>)}</div>}
           </div>
