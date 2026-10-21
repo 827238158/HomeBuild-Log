@@ -79,3 +79,5 @@
 - 2026-10-20：Ubuntu Docker 服务更新至 `b4fdfb9beb8e`。Mihomo 到 GitHub 的 TLS 握手中止后未重复尝试，改由本地与服务器两端 `git bundle verify` 校验的完整 Git bundle 将源码 fast-forward；临时 bundle 与后台构建日志均在验收后清理。以 DaoCloud、npmmirror 和阿里云 PyPI 的一次性临时 Dockerfile 构建并切换 `homebuild-log:b4fdfb9beb8e`，无数据库迁移；仅重建 app，Caddy 与 HTTPS 证书卷保留，未创建数据恢复点。新容器 healthy，SQLite 完整性 `ok`、revision `0022_add_due_date_and_record_version`、35 张业务表和 `192.168.1.17` 的 HTTP/HTTPS 健康接口均通过，Mihomo 最终 inactive。
 
 | 2026-10-20 | 新增正式记录归属必填 | 按用户要求，新建六类正式记录必须选择至少一个空间和一个装修阶段；原始来源允许先保存，历史编辑／追加和已确认候选重复确认保持兼容，不自动补归属。前端常显必填与草稿保护，服务端统一创建边界校验，失败原子回滚；无数据库迁移，尚未部署。 |
+
+- 2026-10-20：Ubuntu Docker 服务更新至 `0717dba1dbdb`。完整 Git bundle 经本地与服务器验证后将源码 fast-forward；使用 DaoCloud、npmmirror 和阿里云 PyPI 的一次性临时 Dockerfile 构建并切换 `homebuild-log:0717dba1dbdb`，无数据库迁移，未创建数据恢复点。新容器 healthy，SQLite 完整性 `ok`、revision `0022_add_due_date_and_record_version`、35 张业务表以及 `192.168.1.17` 的 HTTP/HTTPS 健康接口均通过；Caddy 保留运行，Mihomo inactive，临时 bundle 和构建日志已清理。

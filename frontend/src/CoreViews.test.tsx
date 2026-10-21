@@ -309,25 +309,31 @@ describe('CoreViews', () => {
     expect(await within(dialog).findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('来源暂不可用'))
     expect(vi.mocked(api.listEntities).mock.calls.filter(([type]) => type === 'materials')).toHaveLength(0)
     fireEvent.click(within(dialog).getByRole('button', { name: '重试读取' }))
-    expect(await within(dialog).findByRole('button', { name: '打开原始来源' })).toBeTruthy()
+    expect(await within(dialog).findByText('来源与附件')).toBeTruthy()
+    await waitFor(() => expect(within(dialog).queryByText('来源暂不可用')).toBeNull())
     fireEvent.click(within(dialog).getByRole('button', { name: '修改记录' }))
     expect(await within(dialog).findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('编辑档案不可用'))
     expect(within(dialog).getByRole('button', { name: '保存修改' })).toHaveProperty('disabled', true)
   })
 
-  it('详情来源可直达录入，搜索来源也可直达', async () => {
+  it('详情就地阅读来源，搜索来源仍可直达整理', async () => {
     const openSource = vi.fn()
     render(<CoreViews onOpenSource={openSource}><p>录入工作台</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '时间线' }))
     fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
-    fireEvent.click(await screen.findByRole('button', { name: '打开原始来源' }))
-    expect(openSource).toHaveBeenLastCalledWith('source-1')
-    expect(screen.getByText('录入工作台')).toBeTruthy()
+    const detail = await screen.findByRole('dialog', { name: '记录详情' })
+    await within(detail).findByText('来源与附件')
+    expect(within(detail).queryByRole('button', { name: '打开原始来源' })).toBeNull()
+    expect(openSource).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     fireEvent.click(within(screen.getByRole('navigation', { name: '核心功能' })).getByRole('button', { name: '搜索' }))
     fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '现场' } })
     fireEvent.click(screen.getAllByRole('button', { name: '搜索' }).at(-1)!)
     fireEvent.click(await screen.findByRole('button', { name: '打开原始来源' }))
-    expect(openSource).toHaveBeenCalledTimes(2)
+    expect(openSource).toHaveBeenCalledOnce()
+    expect(openSource).toHaveBeenLastCalledWith('source-1')
+    expect(screen.getByText('录入工作台')).toBeTruthy()
   })
 
   it('详情隔离背景、Tab循环且Esc关闭后恢复记录焦点', async () => {
@@ -336,7 +342,7 @@ describe('CoreViews', () => {
     const opener = await screen.findByRole('button', { name: /现场查看/ })
     opener.focus(); fireEvent.click(opener)
     const dialog = await screen.findByRole('dialog', { name: '记录详情' })
-    await within(dialog).findByRole('button', { name: '打开原始来源' })
+    await within(dialog).findByText('来源与附件')
     expect(container.inert).toBe(true)
     const buttons = within(dialog).getAllByRole('button')
     const first = buttons[0]; const last = buttons.at(-1)!
@@ -632,7 +638,7 @@ describe('CoreViews', () => {
     fireEvent.click(await screen.findByRole('button', { name: /现场查看/ }))
 
     expect(await screen.findByRole('heading', { name: '记录详情' })).toBeTruthy()
-    expect(screen.getByText('原始来源与附件')).toBeTruthy()
+    expect(screen.getByText('来源与附件')).toBeTruthy()
     expect(api.getSource).toHaveBeenCalledWith('source-1')
   })
 
@@ -1167,10 +1173,10 @@ describe('CoreViews', () => {
     fireEvent.click(within(detail).getByRole('button', { name: '修改记录' }))
     expect(within(detail).getByRole('button', { name: '关闭详情' })).toBeTruthy()
     expect(within(detail).queryByRole('button', { name: '删除记录' })).toBeNull()
-    expect(within(detail).queryByText('原始来源与附件')).toBeNull()
+    expect(within(detail).queryByText('来源与附件')).toBeNull()
     fireEvent.click(within(detail).getByRole('button', { name: '取消' }))
     expect(within(detail).getByRole('button', { name: '关闭详情' })).toBeTruthy()
-    expect(within(detail).getByText('原始来源与附件')).toBeTruthy()
+    expect(within(detail).getByText('来源与附件')).toBeTruthy()
     expect(vi.mocked(api.updateRecord).mock.calls).toHaveLength(updateCallsBeforeEdit)
 
     fireEvent.click(within(detail).getByRole('button', { name: '修改记录' }))

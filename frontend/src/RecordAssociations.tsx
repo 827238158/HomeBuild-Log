@@ -93,8 +93,8 @@ export function RecordAssociations({ payload, onChange, entities, records, curre
     ]
     const field = error && fields.find(([pattern]) => new RegExp(pattern).test(error))
     if (!field) return
-    // 新建时必填背景常显，背景错误不展开无关的可选关联。
-    if (!requireContext || !['空间', '装修阶段'].includes(field[1])) setExpanded(true)
+    // 空间和阶段在新建、编辑时都常显；仅可选关联的错误需要展开。
+    if (!['空间', '装修阶段'].includes(field[1])) setExpanded(true)
     const frame = requestAnimationFrame(() => {
       const controls = regionRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')
       const target = Array.from(controls ?? []).find(control => control.getAttribute('aria-label')?.startsWith(field[1]))
@@ -102,29 +102,26 @@ export function RecordAssociations({ payload, onChange, entities, records, curre
       target?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
     })
     return () => cancelAnimationFrame(frame)
-  }, [error, participantLabel, requireContext])
+  }, [error, participantLabel])
   const summary = [
-    ['空间', requireContext ? 0 : associationIds(payload.space_ids).length], ['材料', associationIds(payload.material_ids).length],
+    ['材料', associationIds(payload.material_ids).length],
     ['人员', associationIds(payload.participant_ids).length], ['记录关联', associationIds(payload.related_record_ids).length],
     ['本批关联', associationIds(payload.related_candidate_keys).length],
   ].filter(([, count]) => Number(count) > 0).map(([name, count]) => `${count} 个${name}`)
-  if (!requireContext && payload.stage_id) summary.push('已选装修阶段')
   const options = associationRecordOptions(records, associationIds(payload.topic_ids), currentRecordId)
   const contextFields = <>
     <AssociationMultiSelect label="空间" required={requireContext} selectedIds={associationIds(payload.space_ids)} options={entities.spaces} onChange={ids => onChange('space_ids', ids)} disabled={disabled || loading || !!optionsError} />
-    <label><span>装修阶段{requireContext && <span className="record-associations__required">（必填）</span>}</span><Select aria-label="装修阶段" required={requireContext} value={typeof payload.stage_id === 'string' ? payload.stage_id : ''} onChange={event => onChange('stage_id', event.target.value || null)} disabled={disabled || loading || !!optionsError}><option value="">未选择</option>{entities.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.name}</option>)}{typeof payload.stage_id === 'string' && payload.stage_id && !entities.stages.some(stage => stage.id === payload.stage_id) && <option value={payload.stage_id}>已选阶段（选项待读取）</option>}</Select></label>
+    <label className="field-stack"><span>装修阶段{requireContext && <span className="record-associations__required">（必填）</span>}</span><Select aria-label="装修阶段" required={requireContext} value={typeof payload.stage_id === 'string' ? payload.stage_id : ''} onChange={event => onChange('stage_id', event.target.value || null)} disabled={disabled || loading || !!optionsError}><option value="">未选择</option>{entities.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.name}</option>)}{typeof payload.stage_id === 'string' && payload.stage_id && !entities.stages.some(stage => stage.id === payload.stage_id) && <option value={payload.stage_id}>已选阶段（选项待读取）</option>}</Select></label>
   </>
   const optionFeedback = <>
     {loading && <p role="status">正在读取信息与关联…</p>}
     {optionsError && <div role="alert">{optionsError} {onRetry && <button type="button" onClick={onRetry}>重试</button>}</div>}
   </>
   return <section ref={regionRef} className="record-associations">
-    {requireContext && <div className="record-associations__context">{optionFeedback}<div className="record-associations__fields">{contextFields}</div></div>}
-    {!inline && <button type="button" className="record-associations__toggle" aria-expanded={expanded} aria-controls={regionId} onClick={() => setExpanded(value => !value)}><span>更多信息与关联</span><span className="record-associations__summary">{summary.join('、')}</span><DropdownChevron open={expanded} /></button>}
+    <div className="record-associations__context">{optionFeedback}<div className="record-associations__fields">{contextFields}</div></div>
+    {!inline && <button type="button" className="record-associations__toggle" aria-expanded={expanded} aria-controls={regionId} onClick={() => setExpanded(value => !value)}><span>更多信息与关联</span>{summary.length > 0 && <span className="record-associations__summary">{summary.join('、')}</span>}<DropdownChevron open={expanded} /></button>}
     <div id={regionId} hidden={!inline && !expanded} className="record-associations__body">
-      {!requireContext && optionFeedback}
       <h4>补充信息</h4><div className="record-associations__fields">
-        {!requireContext && contextFields}
         <AssociationMultiSelect label="材料" selectedIds={associationIds(payload.material_ids)} options={entities.materials} onChange={ids => onChange('material_ids', ids)} disabled={disabled || loading || !!optionsError} />
         {!hideParticipants && <AssociationMultiSelect label={participantLabel} selectedIds={associationIds(payload.participant_ids)} options={entities.participants} onChange={ids => onChange('participant_ids', ids)} disabled={disabled || loading || !!optionsError} />}
       </div>

@@ -1,14 +1,22 @@
 .record-associations { width: 100%; min-width: 0; grid-column: 1 / -1; }
 .record-associations__toggle { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 12px 0; border: 0; border-top: 1px solid var(--border); background: transparent; color: inherit; }
 .record-associations__toggle > span:first-child { flex-shrink: 0; font-weight: 600; }
+.record-associations__toggle > .dropdown-chevron { margin-inline-start: auto; }
 .record-associations__summary { flex: 1; min-width: 0; color: var(--ink-muted); font-size: 12px; overflow-wrap: anywhere; }
 .record-associations__body { min-width: 0; padding: 4px 0 12px; }
 .record-associations__context { min-width: 0; padding-bottom: 12px; }
 .record-associations__required { color: var(--ink-muted); font-size: 12px; font-weight: 400; }
 .record-associations__body[hidden] { display: none; }
 .record-associations__body h4 { margin: 12px 0; font-size: 14px; }
-.record-associations__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.record-associations__fields > label { display: grid; gap: 8px; min-width: 0; }
+.record-associations__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; }
+.record-associations__fields > label { display: grid; align-content: start; gap: 6px; min-width: 0; }
+/* 单选标题与多选 legend 共用排版，避免两列从不同高度开始。 */
+.record-associations .multi-select-field > legend,
+.record-associations__fields > label > span { color: var(--ink-muted); font-size: .78rem; font-weight: 600; line-height: 1.3; }
+.record-associations .multi-select-field > legend { margin: 0 0 6px; padding: 0; }
+/* 业务录入按钮最小高度为 44px，单选与多选在所有编辑入口保持一致。 */
+.record-associations .select-trigger,
+.record-associations .multi-select-summary { height: 44px; min-height: 44px; }
 .record-associations__hint { color: var(--ink-muted); font-size: 12px; margin: 0 0 12px; }
 .association-options input[type="search"] { width: 100%; box-sizing: border-box; margin: 0 0 8px; }
 /* 菜单自身就是 listbox；收缩网格直接子项，避免标题和日期的最小内容宽度撑开菜单。 */

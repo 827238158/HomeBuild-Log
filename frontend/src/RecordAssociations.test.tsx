@@ -67,11 +67,16 @@ describe('RecordAssociations', () => {
     await waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('材料：请选择（可多选）'))
     expect(screen.queryByText('material_ids 无效')).toBeNull()
   })
-  it('错误展开且选项失败可以重试，不移除未读取的选择', async () => {
+  it('历史编辑背景常显且不强制必填，读取失败可就近重试并保留选择', async () => {
     const retry = vi.fn()
     const { rerender } = render(<RecordAssociations payload={{ related_record_ids: ['missing'] }} onChange={() => {}} entities={entities} records={[]} />)
+    expect(screen.getByRole('button', { name: /^空间：/ })).toBeTruthy()
+    expect(screen.getByRole('combobox', { name: /^装修阶段：/ }).getAttribute('aria-required')).toBe('false')
+    expect(screen.queryByText('（必填）')).toBeNull()
     rerender(<RecordAssociations payload={{ related_record_ids: ['missing'] }} onChange={() => {}} entities={entities} records={[]} error="空间无效" optionsError="读取失败" onRetry={retry} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /更多信息与关联/ }).getAttribute('aria-expanded')).toBe('true'))
+    expect((screen.getByRole('button', { name: /^空间：/ }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('button', { name: /更多信息与关联/ }).getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(screen.getByRole('button', { name: /更多信息与关联/ }))
     expect((screen.getByRole('button', { name: /关联记录（可选）：已选择 1 项/ }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByText('重试'))
     expect(retry).toHaveBeenCalledOnce()
