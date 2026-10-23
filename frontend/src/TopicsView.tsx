@@ -14,6 +14,7 @@ import './TopicsView.css'
 
 export type TopicCreateKind = 'ledger' | 'issue' | 'research' | 'pitfall'
 interface TopicActions {
+  onReview?: (id: string) => void
   onOpenRecord: (id: string) => void
   onOpenResearch: (id: string) => void
   onOpenPitfall: (id: string) => void
@@ -162,7 +163,7 @@ function TopicPane({ id, revision, busy, active, run, onChanged, ...actions }: T
   if (!topic) return <div><p role="alert" className="error-text">{errors.topic || '无法读取主题。'}</p><button type="button" className="topic-secondary" onClick={() => setReload(value => value + 1)}>重试读取主题</button></div>
   const archived = topic.status === 'archived'
   return <article className="topic-detail">
-    <header><div><h3>{topic.name}</h3><span className="muted">{statusLabel(topic.status)}</span></div><div className="topic-actions"><button type="button" className="topic-secondary" disabled={busy} onClick={() => { if (!editing || confirmNavigation()) setEditing(value => !value) }}>编辑主题</button><button className="topic-secondary" type="button" disabled={busy} onClick={() => { void mutate(() => updateTopic(id, { status: archived ? 'active' : 'archived' })) }}>{archived ? '恢复主题' : '归档主题'}</button></div></header>
+    <header><div><h3>{topic.name}</h3>{actions.onReview && <button type="button" className="topic-secondary" onClick={() => actions.onReview?.(id)}>近期回顾</button>}<span className="muted">{statusLabel(topic.status)}</span></div><div className="topic-actions"><button type="button" className="topic-secondary" disabled={busy} onClick={() => { if (!editing || confirmNavigation()) setEditing(value => !value) }}>编辑主题</button><button className="topic-secondary" type="button" disabled={busy} onClick={() => { void mutate(() => updateTopic(id, { status: archived ? 'active' : 'archived' })) }}>{archived ? '恢复主题' : '归档主题'}</button></div></header>
     {errors.topic && <p role="alert" className="error-text">{errors.topic}</p>}
     {editing ? <TopicForm topic={topic} busy={busy} active={active} onCancel={() => setEditing(false)} onSubmit={async payload => { const saved = await mutate(() => updateTopic(id, payload)); if (saved) setEditing(false); return saved }} /> : <>
       <section className="topic-section"><h4>目标</h4><p>{topic.goal || '尚未填写目标。'}</p></section>

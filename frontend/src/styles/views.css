@@ -720,17 +720,6 @@
   white-space: nowrap;
 }
 
-.candidate-review-item .candidate-review-item__evidence {
-  display: -webkit-box;
-  overflow: hidden;
-  margin-top: 6px;
-  color: var(--ink-muted);
-  font-size: .8rem;
-  line-height: 1.45;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
 .candidate-review-item__meta {
   margin-top: 7px;
   color: var(--ink-muted);

@@ -20,6 +20,7 @@ from app.api.extractions import router as extractions_router
 from app.api.health import router as health_router
 from app.api.pitfalls import router as pitfalls_router
 from app.api.research import router as research_router
+from app.api.reviews import router as reviews_router
 from app.api.sources import router as sources_router
 from app.api.topics import router as topics_router
 from app.api.transcriptions import router as transcriptions_router
@@ -133,6 +134,7 @@ def create_app(
     application.include_router(analytics_router, prefix="/api/v1")
     application.include_router(pitfalls_router, prefix="/api/v1")
     application.include_router(research_router, prefix="/api/v1")
+    application.include_router(reviews_router, prefix="/api/v1")
     application.include_router(domain_router, prefix="/api/v1")
     application.include_router(topics_router, prefix="/api/v1")
     application.include_router(extractions_router, prefix="/api/v1")

@@ -16,6 +16,7 @@ import { AiAnalyticsView, OverviewView, RecordsAnalyticsView } from './Analytics
 import { LazyEChart as EChart } from './LazyEChart'
 import { PitfallsView } from './PitfallsView'
 import { ResearchView } from './ResearchView'
+import { RecentReview } from './RecentReview'
 import { TopicsView } from './TopicsView'
 import { WorkspaceAtmosphere } from './WorkspaceAtmosphere'
 import { chartPalette, chartSummary, donutOption, horizontalBarOption, lineOption } from './chartConfig'
@@ -44,9 +45,10 @@ import { recordStatusLabel, recordTypeLabels } from './recordLabels'
 import { recordConfig, statusesForRecordType } from './recordConfig'
 import { formatBeijingDateTime, formatCalendarDate } from './time'
 
-type ViewName = 'overview' | 'topics' | 'capture' | 'timeline' | 'ledger' | 'issues' | 'pitfalls' | 'research' | 'spaces' | 'records' | 'ai' | 'search'
+type ViewName = 'recent' | 'overview' | 'topics' | 'capture' | 'timeline' | 'ledger' | 'issues' | 'pitfalls' | 'research' | 'spaces' | 'records' | 'ai' | 'search'
 
 const viewLabels: Array<{ key: ViewName; label: string }> = [
+  { key: 'recent', label: '近期回顾' },
   { key: 'topics', label: '主题' },
   { key: 'overview', label: '概览' },
   { key: 'capture', label: '随手记与整理' },
@@ -63,8 +65,9 @@ const viewLabels: Array<{ key: ViewName; label: string }> = [
 
 const viewGroups: Array<{ label: string; items: ViewName[] }> = [
   { label: '日常记录', items: ['topics', 'ledger', 'issues', 'research', 'pitfalls'] },
-  { label: '查看与回顾', items: ['overview', 'timeline', 'spaces', 'records', 'search'] },
-  { label: '辅助工具', items: ['capture', 'ai'] },
+  { label: '查看与回顾', items: ['recent', 'overview', 'timeline', 'spaces', 'records', 'search'] },
+  { label: '辅助工具', items: ['capture'] },
+  { label: '维护', items: ['ai'] },
 ]
 
 function NavIcon({ view }: { view: ViewName }) {
@@ -73,7 +76,7 @@ function NavIcon({ view }: { view: ViewName }) {
     {view === 'topics' && <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M8 13h8M8 16h5" /></>}
     {view === 'overview' && <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>}
     {view === 'capture' && <><path d="M12 5v14M5 12h14" /><circle cx="12" cy="12" r="9" /></>}
-    {view === 'timeline' && <><path d="M7 3v18M7 7h8M7 12h11M7 17h6" /><circle cx="7" cy="7" r="1.5" /><circle cx="7" cy="12" r="1.5" /><circle cx="7" cy="17" r="1.5" /></>}
+    {(view === 'timeline' || view === 'recent') && <><path d="M7 3v18M7 7h8M7 12h11M7 17h6" /><circle cx="7" cy="7" r="1.5" /><circle cx="7" cy="12" r="1.5" /><circle cx="7" cy="17" r="1.5" /></>}
     {view === 'ledger' && <><path d="M4 7.5h14.5A1.5 1.5 0 0 1 20 9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" /><path d="M15 12h5v4h-5a2 2 0 0 1 0-4Z" /></>}
     {view === 'issues' && <><path d="m12 3 9 16H3L12 3Z" /><path d="M12 9v4" /><path d="M12 16h.01" /></>}
     {view === 'pitfalls' && <><path d="M9 3h6l1 3h3v15H5V6h3l1-3Z" /><path d="M9 11h6M9 15h4" /><path d="m16.5 14.5 1 1 2-2" /></>}
@@ -674,8 +677,10 @@ export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces, on
   const [researchId, setResearchId] = useState('')
   const [pitfallId, setPitfallId] = useState('')
   const [searchMatchId, setSearchMatchId] = useState('')
+  const [reviewTopicId, setReviewTopicId] = useState('')
   const [creationTopicId, setCreationTopicId] = useState('')
   const [topicsVisited, setTopicsVisited] = useState(false)
+  const [reviewVisited, setReviewVisited] = useState(false)
   const [selectedTopicId, setSelectedTopicId] = useState('')
   const [returnToTopics, setReturnToTopics] = useState(false)
   const sidebar = useRef<HTMLElement>(null)
@@ -722,6 +727,7 @@ export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces, on
     setCreationTopicId(''); setPitfallId(''); setResearchId(''); setSearchMatchId('')
     setReturnToTopics(false)
     if (next === 'topics') setTopicsVisited(true)
+    if (next === 'recent') setReviewVisited(true)
     setViewRevision(value => value + 1)
     if (compactNav) requestAnimationFrame(() => menuButton.current?.focus())
     return true
@@ -744,7 +750,7 @@ export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces, on
     <div className="workspace-main">
       <WorkspaceAtmosphere />
       <header className="workspace-topbar immersive-glass"><button ref={menuButton} type="button" className="menu-button" aria-label="打开导航" aria-expanded={navOpen} onClick={() => setNavOpen((value) => !value)}>☰</button><div><small>HomeBuild Log</small><strong>{currentLabel}</strong></div><span>已登录</span></header>
-      <main className="workspace-content">{returnToTopics && view !== 'topics' && <button type="button" className="topics-return" onClick={() => selectView('topics')}>返回主题</button>}{topicsVisited && <div hidden={view !== 'topics'}>{/* 保留主题选择，跨业务页面返回时继续查看同一事项。 */}<TopicsView initialTopicId={selectedTopicId} active={view === 'topics'} revision={viewRevision} onOpenRecord={openDetail} onOpenResearch={openResearch} onOpenPitfall={openPitfall} onCreate={createInTopic} /></div>}{view === 'overview' && <><section className="business-home" aria-label="日常记录入口"><h2>今天要处理什么？</h2><div>{([{ key: 'ledger', title: '记账与查看流水', hint: '付款、退款、收入' }, { key: 'issues', title: '记录待办与问题', hint: '记下事项，跟进处理' }, { key: 'research', title: '打开调研笔记', hint: '新建事项，继续调研' }, { key: 'pitfalls', title: '记录踩坑与处理', hint: '留下经历，追加处理过程' }] as const).map(item => <button type="button" key={item.key} onClick={() => selectView(item.key)}><NavIcon view={item.key} /><span><strong>{item.title}</strong><small>{item.hint}</small></span></button>)}</div></section><OverviewView onOpen={openDetail} refreshRevision={viewRevision} /></>}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ledger' && <LedgerView onOpen={openDetail} detailOpen={Boolean(detailId)} refreshRevision={viewRevision} initialTopicId={creationTopicId} />}{view === 'issues' && <IssuesView onOpen={openDetail} refreshRevision={viewRevision} initialTopicId={creationTopicId} />}{view === 'pitfalls' && <PitfallsView initialMatchId={searchMatchId} initialPitfallId={pitfallId} initialTopicId={creationTopicId} />}{view === 'research' && <ResearchView initialMatchId={searchMatchId} initialResearchId={researchId} initialTopicId={creationTopicId} />}{view === 'spaces' && <SpacesView onOpen={openDetail} refreshRevision={viewRevision} onManage={manageSpaces} />}{view === 'records' && <RecordsAnalyticsView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={openDetail} refreshRevision={viewRevision} onOpenSource={openSource} onOpenTopic={id => {if(selectView('topics')) setSelectedTopicId(id)}} onOpenPitfall={openPitfall} onOpenMatch={(record,match)=>{if(match.kind==='research_entry') openResearch(record.id,match.id);else {openDetail(record.id);setSearchMatchId(match.id)}}} />}</main>
+      <main className="workspace-content">{returnToTopics && view !== 'topics' && <button type="button" className="topics-return" onClick={() => selectView('topics')}>返回主题</button>}{topicsVisited && <div hidden={view !== 'topics'}>{/* 保留主题选择，跨业务页面返回时继续查看同一事项。 */}<TopicsView initialTopicId={selectedTopicId} active={view === 'topics'} revision={viewRevision} onOpenRecord={openDetail} onOpenResearch={openResearch} onOpenPitfall={openPitfall} onCreate={createInTopic} onReview={id => { if(selectView('recent')) setReviewTopicId(id) }} /></div>}{view === 'overview' && <><section className="business-home" aria-label="日常记录入口"><h2>今天要处理什么？</h2><div>{([{ key: 'ledger', title: '记账与查看流水', hint: '付款、退款、收入' }, { key: 'issues', title: '记录待办与问题', hint: '记下事项，跟进处理' }, { key: 'research', title: '打开调研笔记', hint: '新建事项，继续调研' }, { key: 'pitfalls', title: '记录踩坑与处理', hint: '留下经历，追加处理过程' }] as const).map(item => <button type="button" key={item.key} onClick={() => selectView(item.key)}><NavIcon view={item.key} /><span><strong>{item.title}</strong><small>{item.hint}</small></span></button>)}</div></section><OverviewView onOpen={openDetail} refreshRevision={viewRevision} /></>}{reviewVisited && <div hidden={view !== 'recent'}>{/* 保留回顾结果，查看引用后返回无需重新生成。 */}<RecentReview key={reviewTopicId} initialTopicId={reviewTopicId} revision={viewRevision} onOpen={(id, type) => type === 'pitfall' ? openPitfall(id) : type === 'research' ? openResearch(id) : openDetail(id)} /></div>}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ledger' && <LedgerView onOpen={openDetail} detailOpen={Boolean(detailId)} refreshRevision={viewRevision} initialTopicId={creationTopicId} />}{view === 'issues' && <IssuesView onOpen={openDetail} refreshRevision={viewRevision} initialTopicId={creationTopicId} />}{view === 'pitfalls' && <PitfallsView initialMatchId={searchMatchId} initialPitfallId={pitfallId} initialTopicId={creationTopicId} />}{view === 'research' && <ResearchView initialMatchId={searchMatchId} initialResearchId={researchId} initialTopicId={creationTopicId} />}{view === 'spaces' && <SpacesView onOpen={openDetail} refreshRevision={viewRevision} onManage={manageSpaces} />}{view === 'records' && <RecordsAnalyticsView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={openDetail} refreshRevision={viewRevision} onOpenSource={openSource} onOpenTopic={id => {if(selectView('topics')) setSelectedTopicId(id)}} onOpenPitfall={openPitfall} onOpenMatch={(record,match)=>{if(match.kind==='research_entry') openResearch(record.id,match.id);else {openDetail(record.id);setSearchMatchId(match.id)}}} />}</main>
     </div>
     {/* 切换记录时重新建立详情状态，避免沿用上一条记录的编辑草稿。 */}
     {detailId && <RecordDetail key={detailId} recordId={detailId} initialMatchId={searchMatchId} closing={detailClosing} onClose={closeDetail} onExitComplete={finishDetailClose} onChanged={() => setViewRevision((value) => value + 1)} onOpen={openDetail} onOpenResearch={openResearch} />}

@@ -140,12 +140,6 @@ function normalizeOptions(value: unknown): string[] {
   return []
 }
 
-function validEvidence(evidence: string, source: string): boolean {
-  const normalize = (value: string) => value.replace(/\r\n?/g, '\n').trim()
-  const excerpt = normalize(evidence)
-  return Boolean(excerpt) && normalize(source).includes(excerpt)
-}
-
 export function payloadForSave(recordType: string, payload: Record<string, unknown>) {
   const next = { ...payload }
   delete next.related_candidate_keys
@@ -552,7 +546,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
       })).map((item) => {
         const draft = currentByKey.get(item.key)
         return preserveDrafts && draft && !item.confirmed_record_id
-          ? { ...item, record_type: draft.record_type, type_label: draft.type_label, payload: draft.payload, evidence: draft.evidence, evidence_validation: draft.evidence_validation }
+          ? { ...item, record_type: draft.record_type, type_label: draft.type_label, payload: draft.payload }
           : item
       })
       // 草稿保留人工编辑，但关联必须随本批候选同步，移除后不能残留已选计数。
@@ -566,7 +560,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
         },
       })), ...manualSuggestions]
       setSelectedKeys((currentKeys) => new Set(nextSuggestions
-        .filter((item) => !item.confirmed_record_id && item.evidence_validation !== 'invalid' && (!preserveDrafts || currentKeys.has(item.key)))
+        .filter((item) => !item.confirmed_record_id && (!preserveDrafts || currentKeys.has(item.key)))
         .map((item) => item.key)))
       return nextSuggestions
     })
@@ -752,7 +746,6 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
       record_type: 'event',
       type_label: recordConfig.event.label,
       summary: '',
-      evidence: '用户手工录入',
       certainty: 'explicit',
       certainty_label: '明确',
       selected_by_default: true,
@@ -760,7 +753,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
       deferred_at: null,
       confirmed_record_id: null,
       payload: defaultPayload('event', {
-        source_refs: sourceId ? [{ source_id: sourceId, evidence_excerpt: selectedSource?.original_text || null }] : [],
+        source_refs: sourceId ? [{ source_id: sourceId }] : [],
       }),
       missing_fields: [],
     }
@@ -805,10 +798,6 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
       return
     }
     const aiSelections = selected.filter((item) => !item.key.startsWith('manual:'))
-    if (aiSelections.some(item => !validEvidence(item.evidence, bundle?.source_text ?? selectedSource?.original_text ?? ''))) {
-      setMessage('候选原文依据不是来源中的连续片段，请对照原文修正后确认。')
-      return
-    }
     // 整批先检查归属；定位缺项候选后保留全部草稿，避免提交一部分才发现必填缺失。
     const incomplete = selected.find(item => requiredRecordContextError(item.payload))
     if (incomplete) {
@@ -857,7 +846,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
         const result = await confirmCandidateBundle(
           bundle!.id,
           bundle!.version,
-          aiSelections.map((item) => ({ key: item.key, evidence: item.evidence, payload: payloadForSave(item.record_type, item.payload) })),
+          aiSelections.map((item) => ({ key: item.key, payload: payloadForSave(item.record_type, item.payload) })),
           ignoredAiKeys,
           [...relationPairs.values()],
         )
@@ -869,9 +858,9 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
         // 等待整批结束，逐条记录成功结果，失败重试时不再提交已落库的记录。
         const results = await Promise.allSettled(manualSelections.map((item) => {
           const payload = payloadForSave(item.record_type, item.payload)
-          // 手工记录不经过后端 _fill_missing_required 兜底，标题为空时使用摘要或来源依据作为默认值。
+          // 手工记录不经过后端 _fill_missing_required 兜底，标题为空时使用摘要作为默认值。
           if (!payload.title) {
-            payload.title = String(item.summary || item.evidence || '未命名手工记录').slice(0, 100)
+            payload.title = String(item.summary || '未命名手工记录').slice(0, 100)
           }
           return createRecord(payload)
         }))
@@ -1126,7 +1115,6 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
               const highRisk = ['ledger', 'issue', 'decision'].includes(item.record_type)
               return <button key={item.key} className="candidate-review-item candidate-motion-item" style={{ '--motion-index': Math.min(motionIndex, 7) } as CSSProperties} type="button" aria-current={displayedSuggestionKey === item.key ? 'true' : undefined} onClick={() => openSuggestion(item.key)}>
                 <span className="candidate-review-item__top"><strong>{item.type_label} · {String(item.payload.title || item.summary || '手工记录')}</strong><span>{item.confirmed_record_id ? '已生成' : selectedKeys.has(item.key) ? '已选择' : '未选择'}</span></span>
-                <span className="candidate-review-item__evidence">原文：{presentSourceText(item.evidence).text}</span>
                 <span className="candidate-review-item__meta">{item.confirmed_record_id ? '用户已确认' : `可信程度：${item.certainty_label}`}{highRisk && !item.confirmed_record_id ? ' · 需重点核对' : ''}</span>
               </button>
             })}
@@ -1184,24 +1172,6 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
               </label>
               {!confirmed && <button className="suggestion-remove" type="button" onClick={() => void removeSuggestion(suggestion.key)}>移除</button>}
             </div>
-            <p className="source-display-text">原文依据：{presentSourceText(suggestion.evidence).text}</p>
-            {!confirmed && !suggestion.key.startsWith('manual:') && <>
-              <details><summary>{sourcePresentation.isGeneratedSnapshot ? '查看来源快照' : '对照完整来源原文'}</summary><p className="source-display-text">{presentSourceText(bundle?.source_text ?? selectedSource?.original_text).text}</p></details>
-              {!sourcePresentation.isGeneratedSnapshot && <label className="field-stack"><span>修正原文依据（须为连续片段）</span><textarea rows={3} value={suggestion.evidence} onChange={event => {
-                const evidence = event.target.value
-                setSuggestions(current => current.map(item => item.key === suggestion.key ? { ...item, evidence, evidence_validation: validEvidence(evidence, bundle?.source_text ?? selectedSource?.original_text ?? '') ? 'valid' : 'invalid' } : item))
-                setHasUnsavedCandidateEdits(true)
-                setConfirmationState('idle')
-              }} /></label>}
-              {!validEvidence(suggestion.evidence, bundle?.source_text ?? selectedSource?.original_text ?? '') && (sourcePresentation.isGeneratedSnapshot
-                ? <div className="risk-notice" role="alert"><p>这段摘录与来源快照不一致。</p><button type="button" className="secondary-button" onClick={() => {
-                  // 展示摘要不能反写为证据；标题保留来源中的精确连续原文。
-                  const evidence = sourcePresentation.snapshotTitle!
-                  setSuggestions(current => current.map(item => item.key === suggestion.key ? { ...item, evidence, evidence_validation: validEvidence(evidence, bundle?.source_text ?? selectedSource?.original_text ?? '') ? 'valid' : 'invalid' } : item))
-                  setHasUnsavedCandidateEdits(true); setConfirmationState('idle')
-                }}>使用来源标题作为依据</button></div>
-                : <p className="risk-notice" role="alert">这段摘录与来源原文不一致。请展开上方原文，复制对应的一段文字，替换输入框内容后再确认。</p>)}
-            </>}
             <p>{confirmed ? '已确认并生成正式记录' : `可信程度：${suggestion.certainty_label}`}</p>
             {reviewHint && !confirmed && <p className="muted">{reviewHint}</p>}
             {!confirmed && <>

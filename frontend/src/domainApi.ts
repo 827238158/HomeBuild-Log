@@ -262,7 +262,7 @@ export interface LocalSuggestion {
   record_type: string
   type_label: string
   summary: string
-  evidence: string
+  evidence?: string
   certainty: 'explicit' | 'likely' | 'uncertain'
   certainty_label: string
   selected_by_default: boolean

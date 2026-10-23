@@ -1,0 +1,11 @@
+.recent-review { max-width: 960px; }
+.review-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin: 24px 0; }
+.review-filters label { flex: 1 1 180px; min-width: 0; }
+.review-filters input { width: 100%; box-sizing: border-box; }
+.review-filters button { min-height: 44px; }
+.review-section { margin-top: 28px; border-top: 1px solid var(--border, #e1e6eb); padding-top: 16px; }
+.review-section ul { padding-left: 22px; }
+.review-section li { margin-bottom: 20px; overflow-wrap: anywhere; }
+.review-section p { max-width: 72ch; line-height: 1.7; margin-bottom: 6px; }
+.review-references { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.review-references button { text-align: left; min-height: 44px; }

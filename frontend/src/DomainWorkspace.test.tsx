@@ -232,37 +232,21 @@ describe('DomainWorkspace', () => {
     expect(generated.original_text).toBe(original)
   })
 
-  it('候选的完整快照只读展示，但确认仍使用未经摘要转换的原文依据', async () => {
-    const original = '创建时的待办\n录入字段：\n' + JSON.stringify({ record_type: 'issue', title: '创建时的待办', status: 'pending', description: '现场第一行\n现场第二行', phenomenon: '事项内容', severity: 'medium' })
-    const generated = { ...source, original_text: original }
-    vi.mocked(api.listSources).mockResolvedValue([generated])
-    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({ ...explicitBundle, source_text: original, suggestions: [{ ...explicitBundle.suggestions[0], evidence: original }] })
-    render(<TestDomainWorkspace refreshKey={0} initialSources={[generated]} />)
-    await screen.findByText('查看来源快照')
-    expect(document.body.textContent).not.toContain('录入字段')
+  it.each([undefined, '不是连续原文的旧摘录'])('候选不展示摘录，也不依赖历史依据确认：%s', async (evidence) => {
+    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({
+      ...explicitBundle, source_text: source.original_text,
+      suggestions: [{ ...explicitBundle.suggestions[0], evidence, evidence_validation: 'invalid' }],
+    })
+    render(<TestDomainWorkspace refreshKey={0} />)
+    await screen.findByDisplayValue('地砖破裂')
+    expect(screen.queryByText(/原文依据：|对照完整来源原文|使用来源标题作为依据/)).toBeNull()
     expect(screen.queryByLabelText('修正原文依据（须为连续片段）')).toBeNull()
+    expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
     await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
-    expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0].evidence).toBe(original)
+    expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0]).toMatchObject({ key: 'issue:1' })
+    expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0]).not.toHaveProperty('evidence')
   })
-
-  it('生成来源依据不合法时可用来源标题修正，仍提交原文的连续片段', async () => {
-    const title = '  创建时的待办  '
-    const original = title + '\n录入字段：\n' + JSON.stringify({ record_type: 'issue', title, status: 'pending', phenomenon: '事项内容', severity: 'medium' })
-    const generated = { ...source, original_text: original }
-    vi.mocked(api.listSources).mockResolvedValue([generated])
-    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({ ...explicitBundle, source_text: original, suggestions: [{ ...explicitBundle.suggestions[0], evidence: '无效依据', evidence_validation: 'invalid' }] })
-    render(<TestDomainWorkspace refreshKey={0} initialSources={[generated]} />)
-    fireEvent.click(await screen.findByRole('button', { name: '使用来源标题作为依据' }))
-    expect(screen.queryByRole('alert')).toBeNull()
-    fireEvent.click(screen.getByRole('checkbox'))
-    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
-    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
-    const evidence = vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0].evidence
-    expect(evidence).toBe(title)
-    expect(original.includes(evidence!)).toBe(true)
-  })
-
   it('切换候选会取消转写且忽略旧候选迟到结果', async () => {
     Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
@@ -284,29 +268,6 @@ describe('DomainWorkspace', () => {
     await act(async () => resolve({ text: '迟到文字', duration_ms: 100 }))
     expect((within(firstCard).getByLabelText('实际处理结果') as HTMLTextAreaElement).value).toBe('原处理结果')
     vi.unstubAllGlobals()
-  })
-  it('无效依据不默认选择，修正连续摘录后随原候选身份提交', async () => {
-    vi.mocked(api.getLatestCandidateBundle).mockResolvedValue({
-      ...explicitBundle, source_text: source.original_text,
-      suggestions: explicitBundle.suggestions.map(item => ({ ...item, evidence: '伪造内容', evidence_validation: 'invalid' as const })),
-    })
-    render(<TestDomainWorkspace refreshKey={0} />)
-    const editor = await screen.findByLabelText('修正原文依据（须为连续片段）')
-    expect(screen.getByRole('alert').textContent).toContain('这段摘录与来源原文不一致。')
-    expect(screen.queryByText(/AI 不会代替你确认/)).toBeNull()
-    expect(screen.getByText('请核对问题描述和处理状态。').className).toBe('muted')
-    const selected = screen.getByRole('checkbox')
-    expect((selected as HTMLInputElement).checked).toBe(false)
-    fireEvent.click(selected)
-    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
-    expect(api.confirmCandidateBundle).not.toHaveBeenCalled()
-    fireEvent.change(editor, { target: { value: '门口地砖有一处破裂' } })
-    expect(screen.queryByText(/这段摘录与来源原文不一致/)).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '确认所选' }))
-    await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
-    expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0]).toMatchObject({
-      key: 'issue:1', evidence: '门口地砖有一处破裂',
-    })
   })
   it('来源原文编辑只有实际改动才保护主导航，取消编辑后解除保护', async () => {
     render(<TestDomainWorkspace refreshKey={0} />)
@@ -720,7 +681,7 @@ describe('DomainWorkspace', () => {
     const items = within(list).getAllByRole('button')
     expect(items).toHaveLength(2)
     expect(items[0].getAttribute('aria-current')).toBe('true')
-    expect(items[0].textContent).toContain(`原文：${source.original_text}`)
+    expect(items[0].textContent).not.toContain('原文：')
     expect(items[0].textContent).toContain('需重点核对')
     expect(firstCard.hidden).toBe(false)
     expect(screen.getByDisplayValue('客厅地砖破损').closest('article')?.hidden).toBe(true)
@@ -1157,7 +1118,7 @@ describe('DomainWorkspace', () => {
     expect(vi.mocked(api.createRecord).mock.calls[0][0]).toMatchObject({
       record_type: 'issue',
       title: '现场复核',
-      source_refs: [{ source_id: source.id, evidence_excerpt: source.original_text }],
+      source_refs: [{ source_id: source.id }],
       phenomenon: '等待门套施工后复核',
       severity: 'low',
     })
@@ -1217,7 +1178,7 @@ describe('DomainWorkspace', () => {
     await waitFor(() => expect(api.createRecord).toHaveBeenCalled())
     expect(vi.mocked(api.createRecord).mock.calls[0][0]).toMatchObject({
       record_type: 'event',
-      title: '用户手工录入',
+      title: '未命名手工记录',
     })
   })
 

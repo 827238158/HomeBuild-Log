@@ -3,14 +3,11 @@
 
 允许的 record_type 只有 event、ledger、issue、measurement、decision、research。
 待办、普通问题和施工问题都输出为 issue。采购、下单或商品总价本身不生成账目；只有明确发生的付款、退款或收入才生成 ledger。每条候选必须包含 ref、record_type、summary、
-evidence、certainty、payload、missing_fields。certainty 只能是 explicit、
+certainty、payload、missing_fields。certainty 只能是 explicit、
 inferred、calculated、uncertain、missing。只有原文明说的事实才可标 explicit；
 算术结果必须标 calculated。
 
-evidence 必须直接复制原始文字中的一个连续片段，保留该片段原有的文字、标点、空格和换行。
-不得添加“原文”等说明、额外引号或省略号，不得改写、替换标点或拼接不连续的片段。
-例如原始文字为“现场确定了隔断的位置。”时，evidence 可为“现场确定了隔断的位置”，
-JSON 字符串的值不得写成“原文：现场确定了隔断的位置”或在摘录外再包一层引号。
+不需要输出 evidence、原文摘录或原文对照。来源关联由服务端保存。
 
 payload 必须匹配 HomeBuild Log 正式记录结构。金额使用人民币分
 （amount_minor），采购总额不能伪装成实际付款；尺寸要区分

@@ -35,7 +35,7 @@ from app.domain_models import (
     Record,
     RecordRelation,
 )
-from app.local_suggestions import resolve_date_text, suggest_from_text, unique_resolved_date
+from app.local_suggestions import suggest_from_text, unique_resolved_date
 from app.models import SourceEntry
 from app.record_version import bump_record_version
 
@@ -81,27 +81,13 @@ def _now() -> datetime:
     return datetime.now(tz=UTC)
 
 
-def _normalize_evidence(text: str) -> str:
-    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
-
-
-def _valid_evidence(evidence: str, original_text: str) -> bool:
-    excerpt = _normalize_evidence(evidence)
-    return bool(excerpt) and excerpt in _normalize_evidence(original_text)
-
-
 def _bundle_json(bundle: CandidateBundle, db: Session) -> dict[str, Any]:
     content = copy.deepcopy(bundle.bundle_json)
     source = db.get(SourceEntry, bundle.source_id)
     original_text = source.original_text if source else ""
-    # 历史未确认候选读取时复验，不改写已经保存的正式记录。
+    # 历史摘录保留读取兼容，不再参与候选选择或确认。
     for candidate in content.get("suggestions", []):
-        if candidate.get("confirmed_record_id"):
-            continue
-        valid = _valid_evidence(candidate.get("evidence", ""), original_text)
-        candidate["evidence_validation"] = "valid" if valid else "invalid"
-        if not valid:
-            candidate["selected_by_default"] = False
+        candidate.pop("evidence_validation", None)
     # 兼容历史候选包：旧版 questions 追问协议已停用，不再对外返回。
     content.pop("questions", None)
     return {
@@ -241,10 +227,12 @@ def _ai_bundle_content(
     reference_date = source.captured_at.astimezone(ZoneInfo("Asia/Shanghai")).date()
     source_date = unique_resolved_date(source.original_text or "", reference_date)
     for candidate in draft.suggestions:
-        occurrence_id = (candidate.record_type, " ".join(candidate.evidence.split()).lower())
+        # 旧响应保留原键生成方式；没有摘录的新响应用摘要生成稳定候选身份。
+        identity_text = candidate.evidence or candidate.summary
+        occurrence_id = (candidate.record_type, " ".join(identity_text.split()).lower())
         occurrence = occurrences[occurrence_id]
         occurrences[occurrence_id] += 1
-        key = _candidate_key(source.id, candidate.record_type, candidate.evidence, occurrence)
+        key = _candidate_key(source.id, candidate.record_type, identity_text, occurrence)
         if candidate.ref in ref_to_key:
             warnings.append(f"模型重复使用候选引用 {candidate.ref}，后一个引用已忽略。")
             continue
@@ -263,11 +251,7 @@ def _ai_bundle_content(
                 payload.pop("occurred_date", None)
                 warnings.append(f"候选 {candidate.ref} 的发生日期格式无效，已留空待补充。")
         if not payload.get("occurred_date"):
-            resolved_date, original_time_text, _inferred_year = resolve_date_text(
-                candidate.evidence, reference_date
-            )
-            if resolved_date is None:
-                resolved_date, original_time_text, _inferred_year = source_date
+            resolved_date, original_time_text, _inferred_year = source_date
             if resolved_date is not None:
                 payload["occurred_date"] = resolved_date.isoformat()
                 payload["original_time_text"] = original_time_text
@@ -649,12 +633,11 @@ def _fill_missing_required(payload: dict[str, Any], candidate: dict[str, Any]) -
     """为 AI 可能漏掉的必填字段补充合理默认值，避免不必要的 422。"""
     record_type = payload.get("record_type")
     summary = candidate.get("summary", "")
-    evidence = candidate.get("evidence", "")
     normalize_measurement_role(payload)
 
     # 公共必填：title
     if not payload.get("title"):
-        payload["title"] = summary or evidence[:100] or record_type or "未命名"
+        payload["title"] = summary or record_type or "未命名"
 
     _defaults: dict[str, str] = {
         "event_kind": "其他事件",
@@ -694,11 +677,11 @@ def _fill_missing_required(payload: dict[str, Any], candidate: dict[str, Any]) -
 
     # phenomenon / object_name / topic / item_name / question / action 的语义兜底
     _semantic_fallbacks: dict[str, str] = {
-        "phenomenon": summary or evidence or "未描述现象",
+        "phenomenon": summary or "未描述现象",
         "object_name": summary or "未命名对象",
-        "topic": summary or evidence or "未命名主题",
+        "topic": summary or "未命名主题",
         "item_name": summary or "未命名物品",
-        "question": summary or evidence or "未命名问题",
+        "question": summary or "未命名问题",
         "action": summary or "未指定动作",
     }
     for field, fallback in _semantic_fallbacks.items():
@@ -747,22 +730,11 @@ def _prepare_bundle_selections(
         candidate = suggestion_map[selection.key]
         if candidate.get("review_state") == "deferred":
             raise HTTPException(status_code=409, detail="候选已移除，请重新加载后确认。")
-        evidence = selection.evidence if selection.evidence is not None else candidate["evidence"]
-        if not candidate.get("confirmed_record_id"):
-            if not _valid_evidence(evidence, source.original_text):
-                raise HTTPException(
-                    status_code=422,
-                    detail="候选原文依据不是来源中的连续片段，请对照原文修正后确认。",
-                )
-            # 只修正摘录，不重新生成候选 key，保证重复确认仍然幂等。
-            candidate["evidence"] = _normalize_evidence(evidence)
-            candidate["evidence_validation"] = "valid"
         payload = copy.deepcopy(selection.payload or candidate["payload"])
         # 前端允许用户纠正 AI 候选类型；旧客户端未传类型时才回退到 AI 原类型。
         payload["record_type"] = payload.get("record_type") or candidate["record_type"]
-        payload["source_refs"] = [
-            {"source_id": source.id, "evidence_excerpt": candidate["evidence"]}
-        ]
+        # 确认保留来源关联与人工核对，不把兼容字段中的旧摘录作为事实引用。
+        payload["source_refs"] = [{"source_id": source.id}]
         _fill_missing_required(payload, candidate)
         try:
             parsed = RECORD_CREATE_ADAPTER.validate_python(payload)

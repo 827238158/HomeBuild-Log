@@ -91,6 +91,7 @@ def test_auto_without_key_persists_local_bundle_and_run(client: TestClient) -> N
 @pytest.mark.parametrize(
     "evidence",
     [
+        None,
         "不存在的摘录",
         "  \r\n ",
         "现场 查看",
@@ -99,8 +100,8 @@ def test_auto_without_key_persists_local_bundle_and_run(client: TestClient) -> N
         "今天去现场查看；记录现场情况",
     ],
 )
-def test_legacy_evidence_revalidated_and_corrected_without_identity_change(
-    client: TestClient, evidence: str,
+def test_legacy_candidates_confirm_without_excerpt_and_remain_idempotent(
+    client: TestClient, evidence: str | None,
 ) -> None:
     source_id = _source(client, "今天去现场查看。\r\n记录现场情况。")
     bundle = client.post(f"/api/v1/sources/{source_id}/extractions?engine=local").json()
@@ -109,31 +110,32 @@ def test_legacy_evidence_revalidated_and_corrected_without_identity_change(
         stored = db.get(CandidateBundle, bundle["id"])
         content = dict(stored.bundle_json)
         content["suggestions"] = [dict(item) for item in content["suggestions"]]
-        content["suggestions"][0]["evidence"] = evidence
+        legacy = content["suggestions"][0]
+        if evidence is None:
+            legacy.pop("evidence", None)
+        else:
+            legacy["evidence"] = evidence
+        legacy["evidence_validation"] = "invalid"
         stored.bundle_json = content
         db.commit()
     loaded = client.get(f"/api/v1/candidate-bundles/{bundle['id']}").json()
-    assert loaded["suggestions"][0]["evidence_validation"] == "invalid"
-    assert loaded["suggestions"][0]["selected_by_default"] is False
+    assert "evidence_validation" not in loaded["suggestions"][0]
     body = {"expected_version": bundle["version"], "selections": [{"key": candidate["key"]}]}
-    rejected = client.post(
+    confirmed = client.post(
         f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
         json=confirmation_payload(
             client, f"/api/v1/candidate-bundles/{bundle['id']}/confirm", body
         ),
     )
-    assert rejected.status_code == 422
-    assert client.get(f"/api/v1/records?source_id={source_id}").json() == []
-    body["selections"][0]["evidence"] = "  今天去现场查看。\n记录现场情况。  "
-    corrected = client.post(
-        f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
-        json=confirmation_payload(
-            client, f"/api/v1/candidate-bundles/{bundle['id']}/confirm", body
-        ),
-    )
-    assert corrected.status_code == 200, corrected.text
-    assert corrected.json()["bundle"]["suggestions"][0]["key"] == candidate["key"]
-    body["expected_version"] = corrected.json()["bundle"]["version"]
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["bundle"]["suggestions"][0]["key"] == candidate["key"]
+    records = client.get(f"/api/v1/records?source_id={source_id}").json()
+    assert len(records) == 1
+    assert records[0]["source_refs"][0]["source_id"] == source_id
+    assert records[0]["source_refs"][0]["evidence_excerpt"] is None
+    # 旧客户端仍可带摘录，但它不影响候选身份、来源或重复确认。
+    body["selections"][0]["evidence"] = "另一个无须匹配原文的兼容字段"
+    body["expected_version"] = confirmed.json()["bundle"]["version"]
     repeated = client.post(
         f"/api/v1/candidate-bundles/{bundle['id']}/confirm",
         json=confirmation_payload(
@@ -142,7 +144,7 @@ def test_legacy_evidence_revalidated_and_corrected_without_identity_change(
     )
     assert repeated.status_code == 200, repeated.text
     assert repeated.json()["records"][0]["created"] is False
-
+    assert len(client.get(f"/api/v1/records?source_id={source_id}").json()) == 1
 
 @pytest.mark.parametrize(
     "error_type", [httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError]
@@ -483,7 +485,6 @@ def test_deepseek_failure_falls_back_to_mimo_with_one_budget(
                             "ref": "e1",
                             "record_type": "event",
                             "summary": "现场查看",
-                            "evidence": text,
                             "certainty": "explicit",
                             "payload": {
                                 "record_type": "event",
@@ -517,6 +518,20 @@ def test_deepseek_failure_falls_back_to_mimo_with_one_budget(
         candidate = response.json()["suggestions"][0]
         assert candidate["payload"]["occurred_date"] is not None
         assert candidate["payload"]["original_time_text"] == "今天"
+        assert candidate["evidence"] == ""
+        confirmed = client.post(
+            f"/api/v1/candidate-bundles/{response.json()['id']}/confirm",
+            json=confirmation_payload(
+                client, f"/api/v1/candidate-bundles/{response.json()['id']}/confirm", {
+                    "expected_version": response.json()["version"],
+                    "selections": [{"key": candidate["key"]}],
+                },
+            ),
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        record = confirmed.json()["records"][0]["record"]
+        assert record["source_refs"][0]["source_id"] == source_id
+        assert record["source_refs"][0]["evidence_excerpt"] is None
         assert calls[0][0] == "deepseek" and calls[1][0] == "mimo"
         assert 0 < calls[0][1] <= 15.1
         assert 0 < calls[1][1] <= 30
@@ -669,11 +684,10 @@ def test_openai_adapter_uses_provider_auth_and_parses_json(
         request_body = json.loads(request.content)
         assert "原始文字：只发送这段来源" in request_body["messages"][-1]["content"]
         assert "时区：Asia/Shanghai" in request_body["messages"][-1]["content"]
-        # 请求必须携带摘录约束，避免模型为依据添加说明或拼接原文。
+        # 新协议只提取业务字段，不再要求用户核对摘录。
         system_prompt = request_body["messages"][0]["content"]
-        assert "evidence 必须直接复制原始文字中的一个连续片段" in system_prompt
-        assert "不得添加“原文”等说明、额外引号或省略号" in system_prompt
-        assert "不得改写、替换标点或拼接不连续的片段" in system_prompt
+        assert "不需要输出 evidence、原文摘录或原文对照" in system_prompt
+        assert "连续片段" not in system_prompt
         assert "secret" not in request.content.decode()
         return httpx.Response(
             200,
@@ -688,7 +702,6 @@ def test_openai_adapter_uses_provider_auth_and_parses_json(
                                             "ref": "t1",
                                             "record_type": "issue",
                                             "summary": "补资料",
-                                            "evidence": "补资料",
                                             "certainty": "explicit",
                                             "payload": {
                                                 "record_type": "issue",

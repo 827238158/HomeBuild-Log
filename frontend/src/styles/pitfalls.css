@@ -10,6 +10,10 @@
   gap: 20px;
 }
 
+.pitfall-more-actions { flex: 0 0 auto; }
+.pitfall-more-actions > summary { min-height: 44px; padding-block: 10px; box-sizing: border-box; line-height: 24px; cursor: pointer; color: var(--primary); }
+.pitfall-more-actions[open] > summary { margin-bottom: 8px; }
+
 .pitfall-capture {
   display: grid;
   grid-template-columns: minmax(360px, .8fr) minmax(0, 1.2fr);
@@ -452,7 +456,6 @@
   .resolution-form__actions > button { flex: 1 1 120px; }
   .pitfalls-page__header,
   .pitfall-toolbar { align-items: stretch; flex-direction: column; }
-  .pitfalls-page__header > button { width: 100%; }
   .pitfall-capture { padding: 14px; }
   .pitfall-capture__theme { aspect-ratio: 3 / 2; }
   .pitfall-form .pitfall-form__meta label { align-items: stretch; flex-direction: column; width: 100%; }

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import AIProviderConfig
 
-PROMPT_VERSION = "text-extraction-v2"
+PROMPT_VERSION = "text-extraction-v3"
 
 _PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "extraction.txt"
 SYSTEM_PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
@@ -29,7 +29,8 @@ class AICandidate(BaseModel):
         "research",
     ]
     summary: str = Field(min_length=1, max_length=500)
-    evidence: str = Field(min_length=1)
+    # 兼容旧模型响应；新候选只需关联来源，不再要求生成摘录。
+    evidence: str = ""
     certainty: Literal["explicit", "inferred", "calculated", "uncertain", "missing"]
     payload: dict[str, Any]
     missing_fields: list[str] = []
