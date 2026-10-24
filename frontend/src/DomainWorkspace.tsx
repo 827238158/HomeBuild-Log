@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { createPortal } from 'react-dom'
 import { Select } from './Select'
 import { VoiceField } from './VoiceField'
+import { useMediaQuery } from './useMediaQuery'
 import { TopicSelect } from './TopicSelect'
 import { RecordAssociations, AssociationMultiSelect, requiredRecordContextError } from './RecordAssociations'
 import { ThinkingLattice } from './MotionPrimitives'
@@ -421,7 +422,7 @@ export function RecordEditFields({
   }
 
   return <div className="record-form-grid">
-    <label className="field-stack record-form-grid__wide"><span>标题</span><input value={String(payload.title ?? '')} placeholder={titlePlaceholder[recordType]} onChange={(event) => onChange('title', event.target.value)} /></label>
+    <label className="field-stack record-form-grid__wide"><span>标题</span><VoiceField active={active} onBusyChange={onVoiceBusyChange}><input aria-label="标题" maxLength={300} value={String(payload.title ?? '')} placeholder={titlePlaceholder[recordType]} onChange={(event) => onChange('title', event.target.value)} /></VoiceField></label>
     <label className="field-stack"><span>状态</span><Select value={status} onChange={(event) => onChange('status', event.target.value)}>{visibleStatuses.map((item) => <option key={item} value={item}>{recordStatusLabel(recordType, item, ledgerKind)}</option>)}</Select></label>
     {recordType === 'issue' && <label className="field-stack"><span>发生日期</span><input type="date" value={String(payload.occurred_date ?? '')} onChange={(event) => onChange('occurred_date', event.target.value || null)} /></label>}
     {recordType === 'measurement' && <label className="field-stack"><span>尺寸用途</span><Select value={normalizeMeasurementRole(payload.measurement_role)} onChange={(event) => onChange('measurement_role', event.target.value)}>{Object.entries(measurementRoleLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>}
@@ -433,7 +434,7 @@ export function RecordEditFields({
     }}><option value="payment">付款</option><option value="refund">退款</option><option value="income">收入</option></Select></label>}
     <label className={`field-stack${recordType === 'issue' ? ' record-form-grid__wide' : ''}`}><span>{cfg.detailALabel}</span>{recordType === 'issue' ? <VoiceField active={active} onBusyChange={onVoiceBusyChange}><textarea rows={3} maxLength={10000} value={detailA} placeholder={cfg.detailAPlaceholder} onChange={event => setDetailA(event.target.value)} /></VoiceField> : <input value={detailA} placeholder={cfg.detailAPlaceholder} onChange={(event) => setDetailA(event.target.value)} />}</label>
     {recordType === 'measurement'
-      ? <MeasurementFields payload={payload} onChange={onChange} />
+      ? <MeasurementFields active={active} onVoiceBusyChange={onVoiceBusyChange} payload={payload} onChange={onChange} />
       : recordType === 'decision' || recordType === 'research'
       ? <OptionsTextInput label={cfg.detailBLabel} placeholder={cfg.detailBPlaceholder} value={payload.options} onCommit={(options) => onChange('options', options)} />
       : recordType === 'issue' || recordType === 'event' ? <label className="field-stack record-form-grid__wide"><span>{cfg.detailBLabel}</span><VoiceField active={active} onBusyChange={onVoiceBusyChange}><textarea rows={3} maxLength={10000} value={detailB} placeholder={cfg.detailBPlaceholder} onChange={event => setDetailB(event.target.value)} /></VoiceField></label>
@@ -453,6 +454,7 @@ export function RecordEditFields({
 }
 
 export function DomainWorkspace({ sources, refreshSources, refreshKey, preferredSourceId, sourceRequestKey = 0, manageRequestKey = 0 }: Props) {
+  const compactLayout = useMediaQuery('(max-width: 1100px)')
   const managerRef = useRef<HTMLDetailsElement>(null)
   useEffect(() => {
     if (!manageRequestKey || !managerRef.current) return
@@ -1029,7 +1031,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
     setActiveSuggestionKey(key)
     setMobileDetailOpen(true)
     // 手机端列表会隐藏；把视口与键盘焦点移到当前候选详情。
-    if (window.matchMedia?.('(max-width: 1100px)').matches) {
+    if (compactLayout) {
       requestAnimationFrame(() => {
         document.querySelector<HTMLElement>('.candidate-review-detail')?.scrollIntoView({ block: 'start' })
         document.querySelector<HTMLElement>('.candidate-review-back')?.focus({ preventScroll: true })
@@ -1184,7 +1186,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
                 </label>
               </div>
               <div className="record-form-grid">
-                <label className="field-stack record-form-grid__wide"><span>标题</span><input value={title} placeholder={titlePlaceholder[recordType]} onChange={(event) => updateSuggestion(suggestion.key, 'title', event.target.value)} /></label>
+                <label className="field-stack record-form-grid__wide"><span>标题</span><VoiceField active={displayedSuggestionKey === suggestion.key && !confirming && (mobileDetailOpen || !compactLayout)} onBusyChange={setVoiceBusy}><input aria-label="标题" maxLength={300} value={title} placeholder={titlePlaceholder[recordType]} onChange={(event) => updateSuggestion(suggestion.key, 'title', event.target.value)} /></VoiceField></label>
                 <label className="field-stack"><span>状态</span>
                   <Select value={status} onChange={(event) => updateSuggestion(suggestion.key, 'status', event.target.value)}>
                     {statusesForRecord(recordType, ledgerKind).map((item) => <option key={item} value={item}>{recordStatusLabel(recordType, item, ledgerKind)}</option>)}
@@ -1198,7 +1200,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
                   updateSuggestion(suggestion.key, 'status', completedStatusForLedgerKind(kind))
                   updateSuggestion(suggestion.key, 'direction', kind === 'refund' ? 'refund' : kind === 'income' ? 'income' : 'expense')
                 }}><option value="payment">付款</option><option value="refund">退款</option><option value="income">收入</option></Select></label>}
-                <label className={`field-stack${recordType === 'issue' ? ' record-form-grid__wide' : ''}`}><span>{cfg.detailALabel}</span>{recordType === 'issue' ? <VoiceField active={displayedSuggestionKey === suggestion.key && !confirming && (mobileDetailOpen || !window.matchMedia?.('(max-width: 1100px)').matches)} onBusyChange={setVoiceBusy}><textarea rows={3} maxLength={10000} value={detailA} placeholder={cfg.detailAPlaceholder} onChange={event => updateSuggestion(suggestion.key, 'phenomenon', event.target.value)} /></VoiceField> : <input value={detailA} placeholder={cfg.detailAPlaceholder} onChange={(event) => {
+                <label className={`field-stack${recordType === 'issue' ? ' record-form-grid__wide' : ''}`}><span>{cfg.detailALabel}</span>{recordType === 'issue' ? <VoiceField active={displayedSuggestionKey === suggestion.key && !confirming && (mobileDetailOpen || !compactLayout)} onBusyChange={setVoiceBusy}><textarea rows={3} maxLength={10000} value={detailA} placeholder={cfg.detailAPlaceholder} onChange={event => updateSuggestion(suggestion.key, 'phenomenon', event.target.value)} /></VoiceField> : <input value={detailA} placeholder={cfg.detailAPlaceholder} onChange={(event) => {
                   const value = event.target.value
                   if (recordType === 'event') updateSuggestion(suggestion.key, 'event_kind', value)
                   else if (recordType === 'ledger') updateSuggestion(suggestion.key, 'payment_kind', value)
@@ -1207,10 +1209,10 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
                   else if (recordType === 'research') updateSuggestion(suggestion.key, 'question', value)
                 }}                 />}</label>
                 {recordType === 'measurement'
-                  ? <MeasurementFields payload={payload} onChange={(field, value) => updateSuggestion(suggestion.key, field, value)} />
+                  ? <MeasurementFields active={displayedSuggestionKey === suggestion.key && !confirming && (mobileDetailOpen || !compactLayout)} onVoiceBusyChange={setVoiceBusy} payload={payload} onChange={(field, value) => updateSuggestion(suggestion.key, field, value)} />
                   : recordType === 'decision' || recordType === 'research'
                   ? <OptionsTextInput label={cfg.detailBLabel} placeholder={cfg.detailBPlaceholder} value={payload.options} onCommit={(options) => updateSuggestion(suggestion.key, 'options', options)} />
-                  : recordType === 'issue' || recordType === 'event' ? <label className="field-stack record-form-grid__wide"><span>{cfg.detailBLabel}</span><VoiceField active={displayedSuggestionKey === suggestion.key && !confirming && (mobileDetailOpen || !window.matchMedia?.('(max-width: 1100px)').matches)} onBusyChange={setVoiceBusy}><textarea rows={3} maxLength={10000} value={detailB} placeholder={cfg.detailBPlaceholder} onChange={event => updateSuggestion(suggestion.key, recordType === 'issue' ? 'handling_plan' : 'result', event.target.value)} /></VoiceField></label>
+                  : recordType === 'issue' || recordType === 'event' ? <label className="field-stack record-form-grid__wide"><span>{cfg.detailBLabel}</span><VoiceField active={displayedSuggestionKey === suggestion.key && !confirming && (mobileDetailOpen || !compactLayout)} onBusyChange={setVoiceBusy}><textarea rows={3} maxLength={10000} value={detailB} placeholder={cfg.detailBPlaceholder} onChange={event => updateSuggestion(suggestion.key, recordType === 'issue' ? 'handling_plan' : 'result', event.target.value)} /></VoiceField></label>
                   : <label className="field-stack"><span>{cfg.detailBLabel}</span><input
                     type={cfg.detailBType || 'text'}
                     min={cfg.detailBType === 'number' ? '0' : undefined}
@@ -1249,7 +1251,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
                 {recordType === 'issue' && <>
                   <label className="field-stack"><span>截止日期（可选）</span><input type="date" value={toDateInput(payload.due_date)} onChange={(event) => updateSuggestion(suggestion.key, 'due_date', event.target.value || null)} /></label>
                   <label className="field-stack"><span>严重程度</span><Select required value={String(payload.severity ?? '')} onChange={(event) => updateSuggestion(suggestion.key, 'severity', event.target.value || null)}><option value="">请选择</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></Select></label>
-                  {status === 'done' && <><label className="field-stack"><span>实际完成日期</span><input type="date" value={toDateInput(payload.completed_at)} onChange={(event) => updateSuggestion(suggestion.key, 'completed_at', event.target.value || null)} /></label><label className="field-stack record-form-grid__wide"><span>实际处理结果</span><VoiceField active={displayedSuggestionKey === suggestion.key && !confirming && (mobileDetailOpen || !window.matchMedia?.('(max-width: 1100px)').matches)} onBusyChange={setVoiceBusy}><textarea required rows={2} maxLength={10000} value={String(payload.actual_result ?? '')} onChange={(event) => updateSuggestion(suggestion.key, 'actual_result', event.target.value || null)} /></VoiceField></label></>}
+                  {status === 'done' && <><label className="field-stack"><span>实际完成日期</span><input type="date" value={toDateInput(payload.completed_at)} onChange={(event) => updateSuggestion(suggestion.key, 'completed_at', event.target.value || null)} /></label><label className="field-stack record-form-grid__wide"><span>实际处理结果</span><VoiceField active={displayedSuggestionKey === suggestion.key && !confirming && (mobileDetailOpen || !compactLayout)} onBusyChange={setVoiceBusy}><textarea required rows={2} maxLength={10000} value={String(payload.actual_result ?? '')} onChange={(event) => updateSuggestion(suggestion.key, 'actual_result', event.target.value || null)} /></VoiceField></label></>}
                 </>}
               </div>
               <TopicSelect value={Array.isArray(payload.topic_ids) ? payload.topic_ids.map(String) : []} onChange={ids => updateSuggestion(suggestion.key, 'topic_ids', ids)} />

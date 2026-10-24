@@ -13,6 +13,8 @@ interface Props { kind: 'ledger' | 'issue'; onSaved: () => void; initialTopicId?
 const emptyDraft = () => ({ title: '', date: beijingToday(), description: '', ledgerKind: 'payment', amount: '', paymentKind: '', vendor: '', severity: 'medium', plan: '', due_date: '' })
 
 export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Props) {
+  const [titleOverflow, setTitleOverflow] = useState('')
+  const [voiceBusy, setVoiceBusy] = useState(false)
   const [open, setOpen] = useState(!!initialTopicId)
   const [topicIds, setTopicIds] = useState<string[]>(initialTopicId ? [initialTopicId] : [])
   const [associations, setAssociations] = useState<Record<string, unknown>>({})
@@ -27,7 +29,7 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
   const busyRef = useRef(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const dirty = Object.keys(associations).length > 0 || JSON.stringify(topicIds) !== JSON.stringify(initialTopicId ? [initialTopicId] : []) || JSON.stringify(draft) !== JSON.stringify(emptyDraft()) || !!newVendor.trim()
+  const dirty = Object.keys(associations).length > 0 || JSON.stringify(topicIds) !== JSON.stringify(initialTopicId ? [initialTopicId] : []) || JSON.stringify(draft) !== JSON.stringify(emptyDraft()) || !!newVendor.trim() || !!titleOverflow
   useNavigationGuard(dirty || busy)
   const change = (key: keyof typeof draft, value: string) => { setDraft(current => ({ ...current, [key]: value })); setSuccess('') }
   const changeAssociation = (key: string, value: unknown) => {
@@ -58,7 +60,7 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
 
   async function save(event: FormEvent) {
     event.preventDefault()
-    if (busyRef.current) return
+    if (busyRef.current || voiceBusy || titleOverflow) return
     setError(''); setSuccess('')
     if (!draft.title.trim() || !draft.date) { setError('请填写标题和发生日期'); return }
     if (kind === 'issue' && !draft.description.trim()) { setError('请填写事项内容'); return }
@@ -86,7 +88,7 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
     try {
       // 来源与正式记录由服务端一次提交，成功前始终保留本页草稿。
       await createDirectRecord(payload)
-      setAssociations({}); setDraft(emptyDraft()); setTopicIds(initialTopicId ? [initialTopicId] : []); setNewVendor(''); setOpen(false)
+      setTitleOverflow(''); setAssociations({}); setDraft(emptyDraft()); setTopicIds(initialTopicId ? [initialTopicId] : []); setNewVendor(''); setOpen(false)
       setSuccess(kind === 'ledger' ? '账目已保存' : '待办与问题已保存')
       onSaved()
     } catch (reason) { setError(reason instanceof Error ? reason.message : '保存失败，请重试') }
@@ -98,7 +100,7 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
     {success && <p role="status">{success}</p>}
     {open && <form onSubmit={save}>
       <fieldset disabled={busy} className="business-entry-fields">
-        <label className="field-stack business-entry-wide"><span>{kind === 'ledger' ? '账目名称' : '事项标题'}</span><input required maxLength={300} value={draft.title} onChange={event => change('title', event.target.value)} placeholder={kind === 'ledger' ? '例如：购买厨房灯带' : '例如：联系师傅确认安装时间'} /></label>
+        <label className="field-stack business-entry-wide"><span>{kind === 'ledger' ? '账目名称' : '事项标题'}</span><VoiceField onBusyChange={setVoiceBusy} active={open && !busy} overflowDraft={{ text: titleOverflow, onChange: setTitleOverflow }}><input aria-label={kind === 'ledger' ? '账目名称' : '事项标题'} required maxLength={300} value={draft.title} onChange={event => change('title', event.target.value)} placeholder={kind === 'ledger' ? '例如：购买厨房灯带' : '例如：联系师傅确认安装时间'} /></VoiceField></label>
         <label className="field-stack"><span>发生日期</span><input required type="date" value={draft.date} onChange={event => change('date', event.target.value)} /></label>
         {kind === 'ledger' ? <>
           <label className="field-stack"><span>账目类型</span><Select disabled={busy} value={draft.ledgerKind} onChange={event => change('ledgerKind', event.target.value)}><option value="payment">付款</option><option value="refund">退款</option><option value="income">收入</option></Select></label>
@@ -116,7 +118,7 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
         <div className="business-entry-wide">
           <RecordAssociations requireContext payload={{ ...associations, topic_ids: topicIds }} onChange={changeAssociation} entities={associationOptions.entities} records={associationOptions.records} participantLabel={kind === 'issue' ? '处理人' : '相关人员'} disabled={busy} loading={associationOptions.loading} optionsError={associationOptions.error} onRetry={associationOptions.retry} error={/空间|材料|阶段|人员|关联|space|material|participant|stage|related/i.test(error) ? error : undefined} />
         </div>
-        <div className="business-entry-wide"><button type="submit" disabled={busy || (kind === 'ledger' && loading)}>{busy ? '保存中…' : kind === 'ledger' ? '保存账目' : '保存事项'}</button></div>
+        <div className="business-entry-wide"><button type="submit" disabled={busy || voiceBusy || !!titleOverflow || (kind === 'ledger' && loading)}>{busy ? '保存中…' : kind === 'ledger' ? '保存账目' : '保存事项'}</button></div>
       </fieldset>
       {error && <p role="alert">{error}</p>}
     </form>}

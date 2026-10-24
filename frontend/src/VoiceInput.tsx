@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { transcribeAudio } from './api'
@@ -7,6 +7,39 @@ import { MAX_RECORDING_MS, startVoiceRecording, type VoiceRecording } from './vo
 import './VoiceInput.css'
 
 type VoiceStatus = 'idle' | 'requesting' | 'recording' | 'transcribing' | 'done' | 'error'
+// 同一个表单可能同时保留多个待修正结果，按实例汇总状态，避免一个字段解除阻塞后误启用保存。
+const busyOwners = new Map<(busy: boolean) => void, Set<symbol>>()
+function reportBusy(callback: ((busy: boolean) => void) | undefined, owner: symbol, busy: boolean) {
+  if (!callback) return
+  const owners = busyOwners.get(callback) ?? new Set<symbol>()
+  if (busy) owners.add(owner)
+  else owners.delete(owner)
+  if (owners.size) busyOwners.set(callback, owners)
+  else busyOwners.delete(callback)
+  callback(owners.size > 0)
+}
+
+type FormLock = { owners: Set<symbol>; buttons: { button: HTMLButtonElement; disabled: boolean }[]; guard: (event: Event) => void }
+const formLocks = new WeakMap<HTMLFormElement, FormLock>()
+function lockForm(form: HTMLFormElement, owner: symbol) {
+  let lock = formLocks.get(form)
+  if (!lock) {
+    const guard = (event: Event) => { event.preventDefault(); event.stopPropagation() }
+    lock = { owners: new Set(), buttons: Array.from(form.querySelectorAll<HTMLButtonElement>('button[type="submit"], button:not([type])')).map(button => ({ button, disabled: button.disabled })), guard }
+    formLocks.set(form, lock)
+    form.addEventListener('submit', guard, true)
+  }
+  lock.owners.add(owner)
+  lock.buttons.forEach(({ button }) => { button.disabled = true })
+  return () => {
+    lock.owners.delete(owner)
+    if (lock.owners.size) { lock.buttons.forEach(({ button }) => { button.disabled = true }); return }
+    form.removeEventListener('submit', lock.guard, true)
+    lock.buttons.forEach(({ button, disabled }) => { button.disabled = disabled })
+    formLocks.delete(form)
+  }
+}
+
 let cancelVoiceSession: (() => void) | null = null
 
 function errorMessage(error: unknown): string {
@@ -15,7 +48,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '语音转写失败，请重试。'
 }
 
-export function VoiceInput({ active, onTranscript, children, feedback, onBusyChange, label = '语音输入' }: { active: boolean; onTranscript: (text: string) => void; children: ReactNode; feedback?: ReactNode; onBusyChange?: (busy: boolean) => void; label?: string }) {
+export function VoiceInput({ active, onTranscript, children, feedback, onBusyChange, pendingTranscript = false, label = '语音输入' }: { active: boolean; onTranscript: (text: string) => void; children: ReactNode; feedback?: ReactNode; onBusyChange?: (busy: boolean) => void; pendingTranscript?: boolean; label?: string }) {
   const [status, setStatus] = useState<VoiceStatus>('idle')
   const [error, setError] = useState('')
   const [elapsed, setElapsed] = useState(0)
@@ -31,6 +64,8 @@ export function VoiceInput({ active, onTranscript, children, feedback, onBusyCha
   const transcriptRef = useRef(onTranscript)
   const root = useRef<HTMLDivElement>(null)
   const notifiedBusy = useRef(false)
+  const busyOwner = useRef(Symbol())
+  const resultFocusOwner = useRef<HTMLElement | null>(null)
   activeRef.current = active
   transcriptRef.current = onTranscript
 
@@ -39,7 +74,22 @@ export function VoiceInput({ active, onTranscript, children, feedback, onBusyCha
     timer.current = null
   }
 
+  // 只恢复仍停留在本次语音工具上的焦点，不打断用户已转向其他控件的操作。
+  const rememberResultFocus = () => {
+    const focused = document.activeElement
+    resultFocusOwner.current = focused instanceof HTMLElement && root.current?.querySelector('.voice-toolbar')?.contains(focused) ? focused : null
+  }
+  useLayoutEffect(() => {
+    if (status !== 'done' && status !== 'error') return
+    const previous = resultFocusOwner.current
+    resultFocusOwner.current = null
+    if (previous && activeRef.current && (document.activeElement === previous || document.activeElement === document.body)) {
+      root.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>('.source-input-field > input, .source-input-field > textarea')?.focus({ preventScroll: true })
+    }
+  }, [status])
+
   const cancel = (update = true) => {
+    resultFocusOwner.current = null
     generation.current += 1
     clearTimer()
     recording.current?.cancel()
@@ -51,17 +101,15 @@ export function VoiceInput({ active, onTranscript, children, feedback, onBusyCha
   }
 
   useEffect(() => {
-    const busy = ['requesting', 'recording', 'transcribing'].includes(status)
-    if (busy || notifiedBusy.current) onBusyChange?.(busy)
+    // 待修正结果同样阻止保存，避免未应用的转写随保存而丢失。
+    const busy = pendingTranscript || ['requesting', 'recording', 'transcribing'].includes(status)
+    if (busy || notifiedBusy.current) reportBusy(onBusyChange, busyOwner.current, busy)
     notifiedBusy.current = busy
     const form = root.current?.closest('form')
-    // 捕获阶段阻止保存，保留用户等待转写时输入的草稿。
-    const guard = (event: Event) => { event.preventDefault(); event.stopPropagation() }
-    const buttons = form ? Array.from(form.querySelectorAll<HTMLButtonElement>('button[type="submit"], button:not([type])')).map(button => ({ button, disabled: button.disabled })) : []
-    if (busy) buttons.forEach(({ button }) => { button.disabled = true })
-    if (busy) form?.addEventListener('submit', guard, true)
-    return () => { form?.removeEventListener('submit', guard, true); if (busy) { buttons.forEach(({ button, disabled }) => { button.disabled = disabled }); onBusyChange?.(false); notifiedBusy.current = false } }
-  }, [status, onBusyChange])
+    // 表单锁按字段计数，最后一个录音或待修正结果结束后才恢复保存。
+    const unlock = busy && form ? lockForm(form, busyOwner.current) : undefined
+    return () => { unlock?.(); if (busy) { reportBusy(onBusyChange, busyOwner.current, false); notifiedBusy.current = false } }
+  }, [status, onBusyChange, pendingTranscript])
 
   useEffect(() => {
     const focus = (event: FocusEvent) => {
@@ -103,11 +151,13 @@ export function VoiceInput({ active, onTranscript, children, feedback, onBusyCha
       // 回填由父组件基于最新草稿追加，保留请求等待期间的编辑。
       transcriptRef.current(result.text.trim())
       lastFile.current = null
+      rememberResultFocus()
       setStatus('done')
     } catch (cause) {
       if (generation.current !== current || controller.signal.aborted) return
       // 无声或无可识别文字需要重录；重复提交同一段录音没有帮助。
       if (cause instanceof HttpError && cause.status === 422) lastFile.current = null
+      rememberResultFocus()
       setError(errorMessage(cause))
       setStatus('error')
     } finally {
@@ -185,6 +235,10 @@ export function VoiceInput({ active, onTranscript, children, feedback, onBusyCha
   return <div ref={root} className="source-input-wrap" data-voice-status={status}><div className="source-input-field">
     {children}
     <div className="voice-toolbar">
+    {/* 成功与错误复用已预留的工具行，避免提示出现时推动下一项。 */}
+    {(status === 'done' || status === 'error') && <div className={`voice-panel voice-panel--${status}`} role="status" aria-live="polite">
+      <span>{status === 'done' ? '已转写' : error}</span>
+    </div>}
     {status === 'recording' ? <div className="voice-capsule" role="group" aria-label="录音控制">
       {/* 复用录音服务提供的真实音量；胶囊只负责展示与操作，不创建第二条音频流。 */}
       <span className="voice-capsule__wave" aria-hidden="true">{[0.55, 0.82, 1, 0.72, 0.45].map((factor, index) => <i key={index} style={{ transform: `scaleY(${(3 + level * factor * 11) / 14})` }} />)}</span>
@@ -196,15 +250,13 @@ export function VoiceInput({ active, onTranscript, children, feedback, onBusyCha
       <span className="voice-progress" aria-hidden="true" />
       <span className="voice-wait-label">{status === 'requesting' ? '等待麦克风权限…' : `转写中 · ${Math.floor(transcribeElapsed / 1000)} 秒`}</span>
       <button className="voice-capsule__cancel" type="button" onClick={() => cancel()}>取消</button>
-    </div> : <button className="voice-trigger" type="button" aria-label={`开始${label}`} title={`开始${label}`} onClick={() => void start()} disabled={!active}>
+    </div> : <div className="voice-idle-actions">
+    {status === 'error' && lastFile.current && <button type="button" onClick={retry}>重试转写</button>}
+    <button className="voice-trigger" type="button" aria-label={`开始${label}`} title={`开始${label}`} onClick={() => void start()} disabled={!active}>
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="2.5" width="6" height="12.5" rx="3" /><path d="M5 10.5v1a7 7 0 0 0 14 0v-1M12 18.5V22m-4 0h8" /></svg>
-    </button>}
+    </button></div>}
     </div>
     </div>
-    {(status === 'done' || status === 'error') && <div className={`voice-panel voice-panel--${status}`} role="status" aria-live="polite">
-      {status === 'done' && <span>已转写</span>}
-      {status === 'error' && <><span>{error}</span>{lastFile.current && <button type="button" onClick={retry}>重试转写</button>}</>}
-    </div>}
     {feedback}
   </div>
 }

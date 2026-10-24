@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { VoiceField } from './VoiceField'
 import { Select } from './Select'
 
 export const measurementAxisLabels: Record<string, string> = {
@@ -25,10 +27,13 @@ function measurementTimeInput(value: unknown): string {
   return `${fields.year}-${fields.month}-${fields.day}T${fields.hour}:${fields.minute}`
 }
 
-export function MeasurementFields({ payload, onChange }: {
+export function MeasurementFields({ payload, onChange, active = true, onVoiceBusyChange }: {
+  active?: boolean
+  onVoiceBusyChange?: (busy: boolean) => void
   payload: Record<string, unknown>
   onChange: (field: string, value: unknown) => void
 }) {
+  const [contextOpen, setContextOpen] = useState(false)
   const values = Array.isArray(payload.values) ? payload.values as Array<Record<string, unknown>> : []
   const setValue = (index: number, field: string, value: unknown) => {
     // 编辑时保留输入单位和全部尺寸项，只在提交边界换算毫米。
@@ -62,10 +67,10 @@ export function MeasurementFields({ payload, onChange }: {
       <button type="button" onClick={() => onChange('values', [...values, { axis: null, value: null, unit: 'mm' }])}>添加尺寸项</button>
     </fieldset>
     <label className="field-stack"><span>数值精度</span><Select value={payload.approximate ? 'approximate' : 'exact'} onChange={event => onChange('approximate', event.target.value === 'approximate')}><option value="exact">未标注近似</option><option value="approximate">约数／粗测</option></Select></label>
-    <details className="measurement-context record-form-grid__wide"><summary>测量时间、方法与口径</summary><div className="record-form-grid">
+    <details className="measurement-context record-form-grid__wide" onToggle={event => setContextOpen(event.currentTarget.open)}><summary>测量时间、方法与口径</summary><div className="record-form-grid">
       <label className="field-stack"><span>测量时间（北京时间）</span><input type="datetime-local" value={measurementTimeInput(payload.measured_at)} onChange={event => onChange('measured_at', event.target.value ? `${event.target.value}:00+08:00` : null)} /></label>
-      <label className="field-stack"><span>测量方法</span><input value={String(payload.method ?? '')} placeholder="例如：卷尺，完成面之间" onChange={event => onChange('method', event.target.value || null)} /></label>
-      <label className="field-stack record-form-grid__wide"><span>误差与测量口径</span><textarea rows={2} value={String(payload.tolerance_text ?? '')} placeholder="例如：未含门框；约有 2 mm 误差" onChange={event => onChange('tolerance_text', event.target.value || null)} /></label>
+      <label className="field-stack"><span>测量方法</span><VoiceField active={active && contextOpen} onBusyChange={onVoiceBusyChange}><input aria-label="测量方法" value={String(payload.method ?? '')} placeholder="例如：卷尺，完成面之间" onChange={event => onChange('method', event.target.value || null)} /></VoiceField></label>
+      <label className="field-stack record-form-grid__wide"><span>误差与测量口径</span><VoiceField active={active && contextOpen} onBusyChange={onVoiceBusyChange}><textarea aria-label="误差与测量口径" rows={2} value={String(payload.tolerance_text ?? '')} placeholder="例如：未含门框；约有 2 mm 误差" onChange={event => onChange('tolerance_text', event.target.value || null)} /></VoiceField></label>
     </div></details>
   </>
 }

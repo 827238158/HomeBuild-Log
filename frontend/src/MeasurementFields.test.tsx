@@ -1,8 +1,13 @@
 import { useState } from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MeasurementFields } from './MeasurementFields'
 import { defaultPayload, payloadForSave } from './DomainWorkspace'
+import { transcribeAudio } from './api'
+import { startVoiceRecording } from './voiceAudio'
+
+vi.mock('./voiceAudio', () => ({ MAX_RECORDING_MS: 180_000, startVoiceRecording: vi.fn() }))
+vi.mock('./api', async importOriginal => ({ ...await importOriginal<typeof import('./api')>(), transcribeAudio: vi.fn() }))
 
 function Form({ initial }: { initial: Record<string, unknown> }) {
   const [payload, setPayload] = useState(initial)
@@ -71,5 +76,62 @@ describe('尺寸录入与保存', () => {
     expect(screen.getByLabelText('尺寸数值 1')).toHaveProperty('value', '0.9002')
     fireEvent.click(screen.getByRole('button', { name: '保存测试' }))
     expect(JSON.parse(screen.getByRole('status').textContent ?? '{}').values).toEqual([{ axis: '净宽', value: 900.2, unit: 'mm' }])
+  })
+})
+
+describe('测量说明语音', () => {
+  const cancel = vi.fn()
+  beforeEach(() => {
+    vi.clearAllMocks()
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
+    vi.stubGlobal('AudioContext', vi.fn())
+    vi.mocked(startVoiceRecording).mockResolvedValue({ finish: () => new File(['wav'], 'recording.wav', { type: 'audio/wav' }), cancel })
+  })
+  afterEach(() => vi.unstubAllGlobals())
+  const setContextOpen = async (open: boolean) => {
+    const details = screen.getByText('测量时间、方法与口径').closest('details')!
+    await act(async () => { details.open = open; fireEvent(details, new Event('toggle')) })
+  }
+  const record = async (label: string) => {
+    const field = screen.getByLabelText(label).closest('label')!
+    await act(async () => fireEvent.click(within(field).getByRole('button', { name: '开始语音输入' })))
+    await act(async () => fireEvent.click(within(field).getByRole('button', { name: '停止并转写' })))
+  }
+
+  it('方法合并换行、口径保留多行，保存时不影响尺寸与单位', async () => {
+    render(<Form initial={{ values: [{ axis: '净宽', value: 90, unit: 'cm' }], method: '卷尺', tolerance_text: '未含门框' }} />)
+    await setContextOpen(true)
+    vi.mocked(transcribeAudio).mockResolvedValueOnce({ text: '完成面\n之间', duration_ms: 100 }).mockResolvedValueOnce({ text: '约有两毫米误差\n等待复测', duration_ms: 100 })
+    await record('测量方法')
+    await record('误差与测量口径')
+    expect(screen.getByLabelText('测量方法')).toHaveProperty('value', '卷尺 完成面 之间')
+    expect(screen.getByPlaceholderText('例如：未含门框；约有 2 mm 误差')).toHaveProperty('value', '未含门框\n约有两毫米误差\n等待复测')
+    fireEvent.click(screen.getByRole('button', { name: '保存测试' }))
+    expect(JSON.parse(document.querySelector('output')?.textContent ?? '{}')).toMatchObject({ values: [{ axis: '净宽', value: 900, unit: 'mm' }], method: '卷尺 完成面 之间' })
+  })
+
+  it('收起说明取消转写并忽略迟到结果，忙碌状态恢复', async () => {
+    let resolve!: (value: { text: string; duration_ms: number }) => void
+    vi.mocked(transcribeAudio).mockReturnValue(new Promise(done => { resolve = done }))
+    const busy = vi.fn()
+    render(<MeasurementFields payload={{ method: '保留方法' }} onChange={vi.fn()} onVoiceBusyChange={busy} />)
+    await setContextOpen(true)
+    await record('测量方法')
+    expect(busy).toHaveBeenLastCalledWith(true)
+    const signal = vi.mocked(transcribeAudio).mock.calls[0][1]
+    await setContextOpen(false)
+    expect(signal?.aborted).toBe(true)
+    expect(busy).toHaveBeenLastCalledWith(false)
+    await act(async () => resolve({ text: '迟到文字', duration_ms: 100 }))
+    await setContextOpen(true)
+    expect(screen.getByLabelText('测量方法')).toHaveProperty('value', '保留方法')
+  })
+
+  it('非活动表单即使展开说明也无法启动语音', async () => {
+    render(<MeasurementFields active={false} payload={{}} onChange={vi.fn()} />)
+    await setContextOpen(true)
+    expect(screen.getAllByRole('button', { name: '开始语音输入' }).every(button => (button as HTMLButtonElement).disabled)).toBe(true)
+    expect(startVoiceRecording).not.toHaveBeenCalled()
   })
 })

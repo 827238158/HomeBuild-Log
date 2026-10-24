@@ -52,10 +52,12 @@ function TopicForm({ topic, busy, active, onSubmit, onCancel }: {
   const initial = topic ? { name: topic.name, goal: topic.goal ?? '', current_situation: topic.current_situation ?? '' } : emptyInput
   const { draft, change, clear } = useTopicDraft(topic?.id ?? 'new', initial)
   const [error, setError] = useState('')
+  const [voiceBusy, setVoiceBusy] = useState(false)
   const dirty = draft.name !== initial.name || draft.goal !== initial.goal || draft.current_situation !== initial.current_situation
   useNavigationGuard(dirty || busy, undefined, active)
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    if (voiceBusy) return
     if (!draft.name.trim()) { setError('请填写主题名称。'); return }
     setError('')
     const saved = await onSubmit({ name: draft.name.trim(), goal: draft.goal?.trim() ?? '', current_situation: draft.current_situation?.trim() ?? '' })
@@ -64,11 +66,11 @@ function TopicForm({ topic, busy, active, onSubmit, onCancel }: {
   return <form className="topic-form" onSubmit={submit}>
     <fieldset disabled={busy}>
       <legend>{topic ? '编辑主题' : '新建主题'}</legend>
-      <label><span>主题名称</span><input value={draft.name} maxLength={200} required onChange={event => change({ ...draft, name: event.target.value })} placeholder="例如：全屋智能开关规划" /></label>
+      <label><span>主题名称</span><VoiceField onBusyChange={setVoiceBusy} active={active && !busy}><input aria-label="主题名称" value={draft.name} maxLength={200} required onChange={event => change({ ...draft, name: event.target.value })} placeholder="例如：全屋智能开关规划" /></VoiceField></label>
       <label><span>目标（可选）</span><VoiceField active={active && !busy}><textarea value={draft.goal ?? ''} rows={2} maxLength={10000} onChange={event => change({ ...draft, goal: event.target.value })} placeholder="这件事最终要完成什么？" /></VoiceField></label>
       <label><span>当前情况（可选）</span><VoiceField active={active && !busy}><textarea value={draft.current_situation ?? ''} rows={3} maxLength={10000} onChange={event => change({ ...draft, current_situation: event.target.value })} placeholder="进展与待留意事项" /></VoiceField></label>
       {error && <p className="error-text" role="alert">{error}</p>}
-      <div className="topic-actions"><button type="submit">{busy ? '保存中…' : topic ? '保存主题' : '创建主题'}</button><button className="topic-secondary" type="button" onClick={() => { if (confirmNavigation()) { clear(); onCancel() } }}>取消</button></div>
+      <div className="topic-actions"><button type="submit" disabled={busy || voiceBusy}>{busy ? '保存中…' : topic ? '保存主题' : '创建主题'}</button><button className="topic-secondary" type="button" onClick={() => { if (confirmNavigation()) { clear(); onCancel() } }}>取消</button></div>
     </fieldset>
   </form>
 }

@@ -2,7 +2,8 @@
 .source-input-wrap { width: 100%; min-width: 0; }
 .source-input-field { min-width: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); }
 .source-input-field:focus-within { border-color: var(--primary); }
-.source-input-wrap[data-voice-status] .source-input-field > textarea {
+.source-input-wrap[data-voice-status] .source-input-field > textarea,
+.source-input-wrap[data-voice-status] .source-input-field > input:not([type="checkbox"]):not([type="radio"]) {
   display: block;
   width: 100%;
   min-height: 64px;
@@ -15,13 +16,15 @@
   box-shadow: none;
   resize: none;
 }
-.source-input-field:has(> textarea:focus-visible) { outline: 2px solid var(--primary); outline-offset: 1px; }
-.voice-toolbar { display: flex; justify-content: flex-end; align-items: center; min-width: 0; height: 44px; padding-inline: 4px; }
+.source-input-field:has(> :is(textarea, input):focus-visible) { outline: 2px solid var(--primary); outline-offset: 1px; }
+.source-input-wrap[data-voice-status] .source-input-field > input:not([type="checkbox"]):not([type="radio"]) { min-height: 44px; }
+.voice-toolbar { display: flex; justify-content: flex-end; align-items: center; min-width: 0; min-height: 44px; gap: 4px; padding-inline: 4px; }
 
 /* 组件拥有自己的按钮样式，44px 点击区内仅显示轻量图案。 */
 .source-input-wrap .voice-trigger,
 .source-input-wrap .voice-capsule button,
-.source-input-wrap .voice-panel button {
+.source-input-wrap .voice-panel button,
+.source-input-wrap .voice-idle-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -56,7 +59,8 @@
 }
 .source-input-wrap .voice-trigger:hover:not(:disabled),
 .source-input-wrap .voice-capsule button:hover:not(:disabled),
-.source-input-wrap .voice-panel button:hover:not(:disabled) { color: var(--primary); background: var(--surface-soft); }
+.source-input-wrap .voice-panel button:hover:not(:disabled),
+.source-input-wrap .voice-idle-actions button:hover:not(:disabled) { color: var(--primary); background: var(--surface-soft); }
 .source-input-wrap button:focus-visible { outline: 2px solid var(--primary); outline-offset: -3px; }
 .source-input-wrap .voice-trigger:disabled { opacity: .5; cursor: default; }
 
@@ -79,7 +83,7 @@
 .voice-capsule__stop span { width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
 .voice-wait-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .voice-progress { width: 12px; height: 12px; flex: none; margin-inline: 4px; border: 1.5px solid var(--border-strong); border-top-color: var(--primary); border-radius: 50%; animation: voice-spin .8s linear infinite; }
-.source-input-wrap .voice-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; color: var(--ink-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.source-input-wrap .voice-panel { flex: 1; min-width: 0; padding-inline-start: 8px; color: var(--ink-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .source-input-wrap .voice-panel--error { color: var(--risk); }
 .source-input-wrap .voice-panel--done { color: var(--success); }
 .source-input-wrap .voice-panel button { color: var(--primary); }
@@ -89,3 +93,6 @@
   .voice-progress { animation: none; }
   .voice-capsule__wave i { transition: none; }
 }
+
+.source-input-wrap .voice-idle-actions { display: flex; flex: none; align-items: center; }
+.source-input-wrap .voice-idle-actions > button:not(.voice-trigger) { color: var(--primary); }

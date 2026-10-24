@@ -2,6 +2,7 @@ import { HttpError } from './http'
 import { listTopics, type Topic } from './topicsApi'
 import { DropdownChevron } from './DropdownChevron'
 import { VoiceField } from './VoiceField'
+import { useMediaQuery } from './useMediaQuery'
 import { RecordConflict, conflictRecord } from './RecordConflict'
 import type { ProjectionRecord } from './domainApi'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
@@ -175,8 +176,11 @@ function ResearchDetail({ topic, onSaved, busy, setBusy, feedback, setFeedback, 
   </article>
 }
 export function ResearchView({ initialResearchId, initialTopicId, initialMatchId }: { initialResearchId?: string; initialTopicId?: string; initialMatchId?: string } = {}) {
+  const compactLayout = useMediaQuery('(max-width: 760px)')
   const [captureOpen, setCaptureOpen] = useState(!!initialTopicId)
   const [title, setTitle] = useDraft('research:new-title', '')
+  const [titleOverflow, setTitleOverflow] = useDraft('research:new-title:voice-overflow', '')
+  const [captureVoiceBusy, setCaptureVoiceBusy] = useState(false)
   const [items, setItems] = useState<ResearchTopic[]>([])
   const [selected, setSelected] = useState<ResearchTopic | null>(null)
   const [filter, setFilter] = useState<ResearchStatus | 'all'>('all')
@@ -186,7 +190,7 @@ export function ResearchView({ initialResearchId, initialTopicId, initialMatchId
   const { value: topicIds, change: setTopicIds, clear: clearTopics } = useTopicDraft(`research:new:${initialTopicId ?? 'none'}:topics`, initialTopicId ? [initialTopicId] : [], saving)
   const options = useAssociationOptions()
   const associations = useAssociationDraft(`research:new:${initialTopicId ?? 'none'}:associations`, {}, saving)
-  useNavigationGuard(!!title.trim() || saving)
+  useNavigationGuard(!!title.trim() || !!titleOverflow || saving)
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
   const changeNewAssociation = (key: string, value: unknown) => {
@@ -210,14 +214,14 @@ export function ResearchView({ initialResearchId, initialTopicId, initialMatchId
     if (focusDetail.current) {
       // 桌面详情与列表并排，只转移键盘焦点；避免长卡片获焦时把页面拉到底部。
       detailPane.current?.focus({ preventScroll: true })
-      if (window.matchMedia?.('(max-width: 760px)').matches) detailPane.current?.scrollIntoView?.({ block: 'start' })
+      if (compactLayout) detailPane.current?.scrollIntoView?.({ block: 'start' })
       focusDetail.current = false
     }
     if (focusList.current) {
       const target = listPane.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]') ?? searchInput.current
       target?.focus({ preventScroll: true }); target?.scrollIntoView?.({ block: 'nearest' }); focusList.current = false
     }
-  }, [detailMode, selected?.id])
+  }, [detailMode, selected?.id, compactLayout])
   const detailRequest = useRef(0)
   const mutationVersion = useRef(0)
   const selectedId = useRef<string | null>(null)
@@ -236,11 +240,12 @@ export function ResearchView({ initialResearchId, initialTopicId, initialMatchId
   }
   const create = async (event: FormEvent) => {
     event.preventDefault()
+    if (saving || captureVoiceBusy || titleOverflow) return
     if (!title.trim()) { setError('请先写下想调研的问题。'); return }
     const contextError = requiredRecordContextError(associations.payload)
     if (contextError) { setError(contextError); return }
     setSaving(true); setError('')
-    try { const topic = await createResearch(title.trim(), topicIds, associations.payload); setCaptureOpen(false); associations.clear(); clearTopics(); saved(topic); setSelected(topic); focusDetail.current = true; setDetailMode(true); detailRequest.current += 1; setDetailError(''); setTitle('') } catch (failure) { setError(messageOf(failure)) } finally { setSaving(false) }
+    try { const topic = await createResearch(title.trim(), topicIds, associations.payload); setCaptureOpen(false); associations.clear(); clearTopics(); saved(topic); setSelected(topic); focusDetail.current = true; setDetailMode(true); detailRequest.current += 1; setDetailError(''); setTitle(''); setTitleOverflow('') } catch (failure) { setError(messageOf(failure)) } finally { setSaving(false) }
   }
   const open = (topic: ResearchTopic) => {
     setOpenRevision(value => value + 1)
@@ -260,7 +265,7 @@ export function ResearchView({ initialResearchId, initialTopicId, initialMatchId
   }, [initialResearchId, loading, items])
   const visible = items.filter(topic => (filter === 'all' || (topic.status === 'concluded' ? 'comparing' : topic.status) === filter) && `${topic.title} ${topic.question} ${topic.description ?? ''} ${topic.entries.map(entry => `${entry.content} ${entry.sources.join(' ')} ${entry.uncertainties ?? ''}`).join(' ')}`.toLowerCase().includes(search.trim().toLowerCase()))
   return <section className={`view-panel research-page${detailMode ? ' research-show-detail' : ''}`}><header className="business-page-header"><h2>调研笔记</h2><button className="business-entry-toggle research-capture-toggle" type="button" aria-expanded={captureOpen} aria-controls="research-capture" disabled={saving} onClick={() => setCaptureOpen(value => !value)}>{captureOpen ? '收起' : '新增调研'}</button></header>
-    {captureOpen && <form id="research-capture" className="research-capture" onSubmit={create}><label>随手记一个问题<input disabled={saving || loading} value={title} maxLength={200} onChange={event => setTitle(event.target.value)} placeholder="想到什么先记下来，之后再调研" /></label><TopicSelect value={topicIds} onChange={setTopicIds} disabled={saving} /><RecordAssociations requireContext payload={{ ...associations.payload, topic_ids: topicIds }} onChange={changeNewAssociation} entities={options.entities} records={options.records} disabled={saving} loading={options.loading} optionsError={options.error} onRetry={options.retry} error={/空间|材料|阶段|人员|关联|space|material|participant|stage|related/i.test(error) ? error : undefined} /><button type="submit" disabled={saving || loading}>{saving ? '保存中…' : '记下问题'}</button></form>}
+    {captureOpen && <form id="research-capture" className="research-capture" onSubmit={create}><label>随手记一个问题<VoiceField active={captureOpen && !saving && !loading && (!detailMode || !compactLayout)} onBusyChange={setCaptureVoiceBusy} overflowDraft={{ text: titleOverflow, onChange: setTitleOverflow }}><input aria-label="随手记一个问题" disabled={saving || loading} value={title} maxLength={200} onChange={event => setTitle(event.target.value)} placeholder="想到什么先记下来，之后再调研" /></VoiceField></label><TopicSelect value={topicIds} onChange={setTopicIds} disabled={saving} /><RecordAssociations requireContext payload={{ ...associations.payload, topic_ids: topicIds }} onChange={changeNewAssociation} entities={options.entities} records={options.records} disabled={saving} loading={options.loading} optionsError={options.error} onRetry={options.retry} error={/空间|材料|阶段|人员|关联|space|material|participant|stage|related/i.test(error) ? error : undefined} /><button type="submit" disabled={saving || loading || captureVoiceBusy || !!titleOverflow}>{saving ? '保存中…' : '记下问题'}</button></form>}
     {error && <div role="alert" className="error-text">{error}<button className="text-button" type="button" onClick={() => setRevision(value => value + 1)}>重新加载</button></div>}
     <div className="research-toolbar"><label>搜索调研<input ref={searchInput} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索事项和调研内容" /></label><label><span>筛选状态</span><Select aria-label="筛选状态" value={filter} onChange={event => setFilter(event.target.value as ResearchStatus | 'all')}><option value="all">全部</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></label></div>
     {loading && <p role="status">正在读取调研事项…</p>}

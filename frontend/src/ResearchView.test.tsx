@@ -5,6 +5,11 @@ import * as api from './researchApi'
 import { HttpError } from './http'
 import { confirmNavigation } from './navigationGuard'
 import { ResearchView } from './ResearchView'
+import { transcribeAudio } from './api'
+import { startVoiceRecording } from './voiceAudio'
+
+vi.mock('./voiceAudio', () => ({ MAX_RECORDING_MS: 180_000, startVoiceRecording: vi.fn() }))
+vi.mock('./api', async importOriginal => ({ ...await importOriginal<typeof import('./api')>(), transcribeAudio: vi.fn() }))
 
 vi.mock('./topicsApi', () => ({ listTopics: vi.fn(async () => ({ items: [], summary: { total: 0, active: 0, archived: 0 } })) }))
 vi.mock('./domainApi', () => ({ listSpaces: vi.fn(async () => [{ id: 'kitchen', name: '厨房', kind: 'room', parent_id: null }]), listEntities: vi.fn(async (kind: string) => kind === 'stages' ? [{ id: 'stage', name: '安装' }] : []), listRecords: vi.fn(async () => []) }))
@@ -453,4 +458,105 @@ it('事项保存中切走返回，晚返回错误自动展开且草稿保留', a
   expect(screen.getByRole('button', { name: '事项信息' }).getAttribute('aria-expanded')).toBe('true')
   expect(screen.getByRole('button', { name: '保存修改' })).toBeTruthy()
   expect(screen.getByTestId('topics').textContent).toBe('')
+})
+
+describe('快速新增调研语音标题', () => {
+  beforeEach(() => {
+    vi.clearAllMocks(); sessionStorage.clear()
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
+    vi.stubGlobal('AudioContext', vi.fn())
+    vi.mocked(startVoiceRecording).mockResolvedValue({ finish: () => new File(['wav'], 'recording.wav', { type: 'audio/wav' }), cancel: vi.fn() })
+    vi.mocked(api.listResearch).mockResolvedValue({ items: [], summary: { total: 0, collecting: 0, comparing: 0, archived: 0 } })
+  })
+  afterEach(() => vi.unstubAllGlobals())
+  const openCapture = async () => {
+    render(<ResearchView />)
+    await screen.findByText('还没有调研事项，从上方记下第一个问题。')
+    fireEvent.click(screen.getByRole('button', { name: '新增调研' }))
+  }
+  const transcribe = async () => {
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '开始语音输入' })))
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '停止并转写' })))
+  }
+
+  it.each(['recording', 'transcribing'])('切到窄屏详情取消隐藏新增字段的%s，恢复宽屏立即可录音', async phase => {
+    const media = Object.assign(new EventTarget(), { matches: false })
+    vi.stubGlobal('matchMedia', vi.fn(() => media))
+    const cancel = vi.fn()
+    vi.mocked(startVoiceRecording).mockResolvedValue({ finish: () => new File(['wav'], 'voice.wav', { type: 'audio/wav' }), cancel })
+    let resolve!: (value: { text: string; duration_ms: number }) => void
+    vi.mocked(transcribeAudio).mockReturnValue(new Promise(done => { resolve = done }))
+    vi.mocked(api.listResearch).mockResolvedValue({ items: [a], summary: { total: 1, collecting: 1, comparing: 0, archived: 0 } })
+    vi.mocked(api.getResearch).mockResolvedValue(a)
+    render(<ResearchView initialResearchId="A" initialTopicId="theme" />)
+    await screen.findByRole('heading', { name: '主题A' })
+    const input = screen.getByLabelText('随手记一个问题')
+    fireEvent.change(input, { target: { value: '保留问题草稿' } })
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '开始语音输入' })))
+    if (phase === 'transcribing') await act(async () => fireEvent.click(screen.getByRole('button', { name: '停止并转写' })))
+    act(() => { media.matches = true; media.dispatchEvent(new Event('change')) })
+    if (phase === 'recording') expect(cancel).toHaveBeenCalled()
+    else {
+      expect(vi.mocked(transcribeAudio).mock.calls[0][1]?.aborted).toBe(true)
+      await act(async () => resolve({ text: '迟到的问题', duration_ms: 100 }))
+    }
+    expect(input).toHaveProperty('value', '保留问题草稿')
+    expect(screen.getByRole('button', { name: '开始语音输入' })).toHaveProperty('disabled', true)
+    act(() => { media.matches = false; media.dispatchEvent(new Event('change')) })
+    expect(screen.getByRole('button', { name: '开始语音输入' })).toHaveProperty('disabled', false)
+    expect(screen.getByRole('button', { name: '记下问题' })).toHaveProperty('disabled', false)
+  })
+
+  it('转写期间禁止创建，文字合并换行后作为问题标题保存', async () => {
+    let resolve!: (value: { text: string; duration_ms: number }) => void
+    vi.mocked(transcribeAudio).mockReturnValue(new Promise(done => { resolve = done }))
+    vi.mocked(api.createResearch).mockResolvedValue(topic('voice'))
+    await openCapture()
+    fireEvent.change(screen.getByLabelText('随手记一个问题'), { target: { value: '比较' } })
+    await chooseContext()
+    await transcribe()
+    expect(screen.getByRole('button', { name: '记下问题' })).toHaveProperty('disabled', true)
+    fireEvent.submit(screen.getByRole('button', { name: '记下问题' }).closest('form')!)
+    expect(api.createResearch).not.toHaveBeenCalled()
+    await act(async () => resolve({ text: '智能开关\n和普通开关', duration_ms: 100 }))
+    expect(screen.getByPlaceholderText('想到什么先记下来，之后再调研')).toHaveProperty('value', '比较 智能开关 和普通开关')
+    fireEvent.click(screen.getByRole('button', { name: '记下问题' }))
+    await screen.findByRole('heading', { name: '主题voice' })
+    expect(api.createResearch).toHaveBeenCalledWith('比较 智能开关 和普通开关', [], expect.objectContaining({ space_ids: ['kitchen'], stage_id: 'stage' }))
+  })
+
+  it('超长标题不截断，收起和重新挂载仍保留待修正草稿并禁保存', async () => {
+    vi.mocked(transcribeAudio).mockResolvedValue({ text: '语'.repeat(201), duration_ms: 100 })
+    await openCapture()
+    fireEvent.change(screen.getByLabelText('随手记一个问题'), { target: { value: '原问题' } })
+    await transcribe()
+    expect(screen.getByPlaceholderText('想到什么先记下来，之后再调研')).toHaveProperty('value', '原问题')
+    expect(screen.getByLabelText('待修正的语音结果')).toHaveProperty('value', '语'.repeat(201))
+    expect(screen.getByRole('button', { name: '记下问题' })).toHaveProperty('disabled', true)
+    fireEvent.click(screen.getByRole('button', { name: '收起' }))
+    fireEvent.click(screen.getByRole('button', { name: '新增调研' }))
+    expect(screen.getByLabelText('待修正的语音结果')).toHaveProperty('value', '语'.repeat(201))
+    expect(screen.getByRole('button', { name: '记下问题' })).toHaveProperty('disabled', true)
+    fireEvent.change(screen.getByLabelText('待修正的语音结果'), { target: { value: '补充\n问题' } })
+    fireEvent.click(screen.getByRole('button', { name: '应用文字' }))
+    expect(screen.getByPlaceholderText('想到什么先记下来，之后再调研')).toHaveProperty('value', '原问题 补充 问题')
+    expect(screen.queryByLabelText('待修正的语音结果')).toBeNull()
+    expect(screen.getByRole('button', { name: '记下问题' })).toHaveProperty('disabled', false)
+  })
+
+  it('收起新增表单取消请求，迟到转写不回填下一次展开的标题', async () => {
+    let resolve!: (value: { text: string; duration_ms: number }) => void
+    vi.mocked(transcribeAudio).mockReturnValue(new Promise(done => { resolve = done }))
+    await openCapture()
+    fireEvent.change(screen.getByLabelText('随手记一个问题'), { target: { value: '保留草稿' } })
+    await transcribe()
+    const signal = vi.mocked(transcribeAudio).mock.calls[0][1]
+    fireEvent.click(screen.getByRole('button', { name: '收起' }))
+    expect(signal?.aborted).toBe(true)
+    await act(async () => resolve({ text: '迟到问题', duration_ms: 100 }))
+    fireEvent.click(screen.getByRole('button', { name: '新增调研' }))
+    expect(screen.getByLabelText('随手记一个问题')).toHaveProperty('value', '保留草稿')
+    expect(screen.getByRole('button', { name: '记下问题' })).toHaveProperty('disabled', false)
+  })
 })

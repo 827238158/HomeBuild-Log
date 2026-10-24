@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, useState } from 'react'
 
 import * as api from './domainApi'
@@ -7,6 +7,8 @@ import { defaultPayload, DomainWorkspace, normalizeMeasurementValues, payloadFor
 import { confirmNavigation } from './navigationGuard'
 import { transcribeAudio } from './api'
 import { startVoiceRecording } from './voiceAudio'
+
+afterEach(() => vi.unstubAllGlobals())
 
 vi.mock('./api', () => ({ transcribeAudio: vi.fn() }))
 vi.mock('./voiceAudio', () => ({ MAX_RECORDING_MS: 180_000, startVoiceRecording: vi.fn() }))
@@ -246,6 +248,33 @@ describe('DomainWorkspace', () => {
     await waitFor(() => expect(api.confirmCandidateBundle).toHaveBeenCalled())
     expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0]).toMatchObject({ key: 'issue:1' })
     expect(vi.mocked(api.confirmCandidateBundle).mock.calls.at(-1)?.[2][0]).not.toHaveProperty('evidence')
+  })
+  it.each(['recording', 'transcribing'])('候选切到窄屏列表取消隐藏字段的%s，恢复宽屏立即启用', async phase => {
+    const media = Object.assign(new EventTarget(), { matches: false })
+    vi.stubGlobal('matchMedia', vi.fn(() => media))
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn() } })
+    vi.stubGlobal('AudioContext', vi.fn())
+    const cancel = vi.fn()
+    vi.mocked(startVoiceRecording).mockResolvedValue({ finish: () => new File(['wav'], 'voice.wav', { type: 'audio/wav' }), cancel })
+    let resolve!: (value: { text: string; duration_ms: number }) => void
+    vi.mocked(transcribeAudio).mockReturnValue(new Promise(done => { resolve = done }))
+    render(<TestDomainWorkspace refreshKey={0} />)
+    const input = await screen.findByDisplayValue('地砖破裂')
+    const titleField = within(input.closest('.source-input-wrap') as HTMLElement)
+    await act(async () => fireEvent.click(titleField.getByRole('button', { name: '开始语音输入' })))
+    if (phase === 'transcribing') await act(async () => fireEvent.click(titleField.getByRole('button', { name: '停止并转写' })))
+    act(() => { media.matches = true; media.dispatchEvent(new Event('change')) })
+    if (phase === 'recording') expect(cancel).toHaveBeenCalled()
+    else {
+      expect(vi.mocked(transcribeAudio).mock.calls[0][1]?.aborted).toBe(true)
+      await act(async () => resolve({ text: '迟到候选标题', duration_ms: 100 }))
+    }
+    expect(input).toHaveProperty('value', '地砖破裂')
+    expect(titleField.getByRole('button', { name: '开始语音输入' })).toHaveProperty('disabled', true)
+    act(() => { media.matches = false; media.dispatchEvent(new Event('change')) })
+    expect(titleField.getByRole('button', { name: '开始语音输入' })).toHaveProperty('disabled', false)
+    expect(screen.getByRole('button', { name: '确认所选' })).toHaveProperty('disabled', false)
   })
   it('切换候选会取消转写且忽略旧候选迟到结果', async () => {
     Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })

@@ -83,3 +83,5 @@
 - 2026-10-20：Ubuntu Docker 服务更新至 `0717dba1dbdb`。完整 Git bundle 经本地与服务器验证后将源码 fast-forward；使用 DaoCloud、npmmirror 和阿里云 PyPI 的一次性临时 Dockerfile 构建并切换 `homebuild-log:0717dba1dbdb`，无数据库迁移，未创建数据恢复点。新容器 healthy，SQLite 完整性 `ok`、revision `0022_add_due_date_and_record_version`、35 张业务表以及 `192.168.1.17` 的 HTTP/HTTPS 健康接口均通过；Caddy 保留运行，Mihomo inactive，临时 bundle 和构建日志已清理。
 | 2026-10-23 | AI重心转向近期回顾 | 小主明确取消候选原文摘录需求，现有整理降为辅助；新增手动只读近期回顾，以正式记录与追加历史回答进展、跟进、待确认，保留可点击引用；不自动创建或改写业务。无迁移、不清理旧数据、尚未部署。 |
 - 2026-10-23 首版验证：前端400项、类型检查和构建通过；后端全量264项及最终回顾8项定向、Ruff通过。隔离Edge三宽度核对引用跳转及返回结果保留，真实模型质量与实机体验待验收；未部署。
+
+- 2026-10-23：Ubuntu Docker 服务更新至 `ce0326050dcc`。完整 Git bundle 经本地与服务器验证后将源码 fast-forward；使用 DaoCloud、npmmirror 和阿里云 PyPI 的一次性临时 Dockerfile 构建并切换 `homebuild-log:ce0326050dcc`，无数据库迁移，未创建数据恢复点。新容器 healthy，SQLite 完整性 `ok`、revision `0022_add_due_date_and_record_version`、35 张业务表以及 `192.168.1.17` 的 HTTP/HTTPS 健康接口均通过；Caddy 保留运行，Mihomo inactive，临时 bundle 和构建日志已清理。
