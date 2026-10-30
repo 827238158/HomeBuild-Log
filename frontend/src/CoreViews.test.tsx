@@ -26,6 +26,8 @@ vi.mock('./domainApi', () => ({
   getSource: vi.fn(),
   listRelations: vi.fn(),
   listRecordAudit: vi.fn(),
+  listLedgerRefunds: vi.fn(),
+  registerLedgerRefund: vi.fn(),
   reviewRecordSource: vi.fn(),
   listPitfalls: vi.fn(),
   createPitfall: vi.fn(),
@@ -95,8 +97,8 @@ beforeEach(() => {
   vi.mocked(api.listEntities).mockResolvedValue([])
   vi.mocked(api.getOverview).mockResolvedValue({
     as_of_date: '2026-07-01', horizon_date: '2026-07-08',
-    summary: { open_issue_count: 0, overdue_count: 0, upcoming_count: 0 },
-    open_issues: [], overdue: [], upcoming: [], recent_records: [record], stage_distribution: [],
+    summary: { open_issue_count: 0, open_research_count: 0, overdue_count: 0, upcoming_count: 0 },
+    open_issues: [], open_research: [], overdue: [], upcoming: [], recent_records: [record], stage_distribution: [],
   })
   vi.mocked(api.getRecordsAnalytics).mockResolvedValue({
     summary: analytics, specific: {}, records: [record],
@@ -157,6 +159,9 @@ beforeEach(() => {
     limit: 20, offset: 0,
   })
   vi.mocked(api.getRecord).mockResolvedValue(record)
+  vi.mocked(api.listLedgerRefunds).mockImplementation(async id => ({
+    payment: await api.getRecord(id), items: [], excluded_topic_names: [],
+  }))
   vi.mocked(api.listRelations).mockResolvedValue([])
   vi.mocked(api.listRecordAudit).mockResolvedValue([])
   vi.mocked(api.getSource).mockResolvedValue({
@@ -167,6 +172,62 @@ beforeEach(() => {
 })
 
 describe('CoreViews', () => {
+  const refundNavigationDraftKey = 'ledger:refund-payment-nav:refund'
+  const openRefundNavigationDraft = async () => {
+    sessionStorage.removeItem(refundNavigationDraftKey)
+    const payment: ProjectionRecord = { ...record, id: 'refund-payment-nav', title: '退款导航测试付款', record_type: 'ledger', ledger_kind: 'payment', direction: 'expense', status: 'paid', amount_minor: 10000, source_refs: [], refunded_minor: 1000, refundable_minor: 9000, refund_state: 'partial' }
+    const refund: ProjectionRecord = { ...payment, id: 'refund-nav-child', title: '已有退款流水', ledger_kind: 'refund', direction: 'refund', status: 'posted', amount_minor: 1000, refund_of_record_id: payment.id }
+    vi.mocked(api.getLedgerSummary).mockResolvedValue({ totals: { expense_minor: 10000, refund_minor: 1000, income_minor: 0, net_expense_minor: 9000 }, ledger_entries: [payment, refund], analytics: { money_trend: [], payment_composition: [], vendor_distribution: [] } })
+    vi.mocked(api.getRecord).mockImplementation(async id => id === refund.id ? refund : payment)
+    vi.mocked(api.listLedgerRefunds).mockResolvedValue({ payment, items: [refund], excluded_topic_names: [] })
+    render(<CoreViews><p>录入</p></CoreViews>)
+    fireEvent.click(screen.getByRole('button', { name: '账本' }))
+    fireEvent.click(await screen.findByRole('button', { name: /付款总额/ }))
+    fireEvent.click(within(await screen.findByRole('dialog', { name: '付款总额' })).getByRole('button', { name: /退款导航测试付款/ }))
+    const detail = await screen.findByRole('dialog', { name: '记录详情' })
+    fireEvent.click(await within(detail).findByRole('button', { name: '登记退款' }))
+    fireEvent.change(within(detail).getByLabelText('退款金额（元）'), { target: { value: '20.00' } })
+    fireEvent.change(within(detail).getByLabelText('退款备注（可选）'), { target: { value: '尚未提交的退款备注' } })
+    return detail
+  }
+
+  it.each([true, false])('退款草稿跳转历史在完整导航链只确认一次（接受：%s）', async accept => {
+    const detail = await openRefundNavigationDraft()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(accept)
+    try {
+      fireEvent.click(within(within(detail).getByRole('list', { name: '退款历史' })).getByRole('button'))
+      if (accept) {
+        expect(await screen.findByRole('button', { name: '返回原付款' })).toBeTruthy()
+      } else {
+        expect(within(detail).getByLabelText('退款金额（元）')).toHaveProperty('value', '20.00')
+        expect(within(detail).getByLabelText('退款备注（可选）')).toHaveProperty('value', '尚未提交的退款备注')
+        expect(screen.queryByRole('button', { name: '返回原付款' })).toBeNull()
+      }
+      expect(confirm).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(sessionStorage.getItem(refundNavigationDraftKey)!).amount).toBe('20.00')
+    } finally {
+      confirm.mockRestore(); sessionStorage.removeItem(refundNavigationDraftKey)
+    }
+  })
+
+  it('展开退款表单时Escape经过一次草稿确认，取消保留内容，接受后返回账本明细', async () => {
+    const detail = await openRefundNavigationDraft()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+    try {
+      within(detail).getByLabelText('退款金额（元）').focus()
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+      expect(confirm).toHaveBeenCalledTimes(1)
+      expect(within(detail).getByLabelText('退款金额（元）')).toHaveProperty('value', '20.00')
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: '记录详情' })).toBeNull())
+      expect(screen.getByRole('dialog', { name: '付款总额' })).toBeTruthy()
+      expect(confirm).toHaveBeenCalledTimes(2)
+      expect(JSON.parse(sessionStorage.getItem(refundNavigationDraftKey)!).description).toBe('尚未提交的退款备注')
+    } finally {
+      confirm.mockRestore(); sessionStorage.removeItem(refundNavigationDraftKey)
+    }
+  })
+
   it('时间线默认收起，开关保留未应用草稿且不额外查询，图表条件可在收起时清除', async () => {
     render(<CoreViews><p>录入</p></CoreViews>)
     fireEvent.click(screen.getByRole('button', { name: '时间线' }))
@@ -589,8 +650,8 @@ describe('CoreViews', () => {
   it('概览阶段分布同时展示图表和阶段明细', async () => {
     vi.mocked(api.getOverview).mockResolvedValueOnce({
       as_of_date: '2026-07-01', horizon_date: '2026-07-08',
-      summary: { open_issue_count: 0, overdue_count: 0, upcoming_count: 0 },
-      open_issues: [], overdue: [], upcoming: [], recent_records: [],
+      summary: { open_issue_count: 0, open_research_count: 0, overdue_count: 0, upcoming_count: 0 },
+      open_issues: [], open_research: [], overdue: [], upcoming: [], recent_records: [],
       stage_distribution: [
         { key: 'demolition', label: '拆改', value: 2 },
         { key: 'tiling', label: '瓦工', value: 1 },

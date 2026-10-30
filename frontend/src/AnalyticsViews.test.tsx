@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from './domainApi'
 import { AiAnalyticsView, OverviewView, RecordsAnalyticsView } from './AnalyticsViews'
@@ -22,7 +22,7 @@ const recordsWithCards = (count: number): api.RecordsAnalyticsResponse => ({
     participant_ids: [], participants: [], attachment_ids: [],
   })),
 })
-const overview = (count: number): api.OverviewResponse => ({ as_of_date: '2026-10-04', horizon_date: '2026-10-11', summary: { open_issue_count: count, overdue_count: 0, upcoming_count: 0 }, open_issues: [], overdue: [], upcoming: [], recent_records: [], stage_distribution: [] })
+const overview = (count: number): api.OverviewResponse => ({ as_of_date: '2026-10-04', horizon_date: '2026-10-11', summary: { open_issue_count: count, open_research_count: 0, overdue_count: 0, upcoming_count: 0 }, open_issues: [], open_research: [], overdue: [], upcoming: [], recent_records: [], stage_distribution: [] })
 const aiOverview = (count: number): api.AiAnalyticsOverview => ({ range: '30d', summary: { request_count: count, success_rate: 1, fallback_rate: 0, average_duration_ms: 1, p95_duration_ms: 1, total_tokens: 1, token_request_count: 1 }, trend: [], engine_distribution: [], error_distribution: [] })
 
 describe('分析查询保护', () => {
@@ -242,6 +242,61 @@ describe('分析查询保护', () => {
     await screen.findByText('222')
     await act(async () => old.resolve(aiOverview(111)))
     expect(screen.queryByText('111')).toBeNull()
+  })
+
+  it('概览优先展示两类未关闭事项，标出截止风险并分别打开详情', async () => {
+    const base = recordsWithCards(1).records[0]
+    const issue = { ...base, id: 'issue-1', record_type: 'issue', title: '确认水电整改', status: 'in_progress', due_date: '2026-10-01' }
+    const research = { ...base, id: 'research-1', record_type: 'research', title: '比较厨房台面', status: 'concluded' }
+    vi.mocked(api.getOverview).mockResolvedValue({
+      ...overview(2), summary: { open_issue_count: 2, open_research_count: 1, overdue_count: 1, upcoming_count: 0 },
+      open_issues: [issue, { ...issue, id: 'issue-2', title: '预约安装', status: 'pending', due_date: null }], open_research: [research], overdue: [issue],
+      stage_distribution: [{ key: 'stage', label: '安装', value: 3 }],
+    })
+    const onOpen = vi.fn(), onOpenResearch = vi.fn()
+    const { container } = render(<OverviewView onOpen={onOpen} onOpenResearch={onOpenResearch} refreshRevision={0} />)
+    const issues = await screen.findByRole('region', { name: '未完成待办与问题' })
+    const researches = screen.getByRole('region', { name: '未归档调研' })
+    expect(within(issues).getByText('已逾期 · 截止 2026年10月1日')).toBeTruthy()
+    expect(within(issues).getByText('未设截止日期')).toBeTruthy()
+    expect(within(researches).getByText('调研中')).toBeTruthy()
+    const pending = container.querySelector('.overview-pending-grid')!
+    expect(pending.compareDocumentPosition(container.querySelector('.overview-stage-panel')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(within(issues).getByRole('button', { name: /确认水电整改/ }))
+    fireEvent.click(within(researches).getByRole('button', { name: /比较厨房台面/ }))
+    expect(onOpen).toHaveBeenCalledWith('issue-1')
+    expect(onOpenResearch).toHaveBeenCalledWith('research-1')
+  })
+
+  it('概览列表分别展开，截止为近期的事项仍只出现一次', async () => {
+    const base = recordsWithCards(1).records[0]
+    const issues = Array.from({ length: 8 }, (_, i) => ({ ...base, id: `issue-${i}`, record_type: 'issue', title: `待办 ${i}`, status: 'pending', due_date: '2026-10-05' }))
+    const researches = Array.from({ length: 7 }, (_, i) => ({ ...base, id: `research-${i}`, record_type: 'research', title: `调研 ${i}`, status: 'collecting' }))
+    vi.mocked(api.getOverview).mockResolvedValue({ ...overview(8), open_issues: issues, open_research: researches, upcoming: [issues[0]], summary: { open_issue_count: 8, open_research_count: 7, overdue_count: 0, upcoming_count: 1 } })
+    render(<OverviewView onOpen={vi.fn()} refreshRevision={0} />)
+    const issueRegion = await screen.findByRole('region', { name: '未完成待办与问题' })
+    const researchRegion = screen.getByRole('region', { name: '未归档调研' })
+    expect(within(issueRegion).getAllByRole('listitem')).toHaveLength(6)
+    expect(within(researchRegion).getAllByRole('listitem')).toHaveLength(6)
+    expect(screen.getAllByText('待办 0')).toHaveLength(1)
+    expect(within(issueRegion).getByText('未来7天 · 截止 2026年10月5日')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '展开更多待办（剩余 2 项）' }))
+    expect(within(issueRegion).getAllByRole('listitem')).toHaveLength(8)
+    expect(within(researchRegion).getAllByRole('listitem')).toHaveLength(6)
+    fireEvent.click(screen.getByRole('button', { name: '展开更多调研（剩余 1 项）' }))
+    expect(within(researchRegion).getAllByRole('listitem')).toHaveLength(7)
+    expect(screen.queryByRole('button', { name: /展开更多/ })).toBeNull()
+  })
+
+  it('概览两类空态始终可见，最近调研也打开调研页', async () => {
+    const research = { ...recordsWithCards(1).records[0], record_type: 'research', title: '最近调研' }
+    vi.mocked(api.getOverview).mockResolvedValue({ ...overview(0), recent_records: [research] })
+    const onOpenResearch = vi.fn()
+    render(<OverviewView onOpen={vi.fn()} onOpenResearch={onOpenResearch} refreshRevision={0} />)
+    expect(await screen.findByText('暂无未完成待办与问题。')).toBeTruthy()
+    expect(screen.getByText('暂无未归档调研。')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /最近调研/ }))
+    expect(onOpenResearch).toHaveBeenCalledWith(research.id)
   })
 
   it('概览刷新忽略旧结果，失败显示重试', async () => {

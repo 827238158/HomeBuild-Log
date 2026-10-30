@@ -68,6 +68,10 @@ export interface ProjectionRecord extends DomainRecord {
   vendor_id?: string | null
   vendor?: { id: string; name: string } | null
   refund_minor?: number
+  refund_of_record_id?: string | null
+  refunded_minor?: number
+  refundable_minor?: number
+  refund_state?: 'none' | 'partial' | 'full'
   phenomenon?: string
   severity?: string | null
   handling_plan?: string | null
@@ -154,8 +158,9 @@ export interface SpaceArchiveResponse {
 export interface OverviewResponse {
   as_of_date: string
   horizon_date: string
-  summary: { open_issue_count: number; overdue_count: number; upcoming_count: number }
+  summary: { open_issue_count: number; open_research_count: number; overdue_count: number; upcoming_count: number }
   open_issues: ProjectionRecord[]
+  open_research: ProjectionRecord[]
   overdue: ProjectionRecord[]
   upcoming: ProjectionRecord[]
   recent_records: ProjectionRecord[]
@@ -444,6 +449,25 @@ export const updateRecord = (id: string, payload: Record<string, unknown>) =>
   requestJson<DomainRecord>(`${API_BASE}/records/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  })
+export interface LedgerRefundList {
+  payment: ProjectionRecord
+  items: ProjectionRecord[]
+  excluded_topic_names: string[]
+}
+export interface LedgerRefundInput {
+  amount_minor: number
+  refund_date: string
+  description: string | null
+  expected_version: number
+  request_id: string
+  space_ids?: string[]
+  stage_id?: string
+}
+export const listLedgerRefunds = (id: string) => requestJson<LedgerRefundList>(`${API_BASE}/records/${id}/refunds`)
+export const registerLedgerRefund = (id: string, payload: LedgerRefundInput) =>
+  requestJson<{ payment: ProjectionRecord; refund: ProjectionRecord }>(`${API_BASE}/records/${id}/refunds`, {
+    method: 'POST', body: JSON.stringify(payload),
   })
 export const deleteRecord = (id: string, expectedVersion?: number) =>
   requestJson<void>(`${API_BASE}/records/${id}?expected_version=${expectedVersion ?? ''}`, { method: 'DELETE' })

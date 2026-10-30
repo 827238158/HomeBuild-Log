@@ -35,6 +35,26 @@ describe('presentSourceText', () => {
     expect(presentSourceText(snapshot({ ...ledger, description }))).toEqual({ text: common.title, isGeneratedSnapshot: true, snapshotTitle: common.title })
   })
 
+  it('关联退款快照隐藏内部付款引用，保持系统来源只读识别', () => {
+    const original = snapshot({ ...ledger, ledger_kind: 'refund', direction: 'refund', status: 'posted', refund_of_record_id: 'payment-1', description: '退掉灯具' })
+    expect(presentSourceText(original)).toEqual({ text: `${common.title}\n退掉灯具`, isGeneratedSnapshot: true, snapshotTitle: common.title })
+    expect(original).toContain('refund_of_record_id')
+  })
+
+  it.each([null, 123, true, '', '  ', {}, []])('关联退款引用非法时不识别系统快照：%j', refund_of_record_id => {
+    const original = snapshot({ ...ledger, ledger_kind: 'refund', direction: 'refund', status: 'posted', refund_of_record_id })
+    expect(presentSourceText(original)).toEqual({ text: original, isGeneratedSnapshot: false })
+  })
+
+  it.each([
+    { ...ledger, refund_of_record_id: 'payment-1' },
+    { ...ledger, ledger_kind: 'income', direction: 'income', status: 'posted', refund_of_record_id: 'payment-1' },
+    { ...issue, refund_of_record_id: 'payment-1' },
+  ])('退款所属付款字段不允许混入其他账目或待办快照', payload => {
+    const original = snapshot(payload)
+    expect(presentSourceText(original)).toEqual({ text: original, isGeneratedSnapshot: false })
+  })
+
   it.each([null, '', '  '])('待办说明为%j时回退事项内容', description => {
     expect(presentSourceText(snapshot({ ...issue, description }))).toEqual({ text: `${common.title}\n请电工核对接线`, isGeneratedSnapshot: true, snapshotTitle: common.title })
   })

@@ -48,6 +48,20 @@ def overview(request: Request, user: User) -> dict[str, Any]:
             for record in rows
             if record["record_type"] == "issue" and record["status"] != "done"
         ]
+        # 概览优先列出有截止日期的待办；未填日期的事项不推测期限。
+        open_issues.sort(
+            key=lambda row: (not bool(row.get("due_date")), row.get("due_date") or "", row["id"]),
+        )
+        # 共用正式记录投影，旧 concluded 状态已按调研中归一。
+        open_research = [
+            record for record in rows
+            if record["record_type"] == "research"
+            and record["status"] in {"collecting", "comparing"}
+        ]
+        open_research.sort(
+            key=lambda row: (row.get("updated_at") or row["created_at"], row["id"]),
+            reverse=True,
+        )
         overdue = [row for row in open_issues
                    if row.get("due_date") and row["due_date"] < today.isoformat()]
         upcoming = [row for row in open_issues if row.get("due_date")
@@ -64,10 +78,12 @@ def overview(request: Request, user: User) -> dict[str, Any]:
             "horizon_date": horizon.isoformat(),
             "summary": {
                 "open_issue_count": len(open_issues),
+                "open_research_count": len(open_research),
                 "overdue_count": len(overdue),
                 "upcoming_count": len(upcoming),
             },
             "open_issues": open_issues,
+            "open_research": open_research,
             "overdue": overdue,
             "upcoming": upcoming,
             "recent_records": recent,

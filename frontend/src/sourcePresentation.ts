@@ -7,7 +7,7 @@ export interface SourcePresentation {
 const snapshotSeparator = '\n录入字段：\n'
 const associationKeys = ['topic_ids', 'space_ids', 'material_ids', 'participant_ids', 'attachment_ids', 'related_record_ids'] as const
 const commonKeys = ['title', 'description', 'occurred_date', 'original_time_text', 'timezone', 'stage_id', 'record_type', 'status', ...associationKeys]
-const ledgerKeys = ['ledger_kind', 'direction', 'payment_kind', 'amount_minor', 'currency', 'payment_date', 'payment_method', 'vendor_id']
+const ledgerKeys = ['ledger_kind', 'direction', 'payment_kind', 'amount_minor', 'currency', 'payment_date', 'payment_method', 'vendor_id', 'refund_of_record_id']
 const issueKeys = ['due_date', 'discovered_at', 'phenomenon', 'severity', 'responsible_party', 'handling_plan', 'completed_at', 'actual_result', 'resolution_kind']
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -45,6 +45,8 @@ function isGeneratedPayload(payload: Record<string, unknown>, title: string): bo
     if (Object.keys(payload).some(key => !commonKeys.includes(key) && !ledgerKeys.includes(key))) return false
     const kind = payload.ledger_kind
     if (kind !== 'payment' && kind !== 'refund' && kind !== 'income') return false
+    // 关联退款快照仍属于系统生成来源；其他账目不能借此字段误判为合法快照。
+    if ('refund_of_record_id' in payload && (kind !== 'refund' || !isNonemptyString(payload.refund_of_record_id))) return false
     const completedStatus = kind === 'payment' ? 'paid' : 'posted'
     return payload.direction === (kind === 'payment' ? 'expense' : kind)
       && typeof payload.status === 'string' && ['planned', 'voided', completedStatus].includes(payload.status)

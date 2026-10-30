@@ -21,6 +21,7 @@ from app.domain_models import (
     DEFAULT_PROJECT_ID,
     CandidateBundle,
     ExtractionRun,
+    LedgerDetail,
     Project,
     Record,
     RecordRelation,
@@ -408,6 +409,27 @@ def delete_source(
         exclusive_ids: list[str] = context["exclusive_ids"]
         shared_ids: list[str] = context["shared_ids"]
         if exclusive_ids:
+            # 来源删除也可能删除正式流水，必须与退款新增使用同一记录版本锁。
+            exclusive_records = db.scalars(select(Record).where(
+                Record.id.in_(exclusive_ids),
+            ).order_by(Record.id)).all()
+            for record in exclusive_records:
+                bump_record_version(db, record, record.version)
+            if db.scalar(select(LedgerDetail.record_id).where(
+                LedgerDetail.refund_of_record_id.in_(exclusive_ids),
+            ).limit(1)) is not None:
+                raise HTTPException(
+                    status_code=409, detail="来源包含有关联退款的付款，请先处理退款。",
+                )
+            refund_parent_ids = set(db.scalars(select(LedgerDetail.refund_of_record_id).where(
+                LedgerDetail.record_id.in_(exclusive_ids),
+                LedgerDetail.refund_of_record_id.is_not(None),
+            )).all())
+            refund_parents = db.scalars(select(Record).where(
+                Record.id.in_(refund_parent_ids),
+            ).order_by(Record.id)).all()
+            for parent in refund_parents:
+                bump_record_version(db, parent, parent.version)
             relations = db.scalars(
                 select(RecordRelation).where(
                     or_(
@@ -451,6 +473,9 @@ def delete_source(
                     before={"record_type": record.record_type, "title": record.title},
                 )
             db.execute(delete(Record).where(Record.id.in_(exclusive_ids)))
+            for parent in refund_parents:
+                log_audit(db, "update", "records", parent.id,
+                          after={"reason": "删除退款来源", "version": parent.version})
 
         if shared_ids:
             for record in db.scalars(select(Record).where(Record.id.in_(shared_ids))).all():

@@ -88,7 +88,9 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, active: boolea
       if (stack.at(-1) !== entry || event.defaultPrevented) return
       // 打开的下拉先消费 Esc；第二次 Esc 才关闭当前抽屉。
       if (event.key === 'Escape') {
-        if (element.querySelector('[aria-expanded="true"]') || document.querySelector('.dropdown-portal')) return
+        // 普通表单／筛选的展开按钮不是菜单，不能让它们拦住抽屉的关闭与草稿确认。
+        const openDropdown = element.querySelector('[aria-expanded="true"][role="combobox"], [aria-expanded="true"][aria-haspopup="listbox"], [aria-expanded="true"][aria-haspopup="menu"], [aria-expanded="true"][aria-haspopup="true"]')
+        if (openDropdown || document.querySelector('.dropdown-portal')) return
         event.preventDefault(); entry.close(); return
       }
       if (event.key !== 'Tab') return

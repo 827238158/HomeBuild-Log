@@ -98,7 +98,32 @@ function RecordCard({ record, onOpen }: { record: ProjectionRecord; onOpen: (id:
   </button>
 }
 
-export function OverviewView({ onOpen, refreshRevision }: { onOpen: (id: string) => void; refreshRevision: number }) {
+function OverviewPendingList({ kind, records, count, overdue, upcoming, onOpen }: {
+  kind: 'issue' | 'research'; records: ProjectionRecord[]; count: number
+  overdue?: ProjectionRecord[]; upcoming?: ProjectionRecord[]; onOpen: (id: string) => void
+}) {
+  const [visibleCount, setVisibleCount] = useState(6)
+  const title = kind === 'issue' ? '未完成待办与问题' : '未归档调研'
+  return <section className="overview-pending-section" aria-label={title}>
+    <header><h3>{title}</h3><span>{count} 项</span></header>
+    {records.length ? <>
+      <ul className="overview-pending-list">{records.slice(0, visibleCount).map(record => {
+        // 紧迫性沿用服务端集合，避免浏览器时区改变逾期口径。
+        const urgency = overdue?.some(item => item.id === record.id) ? 'overdue' : upcoming?.some(item => item.id === record.id) ? 'upcoming' : ''
+        return <li key={record.id}><button type="button" className="overview-pending-row" onClick={() => onOpen(record.id)}>
+          <strong>{record.title}</strong>
+          <span className="overview-pending-meta"><span>{recordStatusLabel(record.record_type, record.status)}</span>
+            {kind === 'issue' && <span className="overview-pending-due" data-urgency={urgency}>{urgency === 'overdue' ? '已逾期 · ' : urgency === 'upcoming' ? '未来7天 · ' : ''}{record.due_date ? `截止 ${formatCalendarDate(record.due_date)}` : '未设截止日期'}</span>}
+            {kind === 'research' && record.spaces.length > 0 && <span>{record.spaces.map(space => space.name).join('、')}</span>}
+          </span>
+        </button></li>
+      })}</ul>
+      {records.length > visibleCount && <button type="button" className="secondary-button overview-pending-more" onClick={() => setVisibleCount(value => value + 6)}>展开更多{kind === 'issue' ? '待办' : '调研'}（剩余 {records.length - visibleCount} 项）</button>}
+    </> : <p className="muted">{kind === 'issue' ? '暂无未完成待办与问题。' : '暂无未归档调研。'}</p>}
+  </section>
+}
+
+export function OverviewView({ onOpen, onOpenResearch = onOpen, refreshRevision }: { onOpen: (id: string) => void; onOpenResearch?: (id: string) => void; refreshRevision: number }) {
   const [data, setData] = useState<OverviewResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -117,14 +142,17 @@ export function OverviewView({ onOpen, refreshRevision }: { onOpen: (id: string)
     {loadMessage(loading, error, !loading && !data, '先记下一条装修记录。', () => setRetry(value => value + 1))}
     {!loading && !error && data && <>
       <div className="summary-grid overview-summary">
-        <article className="summary-card summary-card--risk"><span>未关闭问题</span><strong>{data.summary.open_issue_count}</strong></article>
-        <article className="summary-card summary-card--warning"><span>已逾期事项</span><strong>{data.summary.overdue_count}</strong></article>
-        <article className="summary-card summary-card--info"><span>未来7天事项（含今天）</span><strong>{data.summary.upcoming_count}</strong></article>
+        <article className="summary-card"><span>未完成待办与问题</span><strong>{data.summary.open_issue_count}</strong></article>
+        <article className="summary-card"><span>未归档调研</span><strong>{data.summary.open_research_count}</strong></article>
+        <article className="summary-card summary-card--risk"><span>已逾期待办</span><strong>{data.summary.overdue_count}</strong></article>
+        <article className="summary-card summary-card--info"><span>未来7天待办（含今天）</span><strong>{data.summary.upcoming_count}</strong></article>
+      </div>
+      <div className="overview-pending-grid">
+        <OverviewPendingList kind="issue" records={data.open_issues} count={data.summary.open_issue_count} overdue={data.overdue} upcoming={data.upcoming} onOpen={onOpen} />
+        <OverviewPendingList kind="research" records={data.open_research} count={data.summary.open_research_count} onOpen={onOpenResearch} />
       </div>
       {data.stage_distribution.length > 0 && <section className="overview-stage-panel"><EChart title="阶段事项分布" description="" kind="donut" option={donutOption(data.stage_distribution)} summary={chartSummary('阶段事项分布', data.stage_distribution)} /><aside><header><h3>阶段明细</h3><span>共 {stageTotal} 项</span></header><div className="stage-breakdown">{data.stage_distribution.map((item, index) => <div key={item.key}><span className="stage-breakdown__dot" style={{ backgroundColor: chartCategoryColors[index % chartCategoryColors.length] }} /><strong>{item.label}</strong><span>{item.value} 项</span><em>{stageTotal ? `${Math.round((item.value / stageTotal) * 1000) / 10}%` : '0%'}</em></div>)}</div></aside></section>}
-      {(data.overdue.length > 0 || data.upcoming.length > 0) && <section className="projection-section"><h3>近期需要行动</h3><div className="card-grid">{[...data.overdue, ...data.upcoming].map((record) => <RecordCard key={record.id} record={record} onOpen={onOpen} />)}</div></section>}
-      {data.open_issues.length > 0 && <section className="projection-section"><h3>未关闭问题</h3><div className="card-grid">{data.open_issues.map((record) => <RecordCard key={record.id} record={record} onOpen={onOpen} />)}</div></section>}
-      {data.recent_records.length > 0 ? <section className="projection-section"><h3>最近动态</h3><div className="card-grid">{data.recent_records.map((record) => <RecordCard key={record.id} record={record} onOpen={onOpen} />)}</div></section> : <div className="empty-guidance"><strong>还没有最近动态</strong><p>先记下一条装修记录。</p></div>}
+      {data.recent_records.length > 0 ? <section className="projection-section"><h3>最近动态</h3><div className="card-grid">{data.recent_records.map((record) => <RecordCard key={record.id} record={record} onOpen={record.record_type === 'research' ? onOpenResearch : onOpen} />)}</div></section> : <div className="empty-guidance"><strong>还没有最近动态</strong><p>先记下一条装修记录。</p></div>}
     </>}
   </section>
 }

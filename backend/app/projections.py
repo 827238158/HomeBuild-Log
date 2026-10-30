@@ -26,6 +26,7 @@ from app.domain_models import (
     record_sources,
     record_spaces,
 )
+from app.ledger_refunds import payment_refund_totals, refund_projection
 from app.models import SourceEntry
 from app.topic_models import RecordTopic
 
@@ -178,6 +179,9 @@ def serialize_records(db: Session, records: list[Record]) -> dict[str, dict[str,
         for vendor in db.scalars(select(Vendor).where(Vendor.id.in_(vendor_ids))).all()
     } if vendor_ids else {}
 
+    payment_ids = [record.id for record in records
+                   if details.get(record.id, {}).get("ledger_kind") == "payment"]
+    refund_totals = payment_refund_totals(db, payment_ids)
     result: dict[str, dict[str, Any]] = {}
     for record in records:
         detail = details.get(record.id, {})
@@ -211,6 +215,10 @@ def serialize_records(db: Session, records: list[Record]) -> dict[str, dict[str,
             "vendor": vendors.get(vendor_id),
             **detail,
         }
+        if record.id in payment_ids:
+            result[record.id].update(refund_projection(
+                detail.get("amount_minor"), refund_totals.get(record.id, 0),
+            ))
     return result
 
 

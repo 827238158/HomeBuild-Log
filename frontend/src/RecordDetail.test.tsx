@@ -6,10 +6,10 @@ import * as api from './domainApi'
 import { beijingToday } from './time'
 import { HttpError } from './http'
 
-vi.mock('./domainApi', () => ({ listIssueActivities: vi.fn(), appendIssueActivity: vi.fn(), getRecord: vi.fn(), getSource: vi.fn(), listRelations: vi.fn(), listRecordAudit: vi.fn(), listSpaces: vi.fn(), listRecords: vi.fn(), listEntities: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(), deleteRecord: vi.fn(), reviewRecordSource: vi.fn() }))
+vi.mock('./domainApi', () => ({ listIssueActivities: vi.fn(), appendIssueActivity: vi.fn(), getRecord: vi.fn(), getSource: vi.fn(), listRelations: vi.fn(), listRecordAudit: vi.fn(), listSpaces: vi.fn(), listRecords: vi.fn(), listEntities: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(), deleteRecord: vi.fn(), reviewRecordSource: vi.fn(), listLedgerRefunds: vi.fn(), registerLedgerRefund: vi.fn() }))
 vi.mock('./DomainWorkspace', async importOriginal => {
   const original = await importOriginal<typeof import('./DomainWorkspace')>()
-  return { ...original, RecordEditFields: ({ payload, onChange, requireContext }: { payload: Record<string, unknown>; onChange: (field: string, value: unknown) => void; requireContext?: boolean }) => <><output data-testid="draft">{JSON.stringify(payload)}</output><output data-testid="context-required">{String(requireContext)}</output><button onClick={() => onChange('values', [{ axis: '净宽', value: 898, unit: 'mm' }])}>输入新尺寸</button><button onClick={() => onChange('space_ids', ['kitchen'])}>选择复测空间</button><button onClick={() => onChange('stage_id', 'tile')}>选择复测阶段</button></> }
+  return { ...original, RecordEditFields: ({ payload, onChange, requireContext, lockLedgerIdentity }: { payload: Record<string, unknown>; onChange: (field: string, value: unknown) => void; requireContext?: boolean; lockLedgerIdentity?: boolean }) => <><output data-testid="draft">{JSON.stringify(payload)}</output><output data-testid="context-required">{String(requireContext)}</output><output data-testid="ledger-locked">{String(lockLedgerIdentity)}</output><button onClick={() => onChange('values', [{ axis: '净宽', value: 898, unit: 'mm' }])}>输入新尺寸</button><button onClick={() => onChange('space_ids', ['kitchen'])}>选择复测空间</button><button onClick={() => onChange('stage_id', 'tile')}>选择复测阶段</button></> }
 })
 const record = { id: 'old', record_type: 'measurement', title: '门洞', status: 'active', description: '旧说明', occurred_date: '2020-01-01', original_time_text: null, created_at: '2020-01-01T00:00:00Z', object_name: '厨房门洞', measurement_role: 'site_measurement', values: [{ axis: '净宽', value: 900, unit: 'mm' }], measured_at: '2020-01-01T00:00:00Z', method: '卷尺', approximate: true, tolerance_text: '完成面', source_refs: [{ source_id: 'source', source_revision: 1, evidence_excerpt: null, needs_review: false }], archived_at: null, space_ids: ['kitchen'], material_ids: ['wood'], participant_ids: [], spaces: [], materials: [], participants: [], attachment_ids: [], stage_id: 'tile' }
 beforeEach(() => {
@@ -18,8 +18,66 @@ beforeEach(() => {
   vi.mocked(api.getSource).mockResolvedValue({ id: 'source', project_id: 'project', input_type: 'text', original_text: '旧来源', attachments: [], captured_at: '2020-01-01', reported_time_text: null, updated_at: '2020-01-01', revision: 1 })
   vi.mocked(api.listRelations).mockResolvedValue([]); vi.mocked(api.listRecordAudit).mockResolvedValue([])
   vi.mocked(api.listSpaces).mockResolvedValue([]); vi.mocked(api.listRecords).mockResolvedValue([]); vi.mocked(api.listEntities).mockResolvedValue([])
+  vi.mocked(api.listLedgerRefunds).mockResolvedValue({ payment: { ...record, version: 1 }, items: [], excluded_topic_names: [] })
 })
 afterEach(cleanup)
+it('原付款详情保存退款后保持当前记录，刷新账本并保护原付款删除', async () => {
+  const payment = { ...record, version: 1, record_type: 'ledger', ledger_kind: 'payment', status: 'paid', amount_minor: 10000, refunded_minor: 0, refundable_minor: 10000, refund_state: 'none' as const }
+  const updated = { ...payment, version: 2, refunded_minor: 10000, refundable_minor: 0, refund_state: 'full' as const }
+  const refund = { ...payment, id: 'refund', title: '退款流水', ledger_kind: 'refund', status: 'posted', refund_of_record_id: 'old' }
+  vi.mocked(api.getRecord).mockResolvedValue(payment)
+  vi.mocked(api.listLedgerRefunds).mockResolvedValue({ payment, items: [], excluded_topic_names: [] })
+  vi.mocked(api.registerLedgerRefund).mockImplementation(async () => {
+    vi.mocked(api.getRecord).mockResolvedValue(updated)
+    vi.mocked(api.listLedgerRefunds).mockResolvedValue({ payment: updated, items: [refund], excluded_topic_names: [] })
+    return { payment: updated, refund }
+  })
+  const changed = vi.fn(), open = vi.fn()
+  render(<RecordDetail recordId="old" closing={false} onClose={vi.fn()} onChanged={changed} onExitComplete={vi.fn()} onOpen={open} onOpenResearch={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: '登记退款' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存退款' }))
+  await screen.findByText('已全退')
+  expect(changed).toHaveBeenCalledOnce(); expect(open).not.toHaveBeenCalled()
+  await waitFor(() => expect((screen.getByRole('button', { name: '删除记录' }) as HTMLButtonElement).disabled).toBe(true))
+  expect(screen.getByText('此付款有关联退款，需先删除退款记录才能删除原付款。')).toBeTruthy()
+  fireEvent.click(within(screen.getByRole('list', { name: '退款历史' })).getByRole('button'))
+  expect(open).toHaveBeenCalledWith('refund')
+})
+
+it('退款详情返回原付款，编辑锁定身份且不提交只读退款关联或汇总', async () => {
+  const refund = { ...record, version: 1, record_type: 'ledger', ledger_kind: 'refund', direction: 'refund' as const, status: 'posted', amount_minor: 3000, refund_of_record_id: 'payment', refunded_minor: 3000, refundable_minor: 7000 }
+  vi.mocked(api.getRecord).mockResolvedValue(refund)
+  vi.mocked(api.updateRecord).mockResolvedValue({ ...refund, version: 2 })
+  const open = vi.fn()
+  render(<RecordDetail recordId="old" closing={false} onClose={vi.fn()} onChanged={vi.fn()} onExitComplete={vi.fn()} onOpen={open} onOpenResearch={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: '返回原付款' }))
+  expect(open).toHaveBeenCalledWith('payment')
+  fireEvent.click(screen.getByRole('button', { name: '修改记录' }))
+  expect((await screen.findByTestId('ledger-locked')).textContent).toBe('true')
+  fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+  await waitFor(() => expect(api.updateRecord).toHaveBeenCalled())
+  const payload = vi.mocked(api.updateRecord).mock.calls[0][1]
+  expect(payload.refund_of_record_id).toBeUndefined()
+  expect(payload.refunded_minor).toBeUndefined(); expect(payload.refundable_minor).toBeUndefined()
+})
+
+it('切换普通编辑与退款表单时互斥，返回保留退款草稿', async () => {
+  sessionStorage.removeItem('ledger:old:refund')
+  const payment = { ...record, version: 1, record_type: 'ledger', ledger_kind: 'payment', status: 'paid', amount_minor: 10000, refunded_minor: 0, refundable_minor: 10000, refund_state: 'none' as const }
+  vi.mocked(api.getRecord).mockResolvedValue(payment)
+  vi.mocked(api.listLedgerRefunds).mockResolvedValue({ payment, items: [], excluded_topic_names: [] })
+  render(<RecordDetail recordId="old" closing={false} onClose={vi.fn()} onChanged={vi.fn()} onExitComplete={vi.fn()} onOpen={vi.fn()} onOpenResearch={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: '登记退款' }))
+  fireEvent.change(screen.getByLabelText('退款金额（元）'), { target: { value: '20' } })
+  fireEvent.click(screen.getByRole('button', { name: '修改记录' }))
+  await screen.findByTestId('draft')
+  expect(screen.queryByRole('form', { name: '登记退款' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '取消' }))
+  fireEvent.click(await screen.findByRole('button', { name: '继续退款草稿' }))
+  expect((screen.getByLabelText('退款金额（元）') as HTMLInputElement).value).toBe('20')
+  sessionStorage.removeItem('ledger:old:refund')
+})
+
 it('历史记录缺失空间阶段仍可编辑，不强制补造归属', async () => {
   vi.mocked(api.getRecord).mockResolvedValue({ ...record, version: 1, space_ids: [], stage_id: null })
   vi.mocked(api.updateRecord).mockResolvedValue({ ...record, version: 2, space_ids: [], stage_id: null })

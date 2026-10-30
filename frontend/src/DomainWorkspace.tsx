@@ -376,11 +376,12 @@ function toDateInput(value: unknown): string {
 }
 
 export function RecordEditFields({
-  recordType, payload, spaces, entities, records = [], currentRecordId, onChange, error, active = true, onVoiceBusyChange, requireContext = false,
+  recordType, payload, spaces, entities, records = [], currentRecordId, onChange, error, active = true, onVoiceBusyChange, requireContext = false, lockLedgerIdentity = false,
 }: {
   recordType: RecordType
   active?: boolean
   requireContext?: boolean
+  lockLedgerIdentity?: boolean
   onVoiceBusyChange?: (busy: boolean) => void
   payload: Record<string, unknown>
   spaces: SpaceEntry[]
@@ -393,7 +394,7 @@ export function RecordEditFields({
   const ledgerKind = String(payload.ledger_kind ?? 'payment')
   const cfg = typeFieldConfig[recordType]
   const status = String(payload.status ?? recordConfig[recordType].statuses[0])
-  const visibleStatuses = statusesForRecord(recordType, ledgerKind)
+  const visibleStatuses = lockLedgerIdentity ? ['posted', 'voided'] : statusesForRecord(recordType, ledgerKind)
   const detailA = recordType === 'event' ? String(payload.event_kind ?? '')
     : recordType === 'ledger' ? String(payload.payment_kind ?? '')
     : recordType === 'issue' ? String(payload.phenomenon ?? '')
@@ -426,7 +427,7 @@ export function RecordEditFields({
     <label className="field-stack"><span>状态</span><Select value={status} onChange={(event) => onChange('status', event.target.value)}>{visibleStatuses.map((item) => <option key={item} value={item}>{recordStatusLabel(recordType, item, ledgerKind)}</option>)}</Select></label>
     {recordType === 'issue' && <label className="field-stack"><span>发生日期</span><input type="date" value={String(payload.occurred_date ?? '')} onChange={(event) => onChange('occurred_date', event.target.value || null)} /></label>}
     {recordType === 'measurement' && <label className="field-stack"><span>尺寸用途</span><Select value={normalizeMeasurementRole(payload.measurement_role)} onChange={(event) => onChange('measurement_role', event.target.value)}>{Object.entries(measurementRoleLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>}
-    {recordType === 'ledger' && <label className="field-stack"><span>账目类型</span><Select value={ledgerKind} onChange={(event) => {
+    {recordType === 'ledger' && <label className="field-stack"><span>账目类型</span><Select disabled={lockLedgerIdentity} value={ledgerKind} onChange={(event) => {
       const kind = event.target.value
       onChange('ledger_kind', kind)
       onChange('status', completedStatusForLedgerKind(kind))
@@ -440,7 +441,7 @@ export function RecordEditFields({
       : recordType === 'issue' || recordType === 'event' ? <label className="field-stack record-form-grid__wide"><span>{cfg.detailBLabel}</span><VoiceField active={active} onBusyChange={onVoiceBusyChange}><textarea rows={3} maxLength={10000} value={detailB} placeholder={cfg.detailBPlaceholder} onChange={event => setDetailB(event.target.value)} /></VoiceField></label>
       : <label className="field-stack"><span>{cfg.detailBLabel}</span><input type={cfg.detailBType || 'text'} min={cfg.detailBType === 'number' ? '0' : undefined} step="any" value={detailB} placeholder={cfg.detailBPlaceholder} onChange={(event) => setDetailB(event.target.value)} /></label>}
     {recordType !== 'measurement' && cfg.detailCLabel && <label className="field-stack"><span>{cfg.detailCLabel}</span><input type={cfg.detailCType || 'text'} min={cfg.detailCType === 'number' ? '0' : undefined} step="any" value={detailC} placeholder={cfg.detailCPlaceholder} onChange={(event) => setDetailC(event.target.value)} /></label>}
-    {cfg.showVendor && <label className="field-stack"><span>{recordType === 'ledger' ? '交易对象（商家）' : '商家'}</span><Select required={recordType === 'ledger'} value={String(payload.vendor_id ?? '')} onChange={(event) => onChange('vendor_id', event.target.value || null)}><option value="">请选择</option>{entities.vendors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}
+    {cfg.showVendor && <label className="field-stack"><span>{recordType === 'ledger' ? '交易对象（商家）' : '商家'}</span><Select disabled={lockLedgerIdentity} required={recordType === 'ledger'} value={String(payload.vendor_id ?? '')} onChange={(event) => onChange('vendor_id', event.target.value || null)}><option value="">请选择</option>{entities.vendors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}
     {recordType !== 'issue' && <label className="field-stack"><span>发生日期</span><input type="date" value={String(payload.occurred_date ?? '')} onChange={(event) => onChange('occurred_date', event.target.value || null)} /></label>}
     <label className="field-stack record-form-grid__wide"><span>{recordType === 'ledger' ? '备注（可选）' : '补充说明'}</span><VoiceField active={active} onBusyChange={onVoiceBusyChange}><textarea rows={3} maxLength={10000} value={String(payload.description ?? '')} onChange={(event) => onChange('description', event.target.value || null)} /></VoiceField></label>
     {recordType === 'issue' && <>

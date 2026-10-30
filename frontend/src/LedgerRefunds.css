@@ -1,0 +1,22 @@
+.ledger-refunds { min-width: 0; margin-block: 24px; }
+.ledger-refunds h4 { margin-block: 0 12px; }
+.ledger-refunds__form { margin-block: 16px; }
+.ledger-refunds__form fieldset { min-width: 0; padding: 0; margin: 0; border: 0; }
+.ledger-refunds__pending { color: var(--ink-muted); line-height: 1.6; overflow-wrap: anywhere; }
+.ledger-refunds__form [readonly] { background: var(--surface-soft); }
+.ledger-refunds__form .field-stack { min-width: 0; }
+.ledger-refunds__form input, .ledger-refunds__form textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.ledger-refunds__history { padding: 0; margin-block: 16px 0; list-style: none; }
+.ledger-refunds__history li + li { border-top: 1px solid var(--border, #e1e6eb); }
+.ledger-refunds__entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; width: 100%; padding: 14px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: inherit; text-align: left; cursor: pointer; }
+.ledger-refunds__entry:hover { background: var(--surface-soft, #f8fafc); }
+.ledger-refunds__entry:focus-visible { outline: 2px solid var(--primary, #1769c2); outline-offset: 3px; }
+.ledger-refunds__entry strong { font-variant-numeric: tabular-nums; }
+.ledger-refunds__entry span { overflow-wrap: anywhere; }
+.ledger-refunds__note { grid-column: 1 / -1; white-space: pre-wrap; }
+.ledger-refunds__conflict { margin-block-start: 16px; }
+@media (max-width: 600px) {
+  .ledger-refunds__form .record-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .ledger-refunds__form .record-actions { flex-wrap: wrap; }
+  .ledger-refunds__form input, .ledger-refunds__form textarea { font-size: 16px; }
+}

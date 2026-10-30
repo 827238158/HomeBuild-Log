@@ -228,6 +228,10 @@ class LedgerDetail(Base):
     payment_date: Mapped[date | None] = mapped_column(Date)
     payment_method: Mapped[str | None] = mapped_column(String(100))
     vendor_id: Mapped[str | None] = mapped_column(String(32), ForeignKey("vendors.id"))
+    # 退款归属独立于可随时调整的通用关联，防止编辑关联时丢失付款事实。
+    refund_of_record_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("records.id"), nullable=True, index=True,
+    )
 
 
 class IssueDetail(Base):

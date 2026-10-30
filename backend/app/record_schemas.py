@@ -93,6 +93,8 @@ class LedgerCreate(RecordCommonCreate):
     @model_validator(mode="before")
     @classmethod
     def infer_legacy_ledger_kind(cls, data: object) -> object:
+        if isinstance(data, dict) and "refund_of_record_id" in data:
+            raise ValueError("请从原付款记录的退款入口设置退款归属")
         data = normalize_ledger_currency(data)
         if isinstance(data, dict) and not data.get("ledger_kind"):
             data = dict(data)
@@ -129,6 +131,8 @@ class LedgerUpdate(RecordCommonUpdate):
     @model_validator(mode="before")
     @classmethod
     def normalize_currency(cls, data: object) -> object:
+        if isinstance(data, dict) and "refund_of_record_id" in data:
+            raise ValueError("退款所属付款不允许修改")
         return normalize_ledger_currency(data)
 
 

@@ -162,7 +162,7 @@ sudo sh ./verify.sh
 
 ## 迁移规则
 
-- 本地迁移链已扩展到 `0022_add_due_date_and_record_version`，接在 `0021_add_topics_and_issue_activities` 后；线上最近确认仍为0020，实际环境先核对 CURRENT 与数据库。0022升级、降级再升级仅在临时数据库验证，不据此认为真实库已升级。
+- 代码迁移head为 `0023_add_ledger_refund_links`，接在 `0022_add_due_date_and_record_version` 后；退款外键仅建立能力，历史关联留空。0023空库安装、旧库升级与降级再升级已在临时数据库验证，不据此认为真实库已升级；实际部署revision先核对CURRENT与数据库。
 - 正式记录编辑要求读取版本，含本轮改动的前后端必须配套更新。旧客户端缺少版本会拒绝保存；上线后刷新页面并重新打开编辑，先保留未保存草稿。
 - 后端 pytest 默认共用 `tests/.tmp`，多Agent任务串行执行；并行时显式使用不同工作区临时目录。
 

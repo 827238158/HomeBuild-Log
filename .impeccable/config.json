@@ -50,6 +50,15 @@
         ],
         "createdAt": "2026-10-17T15:42:35.797Z",
         "reason": "Agent: 当前文件两处命中均为绝对定位且隔离的标签滑块；用户确认记录分析400ms节奏，四种宽度切换实测无内容重排，保留圆角宽度过渡。"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "georgia",
+        "files": [
+          "frontend/src/styles.css"
+        ],
+        "createdAt": "2026-10-30T11:37:43.019Z",
+        "reason": "项目规则要求保留既有中文字体；此文件为legacy兼容层，当前shell与组件规则覆盖标题字体，本轮未引入字体。"
       }
     ]
   }

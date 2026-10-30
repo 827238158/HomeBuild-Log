@@ -31,7 +31,7 @@ def test_migrations_upgrade_temporary_database_to_head(
     finally:
         engine.dispose()
 
-    assert revision == "0022_add_due_date_and_record_version"
+    assert revision == "0023_add_ledger_refund_links"
 
     engine = create_engine(url)
     try:
@@ -59,6 +59,49 @@ def test_migrations_upgrade_temporary_database_to_head(
         engine.dispose()
     assert {"pitfalls", "pitfall_resolutions"} <= tables
     assert {"research_entries", "research_conclusions"} <= tables
+
+
+def test_refund_link_migration_preserves_legacy_ledger_and_round_trips(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    url = database_url(tmp_path / "refund-migration.sqlite3")
+    monkeypatch.setenv("HOMEBUILD_DATABASE_URL", url)
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    command.upgrade(config, "0022_add_due_date_and_record_version")
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO records "
+            "(id, project_id, record_type, title, timezone, status, created_at, updated_at) "
+            "VALUES ('legacy-payment', '00000000000000000000000000000001', 'ledger', "
+            "'旧付款', 'Asia/Shanghai', 'paid', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ))
+        connection.execute(text(
+            "INSERT INTO ledger_details "
+            "(record_id, ledger_kind, direction, amount_minor, currency, payment_date) "
+            "VALUES ('legacy-payment', 'payment', 'expense', 10000, 'CNY', '2026-09-01')"
+        ))
+    # 新列只建立关联能力，不根据标题或金额猜测历史退款。
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        row = connection.execute(text(
+            "SELECT amount_minor, payment_date, refund_of_record_id FROM ledger_details "
+            "WHERE record_id='legacy-payment'"
+        )).one()
+        assert row == (10000, "2026-09-01", None)
+        foreign_keys = connection.execute(text("PRAGMA foreign_key_list(ledger_details)")).all()
+        assert any(item[2] == "records" and item[3] == "refund_of_record_id"
+                   for item in foreign_keys)
+        indexes = connection.execute(text("PRAGMA index_list(ledger_details)")).all()
+        assert any("refund_of_record_id" in item[1] for item in indexes)
+    command.downgrade(config, "0022_add_due_date_and_record_version")
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        assert connection.execute(text(
+            "SELECT amount_minor, refund_of_record_id FROM ledger_details "
+            "WHERE record_id='legacy-payment'"
+        )).one() == (10000, None)
+    engine.dispose()
 
 
 def test_research_history_migration_preserves_existing_conclusions(

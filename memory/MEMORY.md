@@ -24,8 +24,10 @@ HomeBuild Log 是本地优先的装修工作台：主题聚合长期事项，账
 - 记录详情以当前记录为准：账目 `description` 明确显示为“备注”，编辑沿用“备注（可选）”；详情不再跳转“打开原始来源”，生成快照正文不重复展示，无附件／待复核时隐藏该卡片。普通来源原文、附件和来源变更复核仍就地保留；搜索与整理工作台继续支持原来源处理，后台快照、关系与审计保留。
 - 尺寸：使用可增减的命名尺寸项，保留原顺序、重复测点及未知方向；输入支持毫米、厘米、米，保存统一毫米，切换单位保持实际尺寸。近似值、误差口径、方法及测量时间单独保存。“再次测量”创建关联的新记录，清空旧数值与来源，不覆盖旧事实、不自动采用最新值；复测历史通过相关记录查看。
 - 账目：只记录付款、退款、收入；金额统一人民币，净支出为付款减退款再减收入。
+- 原付款登记退款：原付款保持，自动建立普通退款流水，`ledger_details.refund_of_record_id` 保存专用归属；支持部分与多次退款，服务端汇总额度与状态，未作废退款累计不得超过原付款。新增／编辑／作废恢复／删除在同事务保护父版本，来源删除同样受约束；关联双方不可单独隐藏，旧独立退款不自动匹配。网络结果不明时锁住原请求内容和标识，先确认结果；409核对仅更新同一请求版本，普通HTTP／代理失败不解锁。仅服务端CAS后回滚的 `refund_not_saved` 同请求回执允许修正，`refund_request_removed` 回执清理旧草稿，确认成功后再修改已有退款或明确新增另一笔。
 - 待办与问题：待办、普通问题和施工问题仍复用 `issue` 类型，显示名称为“待办与问题”，状态为待处理、处理中、已完成。
 - 待办可选截止日期 `due_date`；无日期不推测。逾期为未完成且截止日期早于北京时间今天，未来7天包含今天至第六天，已完成不计入。
+- 装修概览在阶段分布之前列出未完成待办与问题、未归档调研；待办按截止日期优先，无日期排后，调研按最近更新优先，清单各自分批展开。`api/analytics.py` 的 `/overview` 提供两类完整集合及计数，沿用隐藏范围与旧调研状态归一；前端入口为 `AnalyticsViews.tsx`，调研直接打开专项页面。
 - 正式记录使用整数版本；编辑和替换关联须携带读取版本，服务端同事务原子校验，409返回最新记录。前端保留草稿逐项对照，不自动覆盖；追加进展、来源及关系变化也维护版本。前后端需配套升级，旧客户端缺少版本拒绝保存。
 - 全局搜索涵盖正式记录与其调研追加／待办进展、主题和踩坑处理记录，过程按父记录去重并提供定位摘要。业务筛选仅作用于正式记录，其他组仅按关键词匹配；各组共同分页。
 - 主题：独立聚合层通过 `record_topics` 与 `pitfall_topics` 连接原内容，支持多主题且不复制记录；进行中／已归档，归档不联动子事项状态，保留归属可编辑、解除，新增归属须先恢复。概览为手写目标与现状、服务端未完成待办与最近10条活动，下方完整时间线每页30条。AI 暂不自动指定主题或更新旧事项。
@@ -33,6 +35,7 @@ HomeBuild Log 是本地优先的装修工作台：主题聚合长期事项，账
 - 调研笔记：独立入口复用 `research` 正式记录，快速创建保留原始来源；只保留主题与追加式调研过程、来源和待确认事项。状态为待调研、调研中、已归档，恢复到调研中后才可继续追加；服务端拒绝归档事项追加，并用版本CAS防止并发归档写入。详情以调研过程为主，追加表单默认收起、保留草稿；事项信息在过程下方折叠，先查看再编辑。结论功能停用，旧字段及历史表保留读取兼容，写入接口禁止结论更新；旧 `concluded` 在读取、筛选及统计中按 `comparing`（调研中）处理，不批量改写真实数据。
 - 正式记录创建与通用编辑入口将主题归属常显；调研详情改在“事项信息”中按需编辑；“更多信息与关联”默认折叠，支持背景字段、多人和可搜索的具体记录关联。同主题记录优先但可选全项目，主题改变不清除直接关联、不自动填充背景；调研父事项通过专项接口同事务保存。
 - 公共下拉：单选、多选、来源选择与来源操作共用 `useDropdown` 的互斥、外部关闭、Escape及无滚动焦点恢复，使用 `DropdownChevron` 表达展开状态；定位复用 `useDropdownPosition`，Portal菜单只滚动自身，不使用活动选项的祖先 `scrollIntoView`。
+- 抽屉键盘：`useModalFocus.ts` 的Escape只为实际展开的combobox／listbox／menu和Portal菜单让行，不把普通表单的aria-expanded当成下拉；草稿离开确认由实际导航层统一执行一次，子记录跳转不重复确认。
 - 核心原则：原始事实优先、人在回路、一事多记录、视图不是副本、不确定性显式化、本地与隐私优先。
 
 ## 默认读取
@@ -55,6 +58,7 @@ memory/CURRENT.md
 - 已知异常、环境坑、恢复方式：`memory/PITFALLS.md`。
 - 重要操作、部署、迁移或长期决策的历史事实：`memory/LOG.md`。
 - 数据库迁移：`backend/migrations/README.md`，再读当前 head 或目标迁移。
+- 退款实现：`backend/app/api/domain.py` 的退款接口和通用写入保护，`backend/app/ledger_refunds.py` 的批量汇总，`backend/app/api/sources.py` 的删除旁路；迁移 `0023_add_ledger_refund_links` 接0022。前端 `LedgerRefunds.tsx` 接入 `RecordDetail.tsx`；新退款快照识别维护在 `sourcePresentation.ts`。
 - 主题与待办历史实现：`backend/app/topic_models.py`、`backend/app/topic_service.py`、`backend/app/api/topics.py`；主题迁移为 `0021_add_topics_and_issue_activities`，截止日期与版本迁移为 `0022_add_due_date_and_record_version`。前端入口为 `frontend/src/TopicsView.tsx`，公共选择为 `TopicSelect.tsx`。
 - AI 分阶段跟进：`memory/AI_FOLLOWUP.md`；提取与证据入口 `backend/app/api/extractions.py`，语音入口 `frontend/src/VoiceField.tsx`，版本保护 `backend/app/record_version.py`，冲突对照 `frontend/src/RecordConflict.tsx`。
 - 录入背景与关联：公共组件 `frontend/src/RecordAssociations.tsx`，账本/待办 `BusinessEntryForm.tsx`，调研专项接口 `backend/app/api/research.py`；复用既有关系表，无额外迁移。

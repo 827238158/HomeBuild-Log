@@ -58,6 +58,31 @@ describe('useModalFocus', () => {
     unmount()
   })
 
+  it('普通表单已展开但没有下拉时，Escape仍进入浮层关闭流程', () => {
+    const close = vi.fn()
+    render(<Modal name="退款表单" onClose={close}><button aria-expanded="true">收起退款表单</button><input aria-label="退款金额" /></Modal>)
+    screen.getByRole('textbox', { name: '退款金额' }).focus()
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('真实下拉消费第一次Escape，关闭后第二次Escape才关闭浮层', () => {
+    const close = vi.fn()
+    function Fixture() {
+      const [open, setOpen] = useState(true)
+      return <Modal name="退款归属" onClose={close}><button aria-haspopup="listbox" aria-expanded={open} onKeyDown={event => {
+        if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false) }
+      }}>选择空间</button><button aria-expanded="true">收起退款表单</button></Modal>
+    }
+    render(<Fixture />)
+    const trigger = screen.getByRole('button', { name: '选择空间' })
+    trigger.focus(); fireEvent.keyDown(trigger, { key: 'Escape' })
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    expect(close).not.toHaveBeenCalled()
+    fireEvent.keyDown(trigger, { key: 'Escape' })
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
   it('卸载恢复原有背景 inert 状态', () => {
     const background = document.createElement('section'); background.inert = true; document.body.append(background)
     const ordinary = document.createElement('section'); ordinary.inert = false; document.body.append(ordinary)

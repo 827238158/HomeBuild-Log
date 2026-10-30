@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -39,12 +41,14 @@ from app.domain_models import (
     record_sources,
     record_spaces,
 )
+from app.ledger_refunds import payment_refund_totals, refund_projection
 from app.ledger_rules import LEDGER_DIRECTION_BY_KIND, valid_statuses_for_ledger_kind
 from app.local_suggestions import suggest_from_text
-from app.models import Attachment, SourceEntry
+from app.models import Attachment, AuditEntry, SourceEntry
 from app.projections import serialize_records
 from app.record_schemas import DirectRecordCreate, RecordCreate, RecordUpdate
 from app.record_version import bump_record_version
+from app.topic_models import RecordTopic, Topic
 from app.topic_service import get_record_topic_ids, log_issue_status, replace_record_topics
 
 router = APIRouter(tags=["domain"])
@@ -170,6 +174,18 @@ class SuggestionSelection(BaseModel):
 
 class SuggestionConfirmRequest(BaseModel):
     selections: list[SuggestionSelection] = Field(min_length=1)
+
+
+class PaymentRefundCreate(BaseModel):
+    amount_minor: int = Field(gt=0, strict=True)
+    refund_date: date
+    description: str | None = Field(default=None, max_length=10000)
+    expected_version: int = Field(ge=1)
+    request_id: UUID
+    space_ids: list[str] | None = None
+    stage_id: str | None = None
+
+    model_config = {"extra": "forbid"}
 
 
 @router.get("/projects/current")
@@ -697,6 +713,11 @@ def _record_json(db: Session, record: Record) -> dict[str, Any]:
         for key, value in DETAIL_RENAMES_TO_DB.get(record.record_type, {}).items()
     }
     detail_values = {reverse.get(key, key): value for key, value in detail_values.items()}
+    if record.record_type == "ledger" and detail_values.get("ledger_kind") == "payment":
+        detail_values.update(refund_projection(
+            detail_values.get("amount_minor"),
+            payment_refund_totals(db, [record.id]).get(record.id, 0),
+        ))
     if record.record_type == "measurement":
         values = db.execute(
             select(MeasurementValue)
@@ -840,6 +861,228 @@ def create_direct_record(request: Request, body: DirectRecordCreate, user: User)
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="记录或关联发生冲突。") from exc
+    finally:
+        db.close()
+
+
+def _linked_refunds(db: Session, payment_id: str) -> list[Record]:
+    return list(db.scalars(
+        select(Record).join(LedgerDetail, LedgerDetail.record_id == Record.id)
+        .where(LedgerDetail.refund_of_record_id == payment_id)
+        .order_by(Record.occurred_date.desc(), Record.created_at.desc(), Record.id)
+    ).all())
+
+
+def _has_linked_refunds(db: Session, payment_id: str) -> bool:
+    return db.scalar(select(LedgerDetail.record_id).where(
+        LedgerDetail.refund_of_record_id == payment_id,
+    ).limit(1)) is not None
+
+
+def _refund_parent(db: Session, record: Record) -> Record | None:
+    if record.record_type != "ledger":
+        return None
+    detail = db.get(LedgerDetail, record.id)
+    if detail is None or detail.refund_of_record_id is None:
+        return None
+    parent = _get_record(db, detail.refund_of_record_id)
+    # 所有关联退款写入先抢父版本，金额检查与提交在同一事务串行。
+    bump_record_version(db, parent, parent.version)
+    return parent
+
+
+def _validate_refund_update(
+    db: Session, record: Record, before: dict[str, Any], payload: dict[str, Any],
+) -> Record | None:
+    """通用编辑与退款入口共用额度边界，不能通过改类型或恢复绕过。"""
+    parent = _refund_parent(db, record)
+    merged = {**before, **payload}
+    if parent is not None:
+        for field, value in (("ledger_kind", "refund"), ("direction", "refund")):
+            if merged.get(field) != value:
+                raise HTTPException(status_code=422, detail="关联退款不能修改账目类型或收支方向。")
+        if merged.get("status") not in {"posted", "voided"}:
+            raise HTTPException(status_code=422, detail="关联退款只能为已入账或已作废。")
+        if any(merged.get(field) != before.get(field) for field in ("vendor_id", "currency")):
+            raise HTTPException(status_code=422, detail="关联退款不能更换交易对象或币种。")
+        if len(str(merged.get("description") or "")) > 10000:
+            raise HTTPException(status_code=422, detail="退款备注最多允许10000个字符。")
+        # 普通表单使用发生日期；API 使用交易日期时也同步，避免趋势日期分叉。
+        if "occurred_date" in payload and "payment_date" in payload:
+            if payload["occurred_date"] != payload["payment_date"]:
+                raise HTTPException(status_code=422, detail="退款发生日期与交易日期必须一致。")
+        when = payload.get("occurred_date", payload.get("payment_date", before["occurred_date"]))
+        if when is None:
+            raise HTTPException(status_code=422, detail="请填写退款日期。")
+        payload["occurred_date"] = payload["payment_date"] = when
+        amount = merged.get("amount_minor")
+        if amount is None:
+            raise HTTPException(status_code=422, detail="资金流水必须填写金额。")
+        total = payment_refund_totals(db, [parent.id]).get(parent.id, 0)
+        if before["status"] == "posted":
+            total -= int(before["amount_minor"])
+        if merged["status"] == "posted":
+            total += amount
+        parent_detail = db.get(LedgerDetail, parent.id)
+        if total > int(parent_detail.amount_minor or 0):
+            raise HTTPException(status_code=422, detail="退款金额不能超过该付款的剩余可退金额。")
+    elif _has_linked_refunds(db, record.id):
+        if (merged.get("ledger_kind"), merged.get("direction"), merged.get("status")) != (
+            "payment", "expense", "paid",
+        ):
+            raise HTTPException(
+                status_code=422, detail="已有退款的付款不能修改为其他类型或未付款。",
+            )
+        total = payment_refund_totals(db, [record.id]).get(record.id, 0)
+        if merged.get("amount_minor") is None or merged["amount_minor"] < total:
+            raise HTTPException(status_code=422, detail="付款金额不能小于累计有效退款金额。")
+    return parent
+
+
+def _payment_for_refund(db: Session, payment_id: str) -> Record:
+    payment = _get_record(db, payment_id)
+    detail = db.get(LedgerDetail, payment.id) if payment.record_type == "ledger" else None
+    if detail is None or detail.ledger_kind != "payment" or detail.direction != "expense":
+        raise HTTPException(status_code=422, detail="只能从付款记录登记退款。")
+    return payment
+
+
+def _refund_topics(db: Session, payment_id: str) -> tuple[list[str], list[str]]:
+    topics = db.scalars(select(Topic).join(RecordTopic).where(
+        RecordTopic.record_id == payment_id,
+    ).order_by(Topic.name, Topic.id)).all()
+    return ([topic.id for topic in topics if topic.status != "archived"],
+            [topic.name for topic in topics if topic.status == "archived"])
+
+
+@router.get("/records/{payment_id}/refunds")
+def list_payment_refunds(payment_id: str, request: Request, user: User) -> dict[str, Any]:
+    db = _db(request)
+    try:
+        payment = _payment_for_refund(db, payment_id)
+        refunds = _linked_refunds(db, payment.id)
+        projections = serialize_records(db, [payment, *refunds])
+        _, excluded = _refund_topics(db, payment.id)
+        return {"payment": projections[payment.id],
+                "items": [projections[row.id] for row in refunds],
+                "excluded_topic_names": excluded}
+    finally:
+        db.close()
+
+
+@router.post("/records/{payment_id}/refunds", status_code=status.HTTP_201_CREATED)
+def create_payment_refund(
+    payment_id: str, request: Request, body: PaymentRefundCreate, user: User,
+) -> dict[str, Any]:
+    db = _db(request)
+    claimed_payment = False
+    try:
+        payment = _payment_for_refund(db, payment_id)
+        # 内容指纹不含版本，响应丢失后的原请求重试不会被新的父版本拒绝。
+        request_payload = body.model_dump(mode="json", exclude={"expected_version", "request_id"})
+        if request_payload["space_ids"] is not None:
+            request_payload["space_ids"] = sorted(set(request_payload["space_ids"]))
+        request_key = f"refund:{payment.id}:{body.request_id}:"
+        fingerprint = hashlib.sha256(json.dumps(
+            request_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        origin_key = request_key + fingerprint
+        existing = db.scalar(select(Record).where(
+            Record.project_id == DEFAULT_PROJECT_ID, Record.origin_key.startswith(request_key),
+        ))
+        if existing is not None:
+            if existing.origin_key != origin_key:
+                raise HTTPException(status_code=409, detail="同一退款请求标识不能用于不同内容。")
+            projections = serialize_records(db, [payment, existing])
+            return {"payment": projections[payment.id], "refund": projections[existing.id]}
+        # 删除后的请求仍保留幂等墓碑，防止迟到重试重新创建已删除的退款。
+        previous = db.scalar(select(AuditEntry).where(
+            AuditEntry.action == "create_refund",
+            AuditEntry.after_json["request_key"].as_string() == request_key,
+        ).limit(1))
+        if previous is not None:
+            message = ("该退款已被删除，请刷新后重新登记。"
+                       if previous.after_json.get("origin_key") == origin_key
+                       else "同一退款请求标识不能用于不同内容。")
+            if previous.after_json.get("origin_key") == origin_key:
+                raise HTTPException(status_code=409, detail={
+                    "code": "refund_request_removed", "message": message,
+                    "request_id": str(body.request_id),
+                })
+            raise HTTPException(status_code=409, detail=message)
+
+        before = _record_json(db, payment)
+        bump_record_version(db, payment, body.expected_version)
+        claimed_payment = True
+        if payment.status != "paid" or payment.archived_at is not None:
+            raise HTTPException(status_code=422, detail="仅可为未隐藏的已出账付款登记退款。")
+        refunded = payment_refund_totals(db, [payment.id]).get(payment.id, 0)
+        if refunded + body.amount_minor > int(before.get("amount_minor") or 0):
+            raise HTTPException(status_code=422, detail="退款金额不能超过该付款的剩余可退金额。")
+        spaces = before["space_ids"]
+        stage_id = before["stage_id"]
+        if spaces and body.space_ids is not None and set(spaces) != set(body.space_ids):
+            raise HTTPException(status_code=422, detail="退款沿用原付款的空间，仅缺失时可以补充。")
+        if stage_id and body.stage_id is not None and stage_id != body.stage_id:
+            raise HTTPException(
+                status_code=422, detail="退款沿用原付款的装修阶段，仅缺失时可以补充。",
+            )
+        topics, _ = _refund_topics(db, payment.id)
+        payload = {
+            "record_type": "ledger", "ledger_kind": "refund", "direction": "refund",
+            "status": "posted", "title": payment.title[:296] + "（退款）",
+            "description": body.description, "amount_minor": body.amount_minor,
+            "occurred_date": body.refund_date.isoformat(),
+            "payment_date": body.refund_date.isoformat(), "payment_kind": "refund",
+            "currency": before["currency"], "vendor_id": before["vendor_id"],
+            "space_ids": spaces or (body.space_ids or []),
+            "stage_id": stage_id or body.stage_id, "topic_ids": topics,
+            "material_ids": before["material_ids"],
+            "participant_ids": before["participant_ids"],
+        }
+        snapshot = {**payload, "refund_of_record_id": payment.id}
+        source = SourceEntry(
+            project_id=DEFAULT_PROJECT_ID, input_type="text",
+            original_text=payload["title"] + "\n录入字段：\n" + json.dumps(
+                snapshot, ensure_ascii=False, indent=2,
+            ),
+        )
+        db.add(source)
+        db.flush()
+        log_audit(db, "create", "source_entries", source.id,
+                  after={"input_type": "text", "original_text": source.original_text})
+        parsed = RECORD_CREATE_ADAPTER.validate_python({
+            **payload, "source_refs": [{"source_id": source.id}],
+        })
+        refund = _create_record_in_session(db, parsed, origin_key=origin_key)
+        db.get(LedgerDetail, refund.id).refund_of_record_id = payment.id
+        db.flush()
+        log_audit(db, "create_refund", "records", refund.id, after={
+            "request_key": request_key, "origin_key": origin_key,
+            "refund_of_record_id": payment.id, "amount_minor": body.amount_minor,
+        })
+        projections = serialize_records(db, [payment, refund])
+        log_audit(db, "update", "records", payment.id,
+                  before=before, after=projections[payment.id])
+        db.commit()
+        return {"payment": projections[payment.id], "refund": projections[refund.id]}
+    except HTTPException as exc:
+        if claimed_payment and exc.status_code in {400, 422}:
+            # 已核对请求标识并抢占付款版本，业务拒绝且回滚后才可明确告诉前端未保存。
+            db.rollback()
+            raise HTTPException(status_code=exc.status_code, detail={
+                "code": "refund_not_saved",
+                "message": (
+                    exc.detail if isinstance(exc.detail, str) else "退款未保存，请检查填写内容。"
+                ),
+                "request_id": str(body.request_id),
+            }) from exc
+        raise
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409, detail="退款登记发生冲突，请核对最新付款后重试。",
+        ) from exc
     finally:
         db.close()
 
@@ -1048,6 +1291,13 @@ def update_record(
         before = _record_json(db, record)
         payload = body.model_dump(exclude_unset=True)
         bump_record_version(db, record, payload.pop("expected_version"))
+        refund_parent = None
+        parent_before = None
+        if record.record_type == "ledger":
+            refund_parent = _validate_refund_update(db, record, before, payload)
+            if refund_parent is not None:
+                parent_before = _record_json(db, refund_parent)
+                parent_before["version"] -= 1
         if record.record_type == "issue":
             previous_status = before.get("status")
             next_status = payload.get("status", previous_status)
@@ -1106,6 +1356,9 @@ def update_record(
         db.flush()
         after = _record_json(db, record)
         log_audit(db, "update", "records", record.id, before=before, after=after)
+        if refund_parent is not None:
+            log_audit(db, "update", "records", refund_parent.id,
+                      before=parent_before, after=_record_json(db, refund_parent))
         db.commit()
         return after
     finally:
@@ -1158,6 +1411,9 @@ def delete_record(record_id: str, request: Request, user: User,
         record = _get_record(db, record_id)
         before = _record_json(db, record)
         bump_record_version(db, record, expected_version)
+        if _has_linked_refunds(db, record.id):
+            raise HTTPException(status_code=409, detail="请先删除关联退款，再删除原付款。")
+        refund_parent = _refund_parent(db, record)
         relations = db.scalars(
             select(RecordRelation).where(
                 (RecordRelation.from_record_id == record.id)
@@ -1183,6 +1439,11 @@ def delete_record(record_id: str, request: Request, user: User,
         _release_candidate_record(db, record.id)
         db.delete(record)
         log_audit(db, "delete", "records", record.id, before=before)
+        if refund_parent is not None:
+            # 先落库删除详情，再读取父投影，保证审计中的额度已经释放。
+            db.flush()
+            log_audit(db, "update", "records", refund_parent.id,
+                      after=_record_json(db, refund_parent))
         db.commit()
     finally:
         db.close()
@@ -1195,6 +1456,12 @@ def _set_archived(record_id: str, request: Request, archived: bool,
         record = _get_record(db, record_id)
         before = _record_json(db, record)
         bump_record_version(db, record, expected_version)
+        detail = db.get(LedgerDetail, record.id) if record.record_type == "ledger" else None
+        if archived and ((detail is not None and detail.refund_of_record_id is not None)
+                         or _has_linked_refunds(db, record.id)):
+            raise HTTPException(
+                status_code=409, detail="关联付款与退款不能单独隐藏，请通过作废退款处理。",
+            )
         record.archived_at = _now() if archived else None
         record.updated_at = _now()
         after = _record_json(db, record)

@@ -42,7 +42,7 @@ async function responseError(response: Response): Promise<HttpError> {
       title: '标题', status: '状态', record_type: '记录类型', severity: '严重程度',
       phenomenon: '问题描述', amount_minor: '金额', vendor_id: '交易对象（商家）',
       payment_kind: '款项性质', ledger_kind: '账目类型', direction: '收支方向',
-      occurred_date: '发生日期', payment_date: '交易日期', completed_at: '完成日期', due_date: '截止日期', expected_version: '记录版本（请刷新页面）',
+      occurred_date: '发生日期', payment_date: '交易日期', refund_date: '退款日期', request_id: '退款请求标识', completed_at: '完成日期', due_date: '截止日期', expected_version: '记录版本（请刷新页面）',
       question: '调研问题', topic: '决策主题', measurement_role: '尺寸用途',
       object_name: '测量对象', value: '尺寸数值', unit: '尺寸单位',
       original_text: '来源文字', source_refs: '原始来源', event_kind: '事件类型',
