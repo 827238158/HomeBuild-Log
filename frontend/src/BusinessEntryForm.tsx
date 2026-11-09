@@ -1,7 +1,8 @@
 import { VoiceField } from './VoiceField'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { createDirectRecord, createEntity, listEntities, type NamedEntity } from './domainApi'
-import { RecordAssociations, requiredRecordContextError, useAssociationOptions } from './RecordAssociations'
+import { createDirectRecord, listEntities, type NamedEntity } from './domainApi'
+import { ArchivePicker, subscribeArchiveCreated } from './ArchiveFields'
+import { addArchiveOption, RecordAssociations, requiredRecordContextError, useAssociationOptions } from './RecordAssociations'
 import { TopicSelect } from './TopicSelect'
 import { Select } from './Select'
 import { useNavigationGuard } from './navigationGuard'
@@ -24,12 +25,11 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [retry, setRetry] = useState(0)
-  const [newVendor, setNewVendor] = useState('')
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const dirty = Object.keys(associations).length > 0 || JSON.stringify(topicIds) !== JSON.stringify(initialTopicId ? [initialTopicId] : []) || JSON.stringify(draft) !== JSON.stringify(emptyDraft()) || !!newVendor.trim() || !!titleOverflow
+  const dirty = Object.keys(associations).length > 0 || JSON.stringify(topicIds) !== JSON.stringify(initialTopicId ? [initialTopicId] : []) || JSON.stringify(draft) !== JSON.stringify(emptyDraft()) || !!titleOverflow
   useNavigationGuard(dirty || busy)
   const change = (key: keyof typeof draft, value: string) => { setDraft(current => ({ ...current, [key]: value })); setSuccess('') }
   const changeAssociation = (key: string, value: unknown) => {
@@ -37,6 +37,9 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
     // 修正必填背景后撤下旧提示，不在多选过程中触发其他缺项校验。
     if (key === 'space_ids' || key === 'stage_id') setError(current => current === '请选择至少一个空间' || current === '请选择装修阶段' ? '' : current)
   }
+  useEffect(() => subscribeArchiveCreated((type, item) => {
+    if (kind === 'ledger' && type === 'vendors') setEntities(current => addArchiveOption(current, item))
+  }), [kind])
   useEffect(() => {
     if (!open || kind !== 'ledger') return
     let active = true
@@ -47,16 +50,6 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [kind, open, retry])
-
-  async function addVendor() {
-    if (!newVendor.trim() || busyRef.current) return
-    busyRef.current = true; setBusy(true); setError('')
-    try {
-      const item = await createEntity('vendors', { name: newVendor.trim() })
-      setEntities(current => [...current, item]); change('vendor', item.id); setNewVendor('')
-    } catch (reason) { setError(reason instanceof Error ? reason.message : '新增交易对象失败，请重试') }
-    finally { busyRef.current = false; setBusy(false) }
-  }
 
   async function save(event: FormEvent) {
     event.preventDefault()
@@ -88,7 +81,7 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
     try {
       // 来源与正式记录由服务端一次提交，成功前始终保留本页草稿。
       await createDirectRecord(payload)
-      setTitleOverflow(''); setAssociations({}); setDraft(emptyDraft()); setTopicIds(initialTopicId ? [initialTopicId] : []); setNewVendor(''); setOpen(false)
+      setTitleOverflow(''); setAssociations({}); setDraft(emptyDraft()); setTopicIds(initialTopicId ? [initialTopicId] : []); setOpen(false)
       setSuccess(kind === 'ledger' ? '账目已保存' : '待办与问题已保存')
       onSaved()
     } catch (reason) { setError(reason instanceof Error ? reason.message : '保存失败，请重试') }
@@ -106,8 +99,7 @@ export function BusinessEntryForm({ kind, onSaved, initialTopicId, title }: Prop
           <label className="field-stack"><span>账目类型</span><Select disabled={busy} value={draft.ledgerKind} onChange={event => change('ledgerKind', event.target.value)}><option value="payment">付款</option><option value="refund">退款</option><option value="income">收入</option></Select></label>
           <label className="field-stack"><span>金额（元）</span><input required inputMode="decimal" value={draft.amount} onChange={event => change('amount', event.target.value)} placeholder="0.00" /></label>
           <label className="field-stack"><span>款项性质</span><input required value={draft.paymentKind} onChange={event => change('paymentKind', event.target.value)} placeholder="例如：全款、预付款、尾款" /></label>
-          <label className="field-stack business-entry-wide"><span>交易对象（收付款方）</span><Select required disabled={loading || busy} value={draft.vendor} onChange={event => change('vendor', event.target.value)}><option value="">{loading ? '加载中…' : '请选择交易对象'}</option>{entities.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>
-          <div className="business-entry-wide business-entry-inline"><label className="field-stack"><span>新增交易对象（可选）</span><input value={newVendor} onChange={event => setNewVendor(event.target.value)} placeholder="交易对象名称" /></label><button className="secondary-button" type="button" disabled={!newVendor.trim() || busy || loading} onClick={() => void addVendor()}>添加并选中</button></div>
+          <div className="business-entry-wide"><ArchivePicker type="vendors" label="交易对象（收付款方）" required disabled={loading || busy || !!loadError} value={draft.vendor} options={entities} onChange={ids => change('vendor', ids[0] ?? '')} /></div>
         </> : <>
           <label className="field-stack"><span>截止日期（可选）</span><input type="date" value={draft.due_date} onChange={event => change('due_date', event.target.value)} /></label><label className="field-stack"><span>严重程度</span><Select disabled={busy} value={draft.severity} onChange={event => change('severity', event.target.value)}><option value="low">低</option><option value="medium">中</option><option value="high">高</option></Select></label>
         </>}

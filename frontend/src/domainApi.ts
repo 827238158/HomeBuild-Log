@@ -247,6 +247,7 @@ export interface SpaceEntry {
   name: string
   kind: string
   parent_id: string | null
+  [key: string]: unknown
 }
 
 export interface NamedEntity {

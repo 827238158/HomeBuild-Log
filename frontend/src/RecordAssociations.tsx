@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { listEntities, listRecords, listSpaces, type DomainRecord } from './domainApi'
-import { Select } from './Select'
+import { ArchivePicker, subscribeArchiveCreated, type ArchiveItem } from './ArchiveFields'
 import { DropdownChevron } from './DropdownChevron'
 import { useDropdown } from './useDropdown'
 import { useDropdownPosition } from './useDropdownPosition'
@@ -11,7 +11,7 @@ import './RecordAssociations.css'
 
 export interface AssociationOption { id: string; name: string; trailingText?: string }
 export interface AssociationEntities {
-  spaces: AssociationOption[]; materials: AssociationOption[]; participants: AssociationOption[]; stages: AssociationOption[]
+  spaces: ArchiveItem[]; materials: ArchiveItem[]; participants: ArchiveItem[]; stages: ArchiveItem[]
 }
 export const associationIds = (value: unknown): string[] => Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
 export function requiredRecordContextError(payload: Record<string, unknown>): string {
@@ -21,6 +21,10 @@ export function requiredRecordContextError(payload: Record<string, unknown>): st
 }
 const emptyEntities = (): AssociationEntities => ({ spaces: [], materials: [], participants: [], stages: [] })
 
+export function addArchiveOption<T extends ArchiveItem>(options: T[], item: T): T[] {
+  return options.some(option => option.id === item.id) ? options : [...options, item]
+}
+
 export function useAssociationOptions(enabled = true) {
   const [entities, setEntities] = useState<AssociationEntities>(emptyEntities)
   const [records, setRecords] = useState<DomainRecord[]>([])
@@ -28,6 +32,10 @@ export function useAssociationOptions(enabled = true) {
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
   const retry = useCallback(() => setAttempt(value => value + 1), [])
+  // 编辑区收起后仍保留已独立保存的档案，下次打开可直接复用。
+  useEffect(() => subscribeArchiveCreated((type, item) => {
+    if (type !== 'vendors') setEntities(current => ({ ...current, [type]: addArchiveOption(current[type], item) }))
+  }), [])
   useEffect(() => {
     if (!enabled) return
     let active = true
@@ -109,9 +117,11 @@ export function RecordAssociations({ payload, onChange, entities, records, curre
     ['本批关联', associationIds(payload.related_candidate_keys).length],
   ].filter(([, count]) => Number(count) > 0).map(([name, count]) => `${count} 个${name}`)
   const options = associationRecordOptions(records, associationIds(payload.topic_ids), currentRecordId)
+  const archiveDisabled = disabled || loading || !!optionsError
+  const supplementaryDisabled = archiveDisabled || (!inline && !expanded)
   const contextFields = <>
-    <AssociationMultiSelect label="空间" required={requireContext} selectedIds={associationIds(payload.space_ids)} options={entities.spaces} onChange={ids => onChange('space_ids', ids)} disabled={disabled || loading || !!optionsError} />
-    <label className="field-stack"><span>装修阶段{requireContext && <span className="record-associations__required">（必填）</span>}</span><Select aria-label="装修阶段" required={requireContext} value={typeof payload.stage_id === 'string' ? payload.stage_id : ''} onChange={event => onChange('stage_id', event.target.value || null)} disabled={disabled || loading || !!optionsError}><option value="">未选择</option>{entities.stages.map(stage => <option key={stage.id} value={stage.id}>{stage.name}</option>)}{typeof payload.stage_id === 'string' && payload.stage_id && !entities.stages.some(stage => stage.id === payload.stage_id) && <option value={payload.stage_id}>已选阶段（选项待读取）</option>}</Select></label>
+    <ArchivePicker type="spaces" label="空间" required={requireContext} value={associationIds(payload.space_ids)} options={entities.spaces} onChange={ids => onChange('space_ids', ids)} disabled={archiveDisabled} />
+    <ArchivePicker type="stages" label="装修阶段" required={requireContext} value={typeof payload.stage_id === 'string' ? payload.stage_id : ''} options={entities.stages} onChange={ids => onChange('stage_id', ids[0] ?? null)} disabled={archiveDisabled} />
   </>
   const optionFeedback = <>
     {loading && <p role="status">正在读取信息与关联…</p>}
@@ -122,8 +132,8 @@ export function RecordAssociations({ payload, onChange, entities, records, curre
     {!inline && <button type="button" className="record-associations__toggle" aria-expanded={expanded} aria-controls={regionId} onClick={() => setExpanded(value => !value)}><span>更多信息与关联</span>{summary.length > 0 && <span className="record-associations__summary">{summary.join('、')}</span>}<DropdownChevron open={expanded} /></button>}
     <div id={regionId} hidden={!inline && !expanded} className="record-associations__body">
       <h4>补充信息</h4><div className="record-associations__fields">
-        <AssociationMultiSelect label="材料" selectedIds={associationIds(payload.material_ids)} options={entities.materials} onChange={ids => onChange('material_ids', ids)} disabled={disabled || loading || !!optionsError} />
-        {!hideParticipants && <AssociationMultiSelect label={participantLabel} selectedIds={associationIds(payload.participant_ids)} options={entities.participants} onChange={ids => onChange('participant_ids', ids)} disabled={disabled || loading || !!optionsError} />}
+        <ArchivePicker type="materials" label="材料" value={associationIds(payload.material_ids)} options={entities.materials} onChange={ids => onChange('material_ids', ids)} disabled={supplementaryDisabled} />
+        {!hideParticipants && <ArchivePicker type="participants" label={participantLabel} value={associationIds(payload.participant_ids)} options={entities.participants} onChange={ids => onChange('participant_ids', ids)} disabled={supplementaryDisabled} />}
       </div>
       <h4>关联具体记录</h4>
       <AssociationMultiSelect label="关联记录（可选）" selectedIds={associationIds(payload.related_record_ids)} options={options} onChange={ids => onChange('related_record_ids', ids)} disabled={disabled || loading || !!optionsError} searchable />

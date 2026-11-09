@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { listLedgerRefunds, registerLedgerRefund, listSpaces, listEntities, type LedgerRefundInput, type LedgerRefundList, type ProjectionRecord, type NamedEntity, type SpaceEntry } from './domainApi'
-import { AssociationMultiSelect } from './RecordAssociations'
-import { Select } from './Select'
+import { ArchivePicker } from './ArchiveFields'
 import { VoiceField } from './VoiceField'
 import { conflictRecord } from './RecordConflict'
 import { useNavigationGuard } from './navigationGuard'
@@ -173,6 +172,7 @@ export function LedgerRefunds({ record, active = true, onPaymentChanged, onOpen,
     } finally { busyRef.current = false; setBusy(false) }
   }
   const refundLabel = { none: '未退款', partial: '部分退款', full: '已全退' }[payment.refund_state ?? 'none']
+  const archiveDisabled = !active || busy || pendingResult || optionsLoading || !!optionsError
   return <section ref={sectionRef} tabIndex={-1} className="ledger-refunds" aria-label="付款退款记录" hidden={!active}>
     <h4>退款</h4>
     {data && <dl className="detail-list"><div><dt>退款状态</dt><dd>{refundLabel}</dd></div><div><dt>累计退款</dt><dd>{formatMoney(payment.refunded_minor ?? 0)}</dd></div><div><dt>剩余可退</dt><dd>{formatMoney(payment.refundable_minor ?? 0)}</dd></div></dl>}
@@ -188,8 +188,8 @@ export function LedgerRefunds({ record, active = true, onPaymentChanged, onOpen,
           <label className="field-stack"><span>退款日期</span><input required readOnly={pendingResult} type="date" value={draft.date} onChange={event => change('date', event.target.value)} /></label>
           <label className="field-stack record-form-grid__wide"><span>退款备注（可选）</span><VoiceField active={active && open && !busy && !latestConflict && !pendingResult} onBusyChange={setVoiceBusy} overflowDraft={{ text: draft.overflow, onChange: value => change('overflow', value) }}><textarea rows={3} maxLength={10000} readOnly={pendingResult} value={draft.description} onChange={event => change('description', event.target.value)} /></VoiceField></label>
           {(missingSpace || missingStage) && <p className="muted record-form-grid__wide">原付款缺少归属，请为本次退款补齐。原付款保持不变。</p>}
-          {missingSpace && <AssociationMultiSelect label="空间" required selectedIds={draft.spaceIds} options={options.spaces} onChange={value => change('spaceIds', value)} disabled={busy || pendingResult || optionsLoading || !!optionsError} />}
-          {missingStage && <label className="field-stack"><span>装修阶段（必填）</span><Select aria-label="装修阶段" required value={draft.stageId} onChange={event => change('stageId', event.target.value)} disabled={busy || pendingResult || optionsLoading || !!optionsError}><option value="">请选择</option>{options.stages.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}
+          {missingSpace && <ArchivePicker type="spaces" label="空间" required value={draft.spaceIds} options={options.spaces} onChange={ids => change('spaceIds', ids)} disabled={archiveDisabled} />}
+          {missingStage && <ArchivePicker type="stages" label="装修阶段" required value={draft.stageId} options={options.stages} onChange={ids => change('stageId', ids[0] ?? '')} disabled={archiveDisabled} />}
           {optionsLoading && <p className="record-form-grid__wide" role="status">正在读取归属选项…</p>}
           {optionsError && <p className="record-form-grid__wide" role="alert">{optionsError} <button type="button" className="secondary-button" onClick={() => setOptionsAttempt(value => value + 1)}>重试归属选项</button></p>}
           {!!data.excluded_topic_names.length && <p className="muted record-form-grid__wide">以下主题已归档，本次退款不会自动加入：{data.excluded_topic_names.join('、')}。如需关联，请先恢复主题。</p>}

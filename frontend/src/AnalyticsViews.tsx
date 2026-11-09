@@ -152,7 +152,7 @@ export function OverviewView({ onOpen, onOpenResearch = onOpen, refreshRevision 
         <OverviewPendingList kind="research" records={data.open_research} count={data.summary.open_research_count} onOpen={onOpenResearch} />
       </div>
       {data.stage_distribution.length > 0 && <section className="overview-stage-panel"><EChart title="阶段事项分布" description="" kind="donut" option={donutOption(data.stage_distribution)} summary={chartSummary('阶段事项分布', data.stage_distribution)} /><aside><header><h3>阶段明细</h3><span>共 {stageTotal} 项</span></header><div className="stage-breakdown">{data.stage_distribution.map((item, index) => <div key={item.key}><span className="stage-breakdown__dot" style={{ backgroundColor: chartCategoryColors[index % chartCategoryColors.length] }} /><strong>{item.label}</strong><span>{item.value} 项</span><em>{stageTotal ? `${Math.round((item.value / stageTotal) * 1000) / 10}%` : '0%'}</em></div>)}</div></aside></section>}
-      {data.recent_records.length > 0 ? <section className="projection-section"><h3>最近动态</h3><div className="card-grid">{data.recent_records.map((record) => <RecordCard key={record.id} record={record} onOpen={record.record_type === 'research' ? onOpenResearch : onOpen} />)}</div></section> : <div className="empty-guidance"><strong>还没有最近动态</strong><p>先记下一条装修记录。</p></div>}
+      {data.recent_records.length > 0 ? <section className="projection-section overview-recent-records"><h3>最近动态</h3><div className="card-grid">{data.recent_records.map((record) => <RecordCard key={record.id} record={record} onOpen={record.record_type === 'research' ? onOpenResearch : onOpen} />)}</div></section> : <div className="empty-guidance"><strong>还没有最近动态</strong><p>先记下一条装修记录。</p></div>}
     </>}
   </section>
 }

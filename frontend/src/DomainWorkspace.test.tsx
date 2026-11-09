@@ -33,10 +33,8 @@ vi.mock('./domainApi', () => ({
   setRecordArchived: vi.fn(),
   listSpaces: vi.fn(),
   createSpace: vi.fn(),
-  deleteSpace: vi.fn(),
   listEntities: vi.fn(),
   createEntity: vi.fn(),
-  deleteEntity: vi.fn(),
   listRelations: vi.fn(),
   createRelation: vi.fn(),
   removeRelation: vi.fn(),
@@ -68,7 +66,7 @@ const anotherSource = {
   ignored_candidate_count: 0,
 }
 
-function TestDomainWorkspace({ initialSources = [source], ...props }: { refreshKey: number; preferredSourceId?: string; sourceRequestKey?: number; manageRequestKey?: number; initialSources?: api.SourceEntry[] }) {
+function TestDomainWorkspace({ initialSources = [source], ...props }: { refreshKey: number; preferredSourceId?: string; sourceRequestKey?: number; initialSources?: api.SourceEntry[] }) {
   const [sources, setSources] = useState<api.SourceEntry[]>(initialSources)
   const refreshSources = async () => {
     const rows = await api.listSources()
@@ -325,15 +323,6 @@ describe('DomainWorkspace', () => {
     confirm.mockRestore()
   })
 
-  it('空间管理直达请求展开面板并聚焦空间名称，未保存名称保护导航', async () => {
-    render(<TestDomainWorkspace refreshKey={0} manageRequestKey={1} />)
-    await waitFor(() => expect(screen.getByText('管理空间与共享档案').closest('details')?.open).toBe(true))
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('空间名称')))
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    fireEvent.change(screen.getByLabelText('空间名称'), { target: { value: '尚未保存的房间' } })
-    expect(confirmNavigation()).toBe(false)
-    confirm.mockRestore()
-  })
   it('分析等待时显示简短中文点阵状态，结束后展示候选结果', async () => {
     let finish!: (bundle: typeof explicitBundle) => void
     vi.mocked(api.getLatestCandidateBundle).mockReturnValue(new Promise((resolve) => { finish = resolve }))
@@ -871,66 +860,6 @@ describe('DomainWorkspace', () => {
     expect(vi.mocked(api.createRecord).mock.calls.at(-1)?.[0]).toMatchObject({
       options: ['横贴（省料）', '竖贴：更整齐'],
     })
-  })
-
-  it('解释空间上级并可确认删除未使用的空间和共享档案', async () => {
-    const house = { id: 'space-house', name: '房屋', kind: 'house', parent_id: null }
-    const room = { id: 'space-room', name: '主卧', kind: 'room', parent_id: house.id }
-    const material = { id: 'material-1', name: '花砖', brand: '测试品牌' }
-    vi.mocked(api.listSpaces).mockResolvedValue([house, room])
-    vi.mocked(api.listEntities).mockImplementation(async (type) => type === 'materials' ? [material] : [])
-    vi.mocked(api.deleteSpace).mockResolvedValue(undefined)
-    vi.mocked(api.deleteEntity).mockResolvedValue(undefined)
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-
-    render(<TestDomainWorkspace refreshKey={0} />)
-    fireEvent.click(screen.getByText('管理空间与共享档案'))
-    expect(await screen.findByText('上级空间怎么选？')).toBeTruthy()
-    await waitFor(() => expect(screen.getByLabelText(/上级空间/, { selector: 'select' })).toHaveProperty('value', house.id))
-    expect(screen.getByText('房间 · 上级：房屋')).toBeTruthy()
-    expect(screen.getByText('房屋 · 系统根空间')).toBeTruthy()
-    expect(screen.getByText('系统根空间不可删除')).toBeTruthy()
-
-    fireEvent.click(within(screen.getByLabelText('已有空间')).getByText('删除'))
-    await waitFor(() => expect(api.deleteSpace).toHaveBeenCalledWith(room.id))
-    fireEvent.click(within(screen.getByLabelText('已有材料')).getByText('删除'))
-    await waitFor(() => expect(api.deleteEntity).toHaveBeenCalledWith('materials', material.id))
-    expect(confirm).toHaveBeenCalledTimes(2)
-    confirm.mockRestore()
-  })
-
-  it('新增材料时提交可选品牌并在列表组合展示', async () => {
-    const material = { id: 'material-1', name: '花砖', brand: '马可波罗' }
-    vi.mocked(api.listEntities).mockImplementation(async (type) => type === 'materials' ? [material] : [])
-    vi.mocked(api.createEntity).mockResolvedValue(material)
-
-    render(<TestDomainWorkspace refreshKey={0} />)
-    fireEvent.click(screen.getByText('管理空间与共享档案'))
-    expect(await screen.findByText('马可波罗 · 花砖')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('材料名称'), { target: { value: '柔光砖' } })
-    fireEvent.change(screen.getByLabelText('材料品牌（可选）'), { target: { value: '东鹏' } })
-    fireEvent.click(screen.getByText('新增材料'))
-
-    await waitFor(() => expect(api.createEntity).toHaveBeenCalledWith('materials', {
-      name: '柔光砖', brand: '东鹏',
-    }))
-    fireEvent.change(screen.getByLabelText('档案类型'), { target: { value: 'vendors' } })
-    expect(screen.queryByLabelText('材料品牌（可选）')).toBeNull()
-  })
-
-  it('删除引用中的档案时显示后端冲突原因', async () => {
-    const material = { id: 'material-1', name: '花砖' }
-    vi.mocked(api.listEntities).mockImplementation(async (type) => type === 'materials' ? [material] : [])
-    vi.mocked(api.deleteEntity).mockRejectedValue(new Error('该材料已被正式记录使用，请先解除记录关联。'))
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
-
-    render(<TestDomainWorkspace refreshKey={0} />)
-    fireEvent.click(screen.getByText('管理空间与共享档案'))
-    await screen.findByText('待办与问题：主卧门口地砖有一处破裂')
-    fireEvent.click(within(screen.getByLabelText('已有材料')).getByText('删除'))
-
-    expect(await screen.findByText('该材料已被正式记录使用，请先解除记录关联。')).toBeTruthy()
-    confirm.mockRestore()
   })
 
   it('在候选可选栏中关联已有正式记录', async () => {

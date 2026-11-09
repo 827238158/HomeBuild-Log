@@ -74,8 +74,8 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, active: boolea
         list.push(item)
         // 多选菜单实际在 body 中：按 aria-controls 插到触发器之后，而不是页面末尾。
         const controlledId = item.getAttribute('aria-expanded') === 'true' ? item.getAttribute('aria-controls') : null
-        const controlled = controlledId ? document.getElementById(controlledId) : null
-        if (controlled?.matches('.dropdown-portal') && !element.contains(controlled)) {
+        const controlled = controlledId ? document.getElementById(controlledId)?.closest('.dropdown-portal') : null
+        if (controlled && !element.contains(controlled)) {
           const menuItems = Array.from(controlled.querySelectorAll<HTMLElement>(focusableSelector)).filter(canFocus)
           list.push(...menuItems)
           hasPortalItems ||= menuItems.length > 0

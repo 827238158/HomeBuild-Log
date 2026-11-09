@@ -10,7 +10,8 @@ import { useModalFocus } from './useModalFocus'
 import { confirmNavigation, useNavigationGuard } from './navigationGuard'
 import { RecordConflict, conflictRecord } from './RecordConflict'
 import { VoiceField } from './VoiceField'
-import { requiredRecordContextError } from './RecordAssociations'
+import { addArchiveOption, requiredRecordContextError } from './RecordAssociations'
+import { subscribeArchiveCreated } from './ArchiveFields'
 import { presentSourceText } from './sourcePresentation'
 import { LedgerRefunds } from './LedgerRefunds'
 
@@ -53,6 +54,10 @@ export function RecordDetail({ recordId, closing, onClose, onChanged, onExitComp
   const [conflict, setConflict] = useState<ProjectionRecord | null>(null)
   const [editVersion, setEditVersion] = useState<number | undefined>()
   const focusReadMode = useRef(false)
+  useEffect(() => subscribeArchiveCreated((type, item) => {
+    if (type === 'spaces') setSpaces(current => addArchiveOption(current, item as SpaceEntry))
+    else setEntities(current => ({ ...current, [type]: addArchiveOption(current[type], item) }))
+  }), [])
   useEffect(() => {
     if (editing && resourcesReady) panel.current?.querySelector<HTMLInputElement>('.detail-edit-section input')?.focus()
     else if (!editing && focusReadMode.current) { focusReadMode.current = false; panel.current?.querySelector<HTMLButtonElement>('[data-edit-record]')?.focus() }

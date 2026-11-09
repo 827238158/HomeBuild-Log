@@ -1,11 +1,12 @@
 vi.mock('./TopicSelect', () => ({ TopicSelect: ({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) => <div><output data-testid="topics">{value.join(',')}</output><button type="button" onClick={() => onChange([])}>清空主题归属</button></div> }))
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from './domainApi'
 import { BusinessEntryForm } from './BusinessEntryForm'
 import { confirmNavigation } from './navigationGuard'
+import { HttpError } from './http'
 
-vi.mock('./domainApi', () => ({ createDirectRecord: vi.fn(), listEntities: vi.fn(), listSpaces: vi.fn(), listRecords: vi.fn(), createEntity: vi.fn() }))
+vi.mock('./domainApi', () => ({ createDirectRecord: vi.fn(), listEntities: vi.fn(), listSpaces: vi.fn(), listRecords: vi.fn(), createEntity: vi.fn(), createSpace: vi.fn() }))
 function fill(label: string, value: string) { fireEvent.change(screen.getByLabelText(label), { target: { value } }) }
 function select(label: string, value: string) {
   fireEvent.click(screen.getByRole('combobox', { name: new RegExp(`^${label}：`) }))
@@ -109,17 +110,81 @@ describe('业务页直接创建', () => {
     await screen.findByText('待办与问题已保存')
     expect(api.createDirectRecord).toHaveBeenCalledWith(expect.objectContaining({ record_type: 'issue', status: 'pending', phenomenon: '与师傅核对柜内净宽', severity: 'medium', handling_plan: '明天现场测量' }))
   })
+  it('待办就地新增四类档案，单选替换而多选保留已有空间', async () => {
+    vi.mocked(api.createSpace).mockResolvedValue({ id: 'opening', name: '门洞', kind: 'component', parent_id: 'kitchen' })
+    vi.mocked(api.createEntity).mockImplementation(async (type, payload) => ({ id: `new-${type}`, name: String(payload.name), ...payload }))
+    render(<BusinessEntryForm kind="issue" onSaved={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: '新增待办或问题' }))
+    fill('事项标题', '确认门洞尺寸')
+    fill('事项内容', '同步新规格')
+    await chooseContext()
+    const addArchive = (role: 'button' | 'combobox', field: string, label: string, name: string) => {
+      fireEvent.click(screen.getByRole(role, { name: text => text.startsWith(`${field}：`) }))
+      fill(`搜索${field}`, name)
+      fireEvent.click(screen.getByRole('button', { name: `新增${label}` }))
+      return within(screen.getByRole('dialog', { name: `新增${label}` }))
+    }
+    const space = addArchive('button', '空间', '空间', '门洞')
+    fireEvent.change(space.getByLabelText('空间类型'), { target: { value: 'component' } })
+    fireEvent.change(space.getByLabelText('上级空间'), { target: { value: 'kitchen' } })
+    fireEvent.click(space.getByRole('button', { name: '新增空间' }))
+    await screen.findByRole('button', { name: /^空间：.*门洞/ })
+    expect(api.createSpace).toHaveBeenCalledWith({ name: '门洞', kind: 'component', parent_id: 'kitchen' })
+    const stage = addArchive('combobox', '装修阶段', '装修阶段', '收尾')
+    fireEvent.click(stage.getByRole('button', { name: '新增装修阶段' }))
+    await screen.findByRole('combobox', { name: '装修阶段：收尾' })
+    fireEvent.click(screen.getByRole('button', { name: /更多信息与关联/ }))
+    const material = addArchive('button', '材料', '材料', '门套')
+    fireEvent.change(material.getByLabelText('型号（可选）'), { target: { value: 'A100' } })
+    fireEvent.click(material.getByRole('button', { name: '新增材料' }))
+    await screen.findByRole('button', { name: /^材料：.*门套/ })
+    const participant = addArchive('button', '处理人', '参与人', '王师傅')
+    fireEvent.click(participant.getByRole('button', { name: '新增参与人' }))
+    await screen.findByRole('button', { name: /^处理人：.*王师傅/ })
+    fireEvent.click(screen.getByRole('button', { name: '保存事项' }))
+    await screen.findByText('待办与问题已保存')
+    expect(api.createDirectRecord).toHaveBeenCalledWith(expect.objectContaining({
+      title: '确认门洞尺寸', space_ids: ['kitchen', 'opening'], stage_id: 'new-stages',
+      material_ids: ['new-materials'], participant_ids: ['new-participants'],
+    }))
+  })
   it('显式新增交易对象后选中，失败不清空名称', async () => {
     await ledger()
-    vi.mocked(api.createEntity).mockRejectedValueOnce(new Error('名称保存失败')).mockResolvedValueOnce({ id: 'new-vendor', name: '新店' } as api.NamedEntity)
-    fill('新增交易对象（可选）', '新店')
-    fireEvent.click(screen.getByRole('button', { name: '添加并选中' }))
-    await screen.findByText('名称保存失败'); expect((screen.getByLabelText('新增交易对象（可选）') as HTMLInputElement).value).toBe('新店')
-    fireEvent.click(screen.getByRole('button', { name: '添加并选中' }))
+    vi.mocked(api.createEntity).mockRejectedValueOnce(new HttpError('名称保存失败', 500, 'save_failed')).mockResolvedValueOnce({ id: 'new-vendor', name: '新店' } as api.NamedEntity)
+    fireEvent.click(screen.getByRole('combobox', { name: /^交易对象/ }))
+    fill('搜索交易对象（收付款方）', '新店')
+    fireEvent.click(screen.getByRole('button', { name: '新增商家' }))
+    expect((screen.getByLabelText('商家名称') as HTMLInputElement).value).toBe('新店')
+    fireEvent.click(screen.getByRole('button', { name: '新增商家' }))
+    await screen.findByText('名称保存失败')
+    expect((screen.getByLabelText('商家名称') as HTMLInputElement).value).toBe('新店')
+    expect(api.createDirectRecord).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '新增商家' }))
     await screen.findByRole('combobox', { name: '交易对象（收付款方）：新店' })
     fireEvent.click(screen.getByRole('button', { name: '保存账目' }))
     await screen.findByText('账目已保存')
     expect(api.createDirectRecord).toHaveBeenCalledWith(expect.objectContaining({ vendor_id: 'new-vendor' }))
+  })
+  it('可取消档案新增，查重后选用返回的档案并保留账目草稿', async () => {
+    await ledger()
+    vi.mocked(api.createEntity).mockRejectedValueOnce(new HttpError('重复档案', 409, 'archive_duplicate', {
+      matches: [{ id: 'matched-vendor', name: '厨具店' }],
+    }))
+    const openArchive = () => {
+      fireEvent.click(screen.getByRole('combobox', { name: /^交易对象/ }))
+      fill('搜索交易对象（收付款方）', '厨具店')
+      fireEvent.click(screen.getByRole('button', { name: '新增商家' }))
+    }
+    openArchive()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.getByRole('combobox', { name: '交易对象（收付款方）：灯具店' })).toBeTruthy()
+    openArchive()
+    fireEvent.click(screen.getByRole('button', { name: '新增商家' }))
+    fireEvent.click(await screen.findByRole('button', { name: '厨具店' }))
+    expect(screen.getByRole('combobox', { name: '交易对象（收付款方）：厨具店' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '保存账目' }))
+    await screen.findByText('账目已保存')
+    expect(api.createDirectRecord).toHaveBeenCalledWith(expect.objectContaining({ vendor_id: 'matched-vendor', title: '灯带尾款', amount_minor: 1999 }))
   })
 })
 

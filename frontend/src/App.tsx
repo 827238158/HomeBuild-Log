@@ -77,7 +77,6 @@ export function App() {
   const [sourceRefreshKey, setSourceRefreshKey] = useState(0)
   const [preferredSourceId, setPreferredSourceId] = useState('')
   const [sourceRequestKey, setSourceRequestKey] = useState(0)
-  const [manageRequestKey, setManageRequestKey] = useState(0)
   const [captureTab, setCaptureTab] = useState<'quick' | 'review'>('quick')
   const [lastSavedSourceId, setLastSavedSourceId] = useState('')
   const [hiddenRecentSourceIds, setHiddenRecentSourceIds] = useState<string[]>(readHiddenRecentSources)
@@ -321,7 +320,7 @@ export function App() {
 
   if (state.kind === 'ready') {
     return <main className="app-workspace">
-      <CoreViews onCaptureActiveChange={setCaptureActive} onLogout={handleLogout} onOpenSource={openReview} onManageSpaces={() => { openReview(); setManageRequestKey((value) => value + 1) }}>
+      <CoreViews onCaptureActiveChange={setCaptureActive} onLogout={handleLogout} onOpenSource={openReview}>
         <section className="capture-workspace">
           <header className="capture-workspace__header"><h2>随手记与整理</h2></header>
           {sourceListError && <p className="source-error" role="alert">来源列表加载失败：{sourceListError}<button type="button" onClick={() => void refreshSources().catch(() => undefined)}>重试</button></p>}
@@ -353,7 +352,7 @@ export function App() {
             {visibleRecentSources.length > 0 && <div className="source-list"><h3 className="source-list-title">最近记录</h3>{visibleRecentSources.map((s) => <div key={s.id} className="source-item recent-source-row"><p className="source-item-text source-display-text">{presentSourceText(s.original_text).text}</p><time className="source-item-time">{formatBeijingDateTime(s.captured_at)}</time><div className="recent-source-row__actions"><button type="button" onClick={() => openReview(s.id)}>去整理</button><button className="source-item-close" type="button" aria-label={`关闭最近记录：${presentSourceText(s.original_text).text || '仅附件记录'}`} onClick={() => hideRecentSource(s.id)}>×</button></div></div>)}</div>}
           </div>
           <div id="capture-panel-review" className="capture-panel capture-review" role="tabpanel" aria-labelledby="capture-tab-review" hidden={captureTab !== 'review'}>
-            <DomainWorkspace sources={sources} refreshSources={refreshSources} refreshKey={sourceRefreshKey} preferredSourceId={preferredSourceId} sourceRequestKey={sourceRequestKey} manageRequestKey={manageRequestKey} />
+            <DomainWorkspace sources={sources} refreshSources={refreshSources} refreshKey={sourceRefreshKey} preferredSourceId={preferredSourceId} sourceRequestKey={sourceRequestKey} />
           </div>
         </section>
       </CoreViews>

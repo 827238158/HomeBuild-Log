@@ -172,6 +172,21 @@ beforeEach(() => {
 })
 
 describe('CoreViews', () => {
+  it('从侧栏打开装修档案，空间页的管理入口直接切到空间分类', async () => {
+    try {
+      render(<CoreViews><p>录入</p></CoreViews>)
+      const nav = screen.getByRole('navigation', { name: '核心功能' })
+      fireEvent.click(within(nav).getByRole('button', { name: '装修档案' }))
+      expect(await screen.findByRole('searchbox', { name: '搜索商家' })).toBeTruthy()
+      fireEvent.click(within(nav).getByRole('button', { name: '空间' }))
+      fireEvent.click(await screen.findByRole('button', { name: '建立第一个空间' }))
+      expect(await screen.findByRole('searchbox', { name: '搜索空间' })).toBeTruthy()
+      expect(within(nav).getByRole('button', { name: '装修档案' }).getAttribute('aria-current')).toBe('page')
+    } finally {
+      vi.mocked(api.listEntities).mockClear()
+    }
+  })
+
   const refundNavigationDraftKey = 'ledger:refund-payment-nav:refund'
   const openRefundNavigationDraft = async () => {
     sessionStorage.removeItem(refundNavigationDraftKey)
@@ -1049,12 +1064,9 @@ describe('CoreViews', () => {
     await within(detail).findByLabelText('标题')
 
     const openSingleSelect = (label: string, option: string) => {
-      const native = within(detail).getByLabelText(label)
-      const trigger = native.closest('.select-control')?.querySelector('.select-trigger') as HTMLElement
-      fireEvent.click(trigger)
+      fireEvent.click(within(detail).getByRole('combobox', { name: name => name.startsWith(`${label}：`) }))
       const menu = screen.getByRole('listbox')
-      expect(menu.parentElement).toBe(document.body)
-      expect(menu.classList.contains('dropdown-portal')).toBe(true)
+      expect(menu.closest('.dropdown-portal')?.parentElement).toBe(document.body)
       expect(within(menu).getByRole('option', { name: option })).toBeTruthy()
     }
 
@@ -1073,7 +1085,7 @@ describe('CoreViews', () => {
       const group = within(detail).getByRole('group', { name: groupName })
       fireEvent.click(within(group).getByRole('button'))
       const menu = screen.getByRole('listbox')
-      expect(menu.parentElement).toBe(document.body)
+      expect(menu.closest('.dropdown-portal')?.parentElement).toBe(document.body)
       expect(screen.getByLabelText(optionName)).toBeTruthy()
     }
     expect(screen.getByText('2026-07-01').classList.contains('multi-select-option__meta')).toBe(true)

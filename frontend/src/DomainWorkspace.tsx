@@ -4,7 +4,8 @@ import { Select } from './Select'
 import { VoiceField } from './VoiceField'
 import { useMediaQuery } from './useMediaQuery'
 import { TopicSelect } from './TopicSelect'
-import { RecordAssociations, AssociationMultiSelect, requiredRecordContextError } from './RecordAssociations'
+import { addArchiveOption, RecordAssociations, AssociationMultiSelect, requiredRecordContextError } from './RecordAssociations'
+import { ArchivePicker, subscribeArchiveCreated } from './ArchiveFields'
 import { ThinkingLattice } from './MotionPrimitives'
 import { useDropdownPosition } from './useDropdownPosition'
 import { useDropdown } from './useDropdown'
@@ -12,16 +13,12 @@ import { DropdownChevron } from './DropdownChevron'
 import { useNavigationGuard } from './navigationGuard'
 
 import {
-  createEntity,
   confirmCandidateBundle,
   createRecord,
   createExtraction,
   deleteSource,
-  deleteEntity,
-  deleteSpace,
   getLatestCandidateBundle,
   getSourceDeletionImpact,
-  createSpace,
   listEntities,
   listRecords,
   listSpaces,
@@ -48,7 +45,6 @@ interface Props {
   refreshKey: number
   preferredSourceId?: string
   sourceRequestKey?: number
-  manageRequestKey?: number
 }
 export type { RecordType } from './recordConfig'
 
@@ -111,21 +107,6 @@ const typeFieldConfig: Record<RecordType, TypeFieldConfig> = {
   },
 }
 
-const entityLabels: Record<EntityType, string> = {
-  materials: '材料',
-  vendors: '商家',
-  participants: '参与者',
-  stages: '装修阶段',
-}
-const entityPlaceholders: Record<EntityType, string> = {
-  materials: '例如：卫生间花砖',
-  vendors: '例如：光彩瓷砖店',
-  participants: '例如：张师傅',
-  stages: '例如：水电阶段',
-}
-const spaceKindLabels: Record<string, string> = {
-  house: '房屋', room: '房间', component: '局部构件', surface: '表面',
-}
 const titlePlaceholder: Record<RecordType, string> = {
   event: '例如：主卧地砖铺贴完成',
   ledger: '例如：支付花砖预付款',
@@ -441,7 +422,7 @@ export function RecordEditFields({
       : recordType === 'issue' || recordType === 'event' ? <label className="field-stack record-form-grid__wide"><span>{cfg.detailBLabel}</span><VoiceField active={active} onBusyChange={onVoiceBusyChange}><textarea rows={3} maxLength={10000} value={detailB} placeholder={cfg.detailBPlaceholder} onChange={event => setDetailB(event.target.value)} /></VoiceField></label>
       : <label className="field-stack"><span>{cfg.detailBLabel}</span><input type={cfg.detailBType || 'text'} min={cfg.detailBType === 'number' ? '0' : undefined} step="any" value={detailB} placeholder={cfg.detailBPlaceholder} onChange={(event) => setDetailB(event.target.value)} /></label>}
     {recordType !== 'measurement' && cfg.detailCLabel && <label className="field-stack"><span>{cfg.detailCLabel}</span><input type={cfg.detailCType || 'text'} min={cfg.detailCType === 'number' ? '0' : undefined} step="any" value={detailC} placeholder={cfg.detailCPlaceholder} onChange={(event) => setDetailC(event.target.value)} /></label>}
-    {cfg.showVendor && <label className="field-stack"><span>{recordType === 'ledger' ? '交易对象（商家）' : '商家'}</span><Select disabled={lockLedgerIdentity} required={recordType === 'ledger'} value={String(payload.vendor_id ?? '')} onChange={(event) => onChange('vendor_id', event.target.value || null)}><option value="">请选择</option>{entities.vendors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label>}
+    {cfg.showVendor && <ArchivePicker type="vendors" label={recordType === 'ledger' ? '交易对象（商家）' : '商家'} disabled={lockLedgerIdentity || !active} required={recordType === 'ledger'} value={String(payload.vendor_id ?? '')} options={entities.vendors} onChange={ids => onChange('vendor_id', ids[0] ?? null)} />}
     {recordType !== 'issue' && <label className="field-stack"><span>发生日期</span><input type="date" value={String(payload.occurred_date ?? '')} onChange={(event) => onChange('occurred_date', event.target.value || null)} /></label>}
     <label className="field-stack record-form-grid__wide"><span>{recordType === 'ledger' ? '备注（可选）' : '补充说明'}</span><VoiceField active={active} onBusyChange={onVoiceBusyChange}><textarea rows={3} maxLength={10000} value={String(payload.description ?? '')} onChange={(event) => onChange('description', event.target.value || null)} /></VoiceField></label>
     {recordType === 'issue' && <>
@@ -450,22 +431,12 @@ export function RecordEditFields({
       {status === 'done' && <><label className="field-stack"><span>实际完成日期</span><input type="date" value={toDateInput(payload.completed_at)} onChange={(event) => onChange('completed_at', event.target.value || null)} /></label><label className="field-stack record-form-grid__wide"><span>实际处理结果</span><VoiceField active={active} onBusyChange={onVoiceBusyChange}><textarea required rows={2} maxLength={10000} value={String(payload.actual_result ?? '')} onChange={(event) => onChange('actual_result', event.target.value || null)} /></VoiceField></label></>}
     </>}
     <div className="record-form-grid__wide"><TopicSelect value={Array.isArray(payload.topic_ids) ? payload.topic_ids.map(String) : []} onChange={ids => onChange('topic_ids', ids)} /></div>
-    <RecordAssociations requireContext={requireContext} payload={payload} onChange={onChange} entities={{ ...entities, spaces }} records={records} currentRecordId={currentRecordId} participantLabel={recordType === 'issue' ? '处理人' : '参与者'} error={error} />
+    <RecordAssociations requireContext={requireContext} payload={payload} onChange={onChange} entities={{ ...entities, spaces }} records={records} currentRecordId={currentRecordId} participantLabel={recordType === 'issue' ? '处理人' : '参与者'} disabled={!active} error={error} />
   </div>
 }
 
-export function DomainWorkspace({ sources, refreshSources, refreshKey, preferredSourceId, sourceRequestKey = 0, manageRequestKey = 0 }: Props) {
+export function DomainWorkspace({ sources, refreshSources, refreshKey, preferredSourceId, sourceRequestKey = 0 }: Props) {
   const compactLayout = useMediaQuery('(max-width: 1100px)')
-  const managerRef = useRef<HTMLDetailsElement>(null)
-  useEffect(() => {
-    if (!manageRequestKey || !managerRef.current) return
-    managerRef.current.open = true
-    const frame = requestAnimationFrame(() => {
-      managerRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
-      managerRef.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [manageRequestKey])
   const [sourceId, setSourceId] = useState('')
   const [voiceBusy, setVoiceBusy] = useState(false)
   const currentSourceId = useRef(sourceId)
@@ -475,12 +446,10 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
   const [entities, setEntities] = useState<Record<EntityType, NamedEntity[]>>({
     materials: [], vendors: [], participants: [], stages: [],
   })
-  const [manageType, setManageType] = useState<EntityType>('materials')
-  const [manageName, setManageName] = useState('')
-  const [manageBrand, setManageBrand] = useState('')
-  const [spaceName, setSpaceName] = useState('')
-  const [spaceKind, setSpaceKind] = useState('room')
-  const [spaceParent, setSpaceParent] = useState('')
+  useEffect(() => subscribeArchiveCreated((type, item) => {
+    if (type === 'spaces') setSpaces(current => addArchiveOption(current, item as SpaceEntry))
+    else setEntities(current => ({ ...current, [type]: addArchiveOption(current[type], item) }))
+  }), [])
   const [message, setMessage] = useState('')
   const [referenceError, setReferenceError] = useState('')
   const [bundle, setBundle] = useState<CandidateBundle | null>(null)
@@ -638,17 +607,6 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
     return () => { active = false }
   }, [refreshKey, sources])
 
-  useEffect(() => {
-    if (spaceKind === 'house') {
-      if (spaceParent) setSpaceParent('')
-      return
-    }
-    if (!spaceParent) {
-      const root = spaces.find((item) => item.kind === 'house' && item.parent_id === null)
-      if (root) setSpaceParent(root.id)
-    }
-  }, [spaceKind, spaceParent, spaces])
-
   const selectedSource = useMemo(
     () => sources.find((source) => source.id === sourceId),
     [sources, sourceId],
@@ -658,7 +616,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
     sourceDraft !== (selectedSource?.original_text || '')
     || sourceTimeDraft !== (selectedSource?.reported_time_text || '')
   )
-  useNavigationGuard(hasUnsavedCandidateEdits || sourceEditDirty || Boolean(spaceName.trim() || manageName.trim() || manageBrand.trim()))
+  useNavigationGuard(hasUnsavedCandidateEdits || sourceEditDirty)
   const switchSource = (next: string) => {
     if (next === sourceId) return true
     if ((hasUnsavedCandidateEdits || sourceEditDirty) && !window.confirm('切换来源会丢失当前未保存的编辑，确定切换吗？')) return false
@@ -685,10 +643,6 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
       ignored: items.filter((item) => item.review_state === 'deferred').length,
     }
   }, [bundle])
-  const rootHouseCount = spaces.filter(
-    (item) => item.kind === 'house' && item.parent_id === null,
-  ).length
-
   const updateSuggestion = (key: string, field: string, value: unknown) => {
     setConfirmationState('idle')
     setHasUnsavedCandidateEdits(true)
@@ -959,68 +913,6 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
     }
   }
 
-  const addManagedEntity = async () => {
-    if (!manageName.trim()) {
-      setMessage(`请填写${entityLabels[manageType]}名称。`)
-      return
-    }
-    try {
-      await createEntity(manageType, {
-        name: manageName.trim(),
-        ...(manageType === 'materials' ? { brand: manageBrand.trim() || null } : {}),
-      })
-      setManageName('')
-      setManageBrand('')
-      setMessage(`${entityLabels[manageType]}已新增。`)
-      await refreshReferences()
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : '新增共享档案失败')
-    }
-  }
-
-  const addSpace = async () => {
-    if (!spaceName.trim()) {
-      setMessage('请填写空间名称。')
-      return
-    }
-    if (spaceKind !== 'house' && !spaceParent) {
-      setMessage('请选择上级空间。房间和局部区域需要归入整套房屋。')
-      return
-    }
-    try {
-      await createSpace({ name: spaceName.trim(), kind: spaceKind, parent_id: spaceParent || null })
-      setSpaceName('')
-      setMessage('空间已新增。')
-      await refreshReferences()
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : '新增空间失败')
-    }
-  }
-
-  const deleteSpaceItem = async (space: SpaceEntry) => {
-    if (!window.confirm(`确认永久删除空间“${space.name}”吗？此操作无法恢复。`)) return
-    try {
-      await deleteSpace(space.id)
-      if (spaceParent === space.id) setSpaceParent('')
-      setMessage(`空间“${space.name}”已删除。`)
-      await refreshReferences()
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : '删除空间失败')
-    }
-  }
-
-  const deleteManagedEntity = async (entity: NamedEntity) => {
-    const label = entityLabels[manageType]
-    if (!window.confirm(`确认永久删除${label}“${entity.name}”吗？此操作无法恢复。`)) return
-    try {
-      await deleteEntity(manageType, entity.id)
-      setMessage(`${label}“${entity.name}”已删除。`)
-      await refreshReferences()
-    } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : `删除${label}失败`)
-    }
-  }
-
   // 只有已勾选且尚未生成正式记录的候选，才属于当前可提交内容。
   const hasSelectedUnconfirmed = suggestions.some(
     (item) => selectedKeys.has(item.key) && !item.confirmed_record_id,
@@ -1240,12 +1132,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
                     }}
                   />
                 </label>}
-                {cfg.showVendor && <label className="field-stack"><span>{recordType === 'ledger' ? '交易对象（商家）' : '商家'}</span>
-                  <Select required={recordType === 'ledger'} value={vendorId} onChange={(event) => updateSuggestion(suggestion.key, 'vendor_id', event.target.value || null)}>
-                    <option value="">请选择</option>
-                    {entities.vendors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </Select>
-                </label>}
+                {cfg.showVendor && <ArchivePicker type="vendors" label={recordType === 'ledger' ? '交易对象（商家）' : '商家'} required={recordType === 'ledger'} disabled={confirming || !!referenceError || displayedSuggestionKey !== suggestion.key} value={vendorId} options={entities.vendors} onChange={ids => updateSuggestion(suggestion.key, 'vendor_id', ids[0] ?? null)} />}
                 {recordType !== 'issue' && <label className="field-stack"><span>发生日期</span>
                   <input type="date" value={occurredDate} onChange={(event) => updateSuggestion(suggestion.key, 'occurred_date', event.target.value || null)} />
                 </label>}
@@ -1256,7 +1143,7 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
                 </>}
               </div>
               <TopicSelect value={Array.isArray(payload.topic_ids) ? payload.topic_ids.map(String) : []} onChange={ids => updateSuggestion(suggestion.key, 'topic_ids', ids)} />
-              <RecordAssociations requireContext={!suggestion.confirmed_record_id} payload={payload} onChange={(key, value) => updateSuggestion(suggestion.key, key, value)} entities={{ ...entities, spaces }} records={allRecords} optionsError={referenceError} onRetry={() => { void Promise.all([refreshReferences(), refreshRecords()]).catch(() => setReferenceError('信息与关联选项加载失败，请重试。')) }} error={confirmationState === 'error' && displayedSuggestionKey === suggestion.key ? message : undefined} participantLabel={recordType === 'issue' ? '处理人' : '参与者'}>
+              <RecordAssociations requireContext={!suggestion.confirmed_record_id} payload={payload} onChange={(key, value) => updateSuggestion(suggestion.key, key, value)} entities={{ ...entities, spaces }} records={allRecords} disabled={confirming || displayedSuggestionKey !== suggestion.key} optionsError={referenceError} onRetry={() => { void Promise.all([refreshReferences(), refreshRecords()]).catch(() => setReferenceError('信息与关联选项加载失败，请重试。')) }} error={confirmationState === 'error' && displayedSuggestionKey === suggestion.key ? message : undefined} participantLabel={recordType === 'issue' ? '处理人' : '参与者'}>
                 {!suggestion.key.startsWith('manual:') && relatedCandidateOptions.length > 0 && <AssociationMultiSelect label="关联本批候选（可选）" selectedIds={relatedCandidateKeys.map(String)} options={relatedCandidateOptions} onChange={(ids) => updateCandidateRelations(suggestion.key, ids)} />}
               </RecordAssociations>
             </>}
@@ -1274,37 +1161,6 @@ export function DomainWorkspace({ sources, refreshSources, refreshKey, preferred
       </div>
 
       {message && <p className="workspace-message" role="status">{message}</p>}
-
-      <details ref={managerRef} className="manage-panel review-data-manager">
-        <summary>管理空间与共享档案</summary>
-        <p className="panel-guide">已被正式记录使用的项目不可删除。</p>
-        <div className="manage-grid">
-          <section>
-            <h3>新增空间</h3>
-            <label className="field-stack"><span>空间名称</span><input value={spaceName} onChange={(event) => setSpaceName(event.target.value)} placeholder="例如：主卧、淋浴区或门洞" /></label>
-            <label className="field-stack"><span>空间类型</span><Select value={spaceKind} onChange={(event) => setSpaceKind(event.target.value)}>{Object.entries(spaceKindLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>
-            <label className="field-stack"><span>上级空间</span><Select value={spaceParent} disabled={spaceKind === 'house'} onChange={(event) => setSpaceParent(event.target.value)}><option value="" disabled={spaceKind !== 'house'}>{spaceKind === 'house' ? '房屋是根空间，无需上级' : '请选择上级空间'}</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></label><details><summary>上级空间怎么选？</summary><p>房间选择“整套房屋”，局部区域或构件选择所在房间。</p></details>
-            <button type="button" onClick={() => void addSpace()}>新增空间</button>
-            <div className="manage-list" aria-label="已有空间">
-              <h4>已有空间</h4>
-              {spaces.length === 0 && <p className="muted">还没有空间。</p>}
-              {spaces.map((item) => { const isOnlyRoot = item.kind === 'house' && item.parent_id === null && rootHouseCount === 1; return <div className="manage-list__item" key={item.id}><span><strong>{item.name}</strong><small>{spaceKindLabels[item.kind] || '其他空间'}{isOnlyRoot ? ' · 系统根空间' : item.parent_id ? ` · 上级：${spaces.find((space) => space.id === item.parent_id)?.name || '未知'}` : ' · 无上级'}</small></span>{isOnlyRoot ? <small className="protected-item">系统根空间不可删除</small> : <button className="danger-button" type="button" onClick={() => void deleteSpaceItem(item)}>删除</button>}</div> })}
-            </div>
-          </section>
-          <section>
-            <h3>新增共享档案</h3>
-            <label className="field-stack"><span>档案类型</span><Select value={manageType} onChange={(event) => { setManageType(event.target.value as EntityType); setManageBrand('') }}>{Object.entries(entityLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</Select></label>
-            <label className="field-stack"><span>{entityLabels[manageType]}名称</span><input value={manageName} onChange={(event) => setManageName(event.target.value)} placeholder={entityPlaceholders[manageType]} /></label>
-            {manageType === 'materials' && <label className="field-stack"><span>材料品牌（可选）</span><input value={manageBrand} onChange={(event) => setManageBrand(event.target.value)} placeholder="例如：马可波罗" /></label>}
-            <button type="button" onClick={() => void addManagedEntity()}>新增{entityLabels[manageType]}</button>
-            <div className="manage-list" aria-label={`已有${entityLabels[manageType]}`}>
-              <h4>已有{entityLabels[manageType]}</h4>
-              {entities[manageType].length === 0 && <p className="muted">还没有{entityLabels[manageType]}。</p>}
-              {entities[manageType].map((item) => <div className="manage-list__item" key={item.id}><strong>{manageType === 'materials' && item.brand ? `${String(item.brand)} · ${item.name}` : item.name}</strong><button className="danger-button" type="button" onClick={() => void deleteManagedEntity(item)}>删除</button></div>)}
-            </div>
-          </section>
-        </div>
-      </details>
 
     </section>
   )

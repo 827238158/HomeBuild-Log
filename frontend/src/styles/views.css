@@ -1119,11 +1119,13 @@
 }
 
 /* 数据页与表格 */
+.overview-recent-records .projection-card,
 .records-analytics-content .projection-card {
   /* 同行卡片等高时，只拉伸外壳，不把类型标签所在的网格行撑高。 */
   align-content: start;
 }
 
+.overview-recent-records .projection-card > .record-type-tag,
 .records-analytics-content .projection-card > .record-type-tag {
   display: inline-flex;
   align-items: center;

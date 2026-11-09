@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { ArchivesView } from './ArchivesView'
 import { BusinessEntryForm } from './BusinessEntryForm'
 import './business-workspace.css'
 import { Select } from './Select'
@@ -45,7 +46,7 @@ import { recordStatusLabel, recordTypeLabels } from './recordLabels'
 import { recordConfig, statusesForRecordType } from './recordConfig'
 import { formatBeijingDateTime, formatCalendarDate } from './time'
 
-type ViewName = 'recent' | 'overview' | 'topics' | 'capture' | 'timeline' | 'ledger' | 'issues' | 'pitfalls' | 'research' | 'spaces' | 'records' | 'ai' | 'search'
+type ViewName = 'recent' | 'overview' | 'topics' | 'capture' | 'timeline' | 'ledger' | 'issues' | 'pitfalls' | 'research' | 'spaces' | 'archives' | 'records' | 'ai' | 'search'
 
 const viewLabels: Array<{ key: ViewName; label: string }> = [
   { key: 'recent', label: '近期回顾' },
@@ -58,6 +59,7 @@ const viewLabels: Array<{ key: ViewName; label: string }> = [
   { key: 'pitfalls', label: '踩坑记录' },
   { key: 'research', label: '调研笔记' },
   { key: 'spaces', label: '空间' },
+  { key: 'archives', label: '装修档案' },
   { key: 'records', label: '记录分析' },
   { key: 'ai', label: 'AI 运行记录' },
   { key: 'search', label: '搜索' },
@@ -67,7 +69,7 @@ const viewGroups: Array<{ label: string; items: ViewName[] }> = [
   { label: '日常记录', items: ['topics', 'ledger', 'issues', 'research', 'pitfalls'] },
   { label: '查看与回顾', items: ['recent', 'overview', 'timeline', 'spaces', 'records', 'search'] },
   { label: '辅助工具', items: ['capture'] },
-  { label: '维护', items: ['ai'] },
+  { label: '维护', items: ['archives', 'ai'] },
 ]
 
 function NavIcon({ view }: { view: ViewName }) {
@@ -82,6 +84,7 @@ function NavIcon({ view }: { view: ViewName }) {
     {view === 'pitfalls' && <><path d="M9 3h6l1 3h3v15H5V6h3l1-3Z" /><path d="M9 11h6M9 15h4" /><path d="m16.5 14.5 1 1 2-2" /></>}
     {view === 'research' && <><path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h4" /></>}
     {view === 'spaces' && <><path d="m3 11 9-8 9 8" /><path d="M5 10v10h14V10M9 20v-6h6v6" /></>}
+    {view === 'archives' && <><rect x="3" y="4" width="18" height="5" rx="1" /><path d="M5 9v11h14V9M10 13h4" /></>}
     {view === 'records' && <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></>}
     {view === 'ai' && <><path d="m12 3 1.3 4.2L17.5 8.5l-4.2 1.3L12 14l-1.3-4.2-4.2-1.3 4.2-1.3L12 3Z" /><path d="m18 14 .7 2.3L21 17l-2.3.7L18 20l-.7-2.3L15 17l2.3-.7L18 14Z" /></>}
     {view === 'search' && <><circle cx="11" cy="11" r="7" /><path d="m16.2 16.2 4 4" /></>}
@@ -593,7 +596,7 @@ function SpacesView({ onOpen, refreshRevision, onManage }: { onOpen: (id: string
       .finally(() => active && setLoading(false))
     return () => { active = false }
   }, [spaceId, refreshRevision, reload])
-  return <section className="view-panel"><header><h2>空间档案</h2></header>
+  return <section className="view-panel"><header><h2>空间档案</h2>{spaces.length > 0 && <button type="button" className="secondary-button" onClick={onManage}>管理空间</button>}</header>
     <label className="field-stack space-picker"><span>选择空间</span><Select value={spaceId} onChange={(event) => setSpaceId(event.target.value)}><option value="">请选择空间</option>{spaces.map((item) => <option key={item.id} value={item.id}>{item.name} · {spaceKindLabels[item.kind] || '其他空间'}</option>)}</Select></label>
     <LoadState loading={loading} error={error} onRetry={() => setReload(value => value + 1)} />
     {!loading && !error && spaces.length === 0 && <div className="empty-guidance"><strong>还没有空间档案</strong><p>先建立房间或区域，再为记录标记发生位置。</p><button type="button" onClick={onManage}>建立第一个空间</button></div>}
@@ -666,9 +669,10 @@ function SearchView({ onOpen, refreshRevision, onOpenSource, onOpenTopic, onOpen
   </section>
 }
 
-export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces, onCaptureActiveChange }: { children: ReactNode; onLogout?: () => void; onOpenSource?: (id: string) => void; onManageSpaces?: () => void; onCaptureActiveChange?: (active: boolean) => void }) {
+export function CoreViews({ children, onLogout, onOpenSource, onCaptureActiveChange }: { children: ReactNode; onLogout?: () => void; onOpenSource?: (id: string) => void; onCaptureActiveChange?: (active: boolean) => void }) {
   const [view, setView] = useState<ViewName>('overview')
   useEffect(() => { onCaptureActiveChange?.(view === 'capture') }, [view, onCaptureActiveChange])
+  const [archivesOpenSpaces, setArchivesOpenSpaces] = useState(false)
   const [detailId, setDetailId] = useState('')
   const [detailClosing, setDetailClosing] = useState(false)
   const [viewRevision, setViewRevision] = useState(0)
@@ -724,6 +728,7 @@ export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces, on
   const selectView = (next: ViewName) => {
     if ((next !== view || detailId) && !confirmNavigation()) return false
     setView(next); finishDetailClose(); setNavOpen(false)
+    if (next === 'archives' && view !== 'archives') setArchivesOpenSpaces(false)
     setCreationTopicId(''); setPitfallId(''); setResearchId(''); setSearchMatchId('')
     setReturnToTopics(false)
     if (next === 'topics') setTopicsVisited(true)
@@ -733,7 +738,7 @@ export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces, on
     return true
   }
   const openSource = (id: string) => { if (selectView('capture')) onOpenSource?.(id) }
-  const manageSpaces = () => { if (selectView('capture')) onManageSpaces?.() }
+  const manageSpaces = () => { if (selectView('archives')) setArchivesOpenSpaces(true) }
   const openResearch = (id: string, matchId = '') => { if (selectView('research')) { setResearchId(id); setSearchMatchId(matchId); setReturnToTopics(view === 'topics') } }
   const openPitfall = (id: string, matchId = '') => { if (selectView('pitfalls')) { setPitfallId(id); setSearchMatchId(matchId); setReturnToTopics(view === 'topics') } }
   const createInTopic = (kind: 'ledger' | 'issue' | 'research' | 'pitfall', topicId: string) => {
@@ -750,7 +755,7 @@ export function CoreViews({ children, onLogout, onOpenSource, onManageSpaces, on
     <div className="workspace-main">
       <WorkspaceAtmosphere />
       <header className="workspace-topbar immersive-glass"><button ref={menuButton} type="button" className="menu-button" aria-label="打开导航" aria-expanded={navOpen} onClick={() => setNavOpen((value) => !value)}>☰</button><div><small>HomeBuild Log</small><strong>{currentLabel}</strong></div><span>已登录</span></header>
-      <main className="workspace-content">{returnToTopics && view !== 'topics' && <button type="button" className="topics-return" onClick={() => selectView('topics')}>返回主题</button>}{topicsVisited && <div hidden={view !== 'topics'}>{/* 保留主题选择，跨业务页面返回时继续查看同一事项。 */}<TopicsView initialTopicId={selectedTopicId} active={view === 'topics'} revision={viewRevision} onOpenRecord={openDetail} onOpenResearch={openResearch} onOpenPitfall={openPitfall} onCreate={createInTopic} onReview={id => { if(selectView('recent')) setReviewTopicId(id) }} /></div>}{view === 'overview' && <><section className="business-home" aria-label="日常记录入口"><h2>今天要处理什么？</h2><div>{([{ key: 'ledger', title: '记账与查看流水', hint: '付款、退款、收入' }, { key: 'issues', title: '记录待办与问题', hint: '记下事项，跟进处理' }, { key: 'research', title: '打开调研笔记', hint: '新建事项，继续调研' }, { key: 'pitfalls', title: '记录踩坑与处理', hint: '留下经历，追加处理过程' }] as const).map(item => <button type="button" key={item.key} onClick={() => selectView(item.key)}><NavIcon view={item.key} /><span><strong>{item.title}</strong><small>{item.hint}</small></span></button>)}</div></section><OverviewView onOpen={openDetail} onOpenResearch={openResearch} refreshRevision={viewRevision} /></>}{reviewVisited && <div hidden={view !== 'recent'}>{/* 保留回顾结果，查看引用后返回无需重新生成。 */}<RecentReview key={reviewTopicId} initialTopicId={reviewTopicId} revision={viewRevision} onOpen={(id, type) => type === 'pitfall' ? openPitfall(id) : type === 'research' ? openResearch(id) : openDetail(id)} /></div>}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ledger' && <LedgerView onOpen={openDetail} detailOpen={Boolean(detailId)} refreshRevision={viewRevision} initialTopicId={creationTopicId} />}{view === 'issues' && <IssuesView onOpen={openDetail} refreshRevision={viewRevision} initialTopicId={creationTopicId} />}{view === 'pitfalls' && <PitfallsView initialMatchId={searchMatchId} initialPitfallId={pitfallId} initialTopicId={creationTopicId} />}{view === 'research' && <ResearchView initialMatchId={searchMatchId} initialResearchId={researchId} initialTopicId={creationTopicId} />}{view === 'spaces' && <SpacesView onOpen={openDetail} refreshRevision={viewRevision} onManage={manageSpaces} />}{view === 'records' && <RecordsAnalyticsView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={openDetail} refreshRevision={viewRevision} onOpenSource={openSource} onOpenTopic={id => {if(selectView('topics')) setSelectedTopicId(id)}} onOpenPitfall={openPitfall} onOpenMatch={(record,match)=>{if(match.kind==='research_entry') openResearch(record.id,match.id);else {openDetail(record.id);setSearchMatchId(match.id)}}} />}</main>
+      <main className="workspace-content">{returnToTopics && view !== 'topics' && <button type="button" className="topics-return" onClick={() => selectView('topics')}>返回主题</button>}{topicsVisited && <div hidden={view !== 'topics'}>{/* 保留主题选择，跨业务页面返回时继续查看同一事项。 */}<TopicsView initialTopicId={selectedTopicId} active={view === 'topics'} revision={viewRevision} onOpenRecord={openDetail} onOpenResearch={openResearch} onOpenPitfall={openPitfall} onCreate={createInTopic} onReview={id => { if(selectView('recent')) setReviewTopicId(id) }} /></div>}{view === 'overview' && <><section className="business-home" aria-label="日常记录入口"><h2>今天要处理什么？</h2><div>{([{ key: 'ledger', title: '记账与查看流水', hint: '付款、退款、收入' }, { key: 'issues', title: '记录待办与问题', hint: '记下事项，跟进处理' }, { key: 'research', title: '打开调研笔记', hint: '新建事项，继续调研' }, { key: 'pitfalls', title: '记录踩坑与处理', hint: '留下经历，追加处理过程' }] as const).map(item => <button type="button" key={item.key} onClick={() => selectView(item.key)}><NavIcon view={item.key} /><span><strong>{item.title}</strong><small>{item.hint}</small></span></button>)}</div></section><OverviewView onOpen={openDetail} onOpenResearch={openResearch} refreshRevision={viewRevision} /></>}{reviewVisited && <div hidden={view !== 'recent'}>{/* 保留回顾结果，查看引用后返回无需重新生成。 */}<RecentReview key={reviewTopicId} initialTopicId={reviewTopicId} revision={viewRevision} onOpen={(id, type) => type === 'pitfall' ? openPitfall(id) : type === 'research' ? openResearch(id) : openDetail(id)} /></div>}{view === 'capture' && children}{view === 'timeline' && <TimelineView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ledger' && <LedgerView onOpen={openDetail} detailOpen={Boolean(detailId)} refreshRevision={viewRevision} initialTopicId={creationTopicId} />}{view === 'issues' && <IssuesView onOpen={openDetail} refreshRevision={viewRevision} initialTopicId={creationTopicId} />}{view === 'pitfalls' && <PitfallsView initialMatchId={searchMatchId} initialPitfallId={pitfallId} initialTopicId={creationTopicId} />}{view === 'research' && <ResearchView initialMatchId={searchMatchId} initialResearchId={researchId} initialTopicId={creationTopicId} />}{view === 'spaces' && <SpacesView onOpen={openDetail} refreshRevision={viewRevision} onManage={manageSpaces} />}{view === 'archives' && <ArchivesView initialType={archivesOpenSpaces ? 'spaces' : 'vendors'} />}{view === 'records' && <RecordsAnalyticsView onOpen={openDetail} refreshRevision={viewRevision} />}{view === 'ai' && <AiAnalyticsView />}{view === 'search' && <SearchView onOpen={openDetail} refreshRevision={viewRevision} onOpenSource={openSource} onOpenTopic={id => {if(selectView('topics')) setSelectedTopicId(id)}} onOpenPitfall={openPitfall} onOpenMatch={(record,match)=>{if(match.kind==='research_entry') openResearch(record.id,match.id);else {openDetail(record.id);setSearchMatchId(match.id)}}} />}</main>
     </div>
     {/* 切换记录时重新建立详情状态，避免沿用上一条记录的编辑草稿。 */}
     {detailId && <RecordDetail key={detailId} recordId={detailId} initialMatchId={searchMatchId} closing={detailClosing} onClose={closeDetail} onExitComplete={finishDetailClose} onChanged={() => setViewRevision((value) => value + 1)} onOpen={openDetail} onOpenResearch={openResearch} />}

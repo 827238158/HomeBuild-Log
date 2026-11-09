@@ -1,0 +1,121 @@
+.archive-picker {
+  min-width: 0;
+}
+
+.archive-picker .select-trigger {
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+}
+
+.archive-picker :is(.select-trigger, .multi-select-summary) > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archive-picker__menu {
+  display: grid;
+  gap: 6px;
+  box-sizing: border-box;
+  overscroll-behavior: contain;
+}
+
+.archive-picker__menu input[type="search"] {
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+}
+
+.archive-picker__list > button[role="option"] {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  color: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.archive-picker__list > button[role="option"]:is(:hover, :focus-visible, [aria-selected="true"]) {
+  background: var(--primary-soft, #e8f2ff);
+}
+
+.archive-picker__list > label,
+.archive-picker__add {
+  min-height: 44px;
+}
+
+.archive-picker__menu > p,
+.archive-create p {
+  margin: 0;
+}
+
+.archive-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(23 29 36 / 46%);
+}
+
+.archive-dialog {
+  width: min(100%, 480px);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  box-shadow: 0 18px 48px rgb(23 29 36 / 22%);
+}
+
+.archive-dialog h3 {
+  margin: 0 0 14px;
+}
+
+.archive-create,
+.archive-create__details {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.archive-create__details {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 155px), 1fr));
+}
+
+.archive-create :is(input, select) {
+  width: 100%;
+  min-height: 44px;
+}
+
+.archive-create__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.archive-create__actions button {
+  min-height: 44px;
+}
+
+.archive-create__matches ul {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.archive-create__matches button {
+  min-height: 44px;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}

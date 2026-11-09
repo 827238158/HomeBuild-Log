@@ -3,15 +3,17 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from collections import Counter
 from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
+from unicodedata import normalize
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import delete, insert, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -213,6 +215,72 @@ def update_current_project(request: Request, body: ProjectUpdate, user: User) ->
         db.close()
 
 
+ARCHIVE_IDENTITY_FIELDS = {
+    "spaces": ("parent_id", "name"),
+    "materials": ("name", "brand", "model", "color", "finish"),
+    "participants": ("name", "contact"),
+    "vendors": ("name",),
+    "stages": ("name",),
+}
+
+
+def _archive_text(value: str | None) -> str:
+    return " ".join(normalize("NFKC", value or "").split()).casefold()
+
+
+def _archive_identity(archive_type: str, values: dict[str, Any]) -> tuple[str | None, ...]:
+    return tuple(
+        values.get(field) if field == "parent_id" else _archive_text(values.get(field))
+        for field in ARCHIVE_IDENTITY_FIELDS[archive_type]
+    )
+
+
+def _mark_archive_duplicates(
+    archive_type: str, rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    keys = [_archive_identity(archive_type, row) for row in rows]
+    counts = Counter(keys)
+    return [
+        {**row, "duplicate": True} if counts[key] > 1 else row
+        for row, key in zip(rows, keys, strict=True)
+    ]
+
+
+def _lock_archive_write(db: Session) -> None:
+    # 查询前取得 SQLite 写锁，避免并发请求同时通过查重。
+    db.execute(text("BEGIN IMMEDIATE"))
+
+
+def _check_archive_duplicate(
+    db: Session, archive_type: str, values: dict[str, Any],
+    before: dict[str, Any] | None = None,
+) -> None:
+    if "name" in values and not _archive_text(values["name"]):
+        raise HTTPException(status_code=422, detail="档案名称不能为空。")
+    identity_fields = ARCHIVE_IDENTITY_FIELDS[archive_type]
+    if before is not None and all(
+        field not in values or values[field] == before.get(field) for field in identity_fields
+    ):
+        return
+    key = _archive_identity(archive_type, {**(before or {}), **values})
+    model = Space if archive_type == "spaces" else ENTITY_MODELS[archive_type]
+    query = select(model).where(model.project_id == DEFAULT_PROJECT_ID)
+    if before is not None:
+        query = query.where(model.id != before["id"])
+    matches = []
+    for row in db.scalars(query.order_by(model.name, model.id)):
+        result = _space_json(row) if archive_type == "spaces" else _entity_json(row, archive_type)
+        if _archive_identity(archive_type, result) == key:
+            matches.append(result)
+    if matches:
+        label = "空间" if archive_type == "spaces" else ENTITY_LABELS[archive_type]
+        raise HTTPException(status_code=409, detail={
+            "code": "archive_duplicate",
+            "message": f"已存在相同的{label}，请选择已有档案。",
+            "matches": jsonable_encoder(matches),
+        })
+
+
 def _space_json(space: Space) -> dict[str, Any]:
     return {
         "id": space.id,
@@ -231,7 +299,7 @@ def list_spaces(request: Request, user: User) -> list[dict[str, Any]]:
         rows = db.execute(
             select(Space).where(Space.project_id == DEFAULT_PROJECT_ID).order_by(Space.name)
         ).scalars()
-        return [_space_json(row) for row in rows]
+        return _mark_archive_duplicates("spaces", [_space_json(row) for row in rows])
     finally:
         db.close()
 
@@ -257,18 +325,18 @@ def _validate_parent(db: Session, parent_id: str | None, current_id: str | None 
 def create_space(request: Request, body: SpaceInput, user: User) -> dict[str, Any]:
     db = _db(request)
     try:
+        _lock_archive_write(db)
         _current_project(db)
         _validate_parent(db, body.parent_id)
-        space = Space(project_id=DEFAULT_PROJECT_ID, **body.model_dump())
+        values = body.model_dump()
+        _check_archive_duplicate(db, "spaces", values)
+        space = Space(project_id=DEFAULT_PROJECT_ID, **values)
         db.add(space)
         db.flush()
         result = _space_json(space)
         log_audit(db, "create", "spaces", space.id, after=result)
         db.commit()
         return result
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="同一父级下已存在同名空间。") from exc
     finally:
         db.close()
 
@@ -277,12 +345,14 @@ def create_space(request: Request, body: SpaceInput, user: User) -> dict[str, An
 def update_space(space_id: str, request: Request, body: SpaceUpdate, user: User) -> dict[str, Any]:
     db = _db(request)
     try:
+        _lock_archive_write(db)
         space = db.get(Space, space_id)
         if space is None or space.project_id != DEFAULT_PROJECT_ID:
             raise _not_found("空间")
         changes = body.model_dump(exclude_unset=True)
         _validate_parent(db, changes.get("parent_id"), space.id)
         before = _space_json(space)
+        _check_archive_duplicate(db, "spaces", changes, before)
         for key, value in changes.items():
             setattr(space, key, value)
         space.updated_at = _now()
@@ -381,7 +451,7 @@ def _list_entities(entity_type: str, request: Request) -> list[dict[str, Any]]:
         rows = db.execute(
             select(model).where(model.project_id == DEFAULT_PROJECT_ID).order_by(model.name)
         ).scalars()
-        return [_entity_json(row, entity_type) for row in rows]
+        return _mark_archive_duplicates(entity_type, [_entity_json(row, entity_type) for row in rows])
     finally:
         db.close()
 
@@ -389,9 +459,11 @@ def _list_entities(entity_type: str, request: Request) -> list[dict[str, Any]]:
 def _create_entity(entity_type: str, request: Request, body: NamedEntityInput) -> dict[str, Any]:
     db = _db(request)
     try:
+        _lock_archive_write(db)
         _current_project(db)
         model = ENTITY_MODELS[entity_type]
         values = body.model_dump(include=ENTITY_FIELDS[entity_type])
+        _check_archive_duplicate(db, entity_type, values)
         entity = model(project_id=DEFAULT_PROJECT_ID, **values)
         db.add(entity)
         db.flush()
@@ -408,12 +480,14 @@ def _update_entity(
 ) -> dict[str, Any]:
     db = _db(request)
     try:
+        _lock_archive_write(db)
         model = ENTITY_MODELS[entity_type]
         entity = db.get(model, entity_id)
         if entity is None or entity.project_id != DEFAULT_PROJECT_ID:
             raise _not_found("共享实体")
         before = _entity_json(entity, entity_type)
         values = body.model_dump(exclude_unset=True, include=ENTITY_FIELDS[entity_type])
+        _check_archive_duplicate(db, entity_type, values, before)
         for key, value in values.items():
             setattr(entity, key, value)
         entity.updated_at = _now()

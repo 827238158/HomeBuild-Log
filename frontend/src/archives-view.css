@@ -1,0 +1,80 @@
+.archives-view {
+  display: grid;
+  gap: 16px;
+}
+
+.archives-view > header,
+.archives-view__tools,
+.archives-view__list > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.archives-view__categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.archives-view__categories button[aria-pressed="true"] {
+  color: var(--primary-active);
+  background: var(--primary-soft);
+  border-color: var(--primary-active);
+  font-weight: 650;
+}
+
+@media (max-width: 600px) {
+  .archives-view__categories {
+    gap: 6px;
+  }
+
+  .archives-view .archives-view__categories > button {
+    min-width: 44px;
+    min-height: 44px;
+    padding-inline: 8px;
+  }
+}
+
+.archives-view__tools label {
+  width: min(100%, 320px);
+  min-width: 0;
+}
+
+.archives-view__tools > span {
+  align-self: end;
+  padding-block: 8px;
+  white-space: nowrap;
+}
+
+.archives-view__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border-top: 1px solid var(--border, #e1e6eb);
+}
+
+.archives-view__list > li {
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--border, #e1e6eb);
+}
+
+.archives-view__list > li > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.archives-view__list > li > :last-child {
+  flex-shrink: 0;
+}
+
+.archives-view__duplicate {
+  color: var(--warning, #9a650e);
+}
+
+.archives-view__located {
+  background: var(--primary-soft, #e8f2ff);
+}
